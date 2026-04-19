@@ -5,160 +5,26 @@ import { markdown } from "@codemirror/lang-markdown";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
-
-type MarkdownDocument = {
-  path: string;
-  content: string;
-  byteSize: number;
-  lineCount: number;
-  modifiedMs: number | null;
-  isLarge: boolean;
-  readOnly: boolean;
-  visibleStartLine: number;
-  visibleLineCount: number;
-};
-
-type SaveResult = {
-  path: string;
-  byteSize: number;
-  lineCount: number;
-  modifiedMs: number | null;
-};
-
-type DocumentStats = {
-  byteSize: number;
-  lineCount: number;
-};
-
-type FileMetadata = {
-  exists: boolean;
-  byteSize: number | null;
-  modifiedMs: number | null;
-};
-
-type LineRange = {
-  content: string;
-  startLine: number;
-  lineCount: number;
-};
-
-type WorkspaceFile = {
-  path: string;
-  relativePath: string;
-  name: string;
-  byteSize: number;
-};
-
-type Workspace = {
-  rootPath: string;
-  files: WorkspaceFile[];
-};
-
-type SearchMatch = {
-  path: string;
-  relativePath: string;
-  lineNumber: number;
-  lineText: string;
-  matchStart: number;
-  matchEnd: number;
-};
-
-type RecentFile = {
-  path: string;
-  name: string;
-};
-
-type ExternalChange =
-  | {
-      kind: "modified";
-      modifiedMs: number | null;
-      byteSize: number | null;
-    }
-  | {
-      kind: "missing";
-    };
-
-type Notice = {
-  tone: "info" | "error";
-  message: string;
-};
+import { countSearchMatches, fileName, formatBytes, isPathInsideRoot, localStats } from "./lib/format";
+import { readRecentFiles, recentFileLimit, storageKeys, writeRecentFiles } from "./lib/storage";
+import type {
+  ExternalChange,
+  FileMetadata,
+  LineRange,
+  MarkdownDocument,
+  Notice,
+  RecentFile,
+  SaveResult,
+  SearchMatch,
+  Workspace,
+  WorkspaceFile,
+} from "./types";
 
 const largeWindowLines = 600;
-const recentFileLimit = 8;
-const storageKeys = {
-  lastDocumentPath: "lmd:last-document-path",
-  lastWorkspaceRoot: "lmd:last-workspace-root",
-  recentFiles: "lmd:recent-files",
-};
 const emptyDocument = `# Untitled
 
 Start writing in Markdown.
 `;
-
-function fileName(path: string | null) {
-  if (!path) return "Untitled";
-  return path.split(/[\\/]/).pop() || path;
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
-}
-
-function localStats(content: string): DocumentStats {
-  return {
-    byteSize: new TextEncoder().encode(content).length,
-    lineCount: content ? content.split(/\r\n|\r|\n/).length : 0,
-  };
-}
-
-function isPathInsideRoot(pathToCheck: string, rootPath: string) {
-  if (pathToCheck === rootPath) return true;
-  const normalizedRoot = rootPath.endsWith("/") ? rootPath : `${rootPath}/`;
-  return pathToCheck.startsWith(normalizedRoot);
-}
-
-function readRecentFiles() {
-  try {
-    const rawValue = window.localStorage.getItem(storageKeys.recentFiles);
-    if (!rawValue) return [];
-    const parsedValue = JSON.parse(rawValue);
-    if (!Array.isArray(parsedValue)) return [];
-
-    return parsedValue
-      .filter(
-        (item): item is RecentFile =>
-          typeof item?.path === "string" && typeof item?.name === "string",
-      )
-      .slice(0, recentFileLimit);
-  } catch {
-    return [];
-  }
-}
-
-function writeRecentFiles(files: RecentFile[]) {
-  window.localStorage.setItem(storageKeys.recentFiles, JSON.stringify(files.slice(0, recentFileLimit)));
-}
-
-function countSearchMatches(content: string, query: string) {
-  const term = query.trim();
-  if (!term) return 0;
-
-  let count = 0;
-  let index = 0;
-  const haystack = content.toLowerCase();
-  const needle = term.toLowerCase();
-
-  while (index <= haystack.length) {
-    const found = haystack.indexOf(needle, index);
-    if (found === -1) break;
-    count += 1;
-    index = found + Math.max(needle.length, 1);
-  }
-
-  return count;
-}
 
 export default function App() {
   const [content, setContent] = useState(emptyDocument);

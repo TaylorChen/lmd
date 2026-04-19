@@ -1,0 +1,76 @@
+export type MarkdownDocument = {
+  path: string;
+  content: string;
+  byteSize: number;
+  lineCount: number;
+  modifiedMs: number | null;
+  isLarge: boolean;
+  readOnly: boolean;
+  visibleStartLine: number;
+  visibleLineCount: number;
+};
+
+export type SaveResult = {
+  path: string;
+  byteSize: number;
+  lineCount: number;
+  modifiedMs: number | null;
+};
+
+export type DocumentStats = {
+  byteSize: number;
+  lineCount: number;
+};
+
+export type FileMetadata = {
+  exists: boolean;
+  byteSize: number | null;
+  modifiedMs: number | null;
+};
+
+export type LineRange = {
+  content: string;
+  startLine: number;
+  lineCount: number;
+};
+
+export type WorkspaceFile = {
+  path: string;
+  relativePath: string;
+  name: string;
+  byteSize: number;
+};
+
+export type Workspace = {
+  rootPath: string;
+  files: WorkspaceFile[];
+};
+
+export type SearchMatch = {
+  path: string;
+  relativePath: string;
+  lineNumber: number;
+  lineText: string;
+  matchStart: number;
+  matchEnd: number;
+};
+
+export type RecentFile = {
+  path: string;
+  name: string;
+};
+
+export type ExternalChange =
+  | {
+      kind: "modified";
+      modifiedMs: number | null;
+      byteSize: number | null;
+    }
+  | {
+      kind: "missing";
+    };
+
+export type Notice = {
+  tone: "info" | "error";
+  message: string;
+};
