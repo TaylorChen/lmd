@@ -3,7 +3,7 @@ use std::{
     fs::{self, File},
     path::{Path, PathBuf},
     sync::Mutex,
-    time::SystemTime,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use memmap2::Mmap;
@@ -33,6 +33,7 @@ struct MarkdownDocument {
     content: String,
     byte_size: usize,
     line_count: usize,
+    modified_ms: Option<u64>,
     is_large: bool,
     read_only: bool,
     visible_start_line: usize,
@@ -45,6 +46,7 @@ struct SaveResult {
     path: String,
     byte_size: usize,
     line_count: usize,
+    modified_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -52,6 +54,14 @@ struct SaveResult {
 struct DocumentStats {
     byte_size: usize,
     line_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileMetadata {
+    exists: bool,
+    byte_size: Option<u64>,
+    modified_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -98,6 +108,16 @@ fn stats_for(content: &str) -> DocumentStats {
             content.lines().count()
         },
     }
+}
+
+fn system_time_ms(time: SystemTime) -> Option<u64> {
+    time.duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| u64::try_from(duration.as_millis()).ok())
+}
+
+fn metadata_modified_ms(metadata: &fs::Metadata) -> Option<u64> {
+    metadata.modified().ok().and_then(system_time_ms)
 }
 
 fn build_index(path: &Path) -> Result<IndexedFile, String> {
@@ -360,6 +380,7 @@ fn open_markdown_path_inner(state: &AppState, path: &Path) -> Result<MarkdownDoc
             content: range.content,
             byte_size: index.byte_size,
             line_count: index.line_offsets.len(),
+            modified_ms: metadata_modified_ms(&metadata),
             is_large: true,
             read_only: true,
             visible_start_line: range.start_line,
@@ -376,6 +397,7 @@ fn open_markdown_path_inner(state: &AppState, path: &Path) -> Result<MarkdownDoc
         content,
         byte_size: stats.byte_size,
         line_count: stats.line_count,
+        modified_ms: metadata_modified_ms(&metadata),
         is_large: false,
         read_only: false,
         visible_start_line: if stats.line_count == 0 { 0 } else { 1 },
@@ -386,6 +408,24 @@ fn open_markdown_path_inner(state: &AppState, path: &Path) -> Result<MarkdownDoc
 #[tauri::command]
 fn document_stats(content: String) -> DocumentStats {
     stats_for(&content)
+}
+
+#[tauri::command]
+fn file_metadata(path: String) -> Result<FileMetadata, String> {
+    let path = PathBuf::from(path);
+    match fs::metadata(&path) {
+        Ok(metadata) => Ok(FileMetadata {
+            exists: true,
+            byte_size: Some(metadata.len()),
+            modified_ms: metadata_modified_ms(&metadata),
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(FileMetadata {
+            exists: false,
+            byte_size: None,
+            modified_ms: None,
+        }),
+        Err(error) => Err(format!("Could not inspect {}: {error}", path.display())),
+    }
 }
 
 #[tauri::command]
@@ -482,6 +522,8 @@ fn save_markdown_file(
 
     fs::write(&target_path, &content)
         .map_err(|error| format!("Could not save {}: {error}", target_path.display()))?;
+    let metadata = fs::metadata(&target_path)
+        .map_err(|error| format!("Could not inspect {}: {error}", target_path.display()))?;
     state
         .indexed_files
         .lock()
@@ -493,6 +535,7 @@ fn save_markdown_file(
         path: target_path.to_string_lossy().to_string(),
         byte_size: stats.byte_size,
         line_count: stats.line_count,
+        modified_ms: metadata_modified_ms(&metadata),
     }))
 }
 
@@ -502,6 +545,7 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             document_stats,
+            file_metadata,
             load_markdown_range,
             open_markdown_file,
             open_markdown_path,

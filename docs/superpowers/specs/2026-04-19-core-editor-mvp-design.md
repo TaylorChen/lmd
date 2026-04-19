@@ -19,6 +19,7 @@ The first version includes:
 - Search Markdown/text files in the active workspace.
 - Restore the last workspace and last opened document on launch.
 - Show recent files in the sidebar.
+- Detect when the current file changes or disappears on disk.
 - Use keyboard shortcuts for New, Open, Open Workspace, Save, and Refresh Workspace.
 - Basic in-document search with match count.
 - File metadata display: path, dirty state, byte size, line count.
@@ -40,6 +41,7 @@ Rust backend exposes a small command surface:
 - `search_workspace`: search Markdown/text files in a workspace and return capped line-level matches.
 - `load_markdown_range`: return a line window for large files by using the cached line offset index.
 - `save_markdown_file`: write content to an existing path or ask for a save path when the document is untitled.
+- `file_metadata`: return current existence, size, and modification timestamp for external change checks.
 - `document_stats`: compute byte size and line count for current content.
 
 For files above the large-file threshold, Rust maps the file with `memmap2`, scans newline byte offsets once, caches the index in Tauri state, and returns only the first line window. The frontend marks these files read-only and loads previous/next windows on demand. This keeps the MVP honest about large-file handling without pretending full large-file editing is solved.
@@ -60,6 +62,8 @@ Visual direction: restrained macOS-style editor, Claude-adjacent warmth, high re
 
 File operations return typed errors as strings for the MVP. The frontend shows errors in a dismissible status banner and keeps the current document intact when operations fail.
 
+The frontend polls the current file metadata and shows a warning when the file changes or disappears on disk. Reloading discards local edits only after confirmation, and saving after an external change asks before overwriting or recreating the file.
+
 Large-file save is disabled in this phase because the editor only holds one visible line window, not the complete document.
 
 ## Testing And Verification
@@ -72,6 +76,7 @@ Minimum verification:
 - A workspace folder can be scanned and files can be opened by clicking the side rail.
 - An open workspace can be refreshed without reopening the folder picker.
 - The previous workspace and document can be restored on app launch.
+- External changes to the current file produce a visible warning and reload action.
 - Workspace search returns capped line-level results and opens files from result clicks.
 - A file above the large-file threshold opens in read-only window mode and can page through line ranges.
 - Search updates match count without changing the document.

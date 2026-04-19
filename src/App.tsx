@@ -11,6 +11,7 @@ type MarkdownDocument = {
   content: string;
   byteSize: number;
   lineCount: number;
+  modifiedMs: number | null;
   isLarge: boolean;
   readOnly: boolean;
   visibleStartLine: number;
@@ -21,11 +22,18 @@ type SaveResult = {
   path: string;
   byteSize: number;
   lineCount: number;
+  modifiedMs: number | null;
 };
 
 type DocumentStats = {
   byteSize: number;
   lineCount: number;
+};
+
+type FileMetadata = {
+  exists: boolean;
+  byteSize: number | null;
+  modifiedMs: number | null;
 };
 
 type LineRange = {
@@ -59,6 +67,16 @@ type RecentFile = {
   path: string;
   name: string;
 };
+
+type ExternalChange =
+  | {
+      kind: "modified";
+      modifiedMs: number | null;
+      byteSize: number | null;
+    }
+  | {
+      kind: "missing";
+    };
 
 type Notice = {
   tone: "info" | "error";
@@ -157,6 +175,8 @@ export default function App() {
   const [workspaceMatches, setWorkspaceMatches] = useState<SearchMatch[]>([]);
   const [workspaceSearchActive, setWorkspaceSearchActive] = useState(false);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => readRecentFiles());
+  const [knownModifiedMs, setKnownModifiedMs] = useState<number | null>(null);
+  const [externalChange, setExternalChange] = useState<ExternalChange | null>(null);
   const [search, setSearch] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
@@ -189,6 +209,8 @@ export default function App() {
     setPath(document.path);
     setByteSize(document.byteSize);
     setLineCount(document.lineCount);
+    setKnownModifiedMs(document.modifiedMs);
+    setExternalChange(null);
     setIsLarge(document.isLarge);
     setReadOnly(document.readOnly);
     setVisibleStartLine(document.visibleStartLine);
@@ -220,6 +242,8 @@ export default function App() {
     setPath(null);
     setByteSize(emptyDocument.length);
     setLineCount(3);
+    setKnownModifiedMs(null);
+    setExternalChange(null);
     setIsLarge(false);
     setReadOnly(false);
     setVisibleStartLine(1);
@@ -373,6 +397,18 @@ export default function App() {
       setNotice({ tone: "error", message: "Large files are read-only in this version." });
       return;
     }
+    if (
+      externalChange?.kind === "modified" &&
+      !window.confirm("This file changed on disk. Save anyway and overwrite the external changes?")
+    ) {
+      return;
+    }
+    if (
+      externalChange?.kind === "missing" &&
+      !window.confirm("This file was removed from disk. Save anyway and recreate it?")
+    ) {
+      return;
+    }
 
     setBusy(true);
     setNotice(null);
@@ -386,6 +422,8 @@ export default function App() {
       setSavedContent(content);
       setByteSize(result.byteSize);
       setLineCount(result.lineCount);
+      setKnownModifiedMs(result.modifiedMs);
+      setExternalChange(null);
       rememberDocument(result.path);
       if (workspace && isPathInsideRoot(result.path, workspace.rootPath)) {
         void handleRefreshWorkspace(false);
@@ -443,6 +481,24 @@ export default function App() {
 
   function handleNextWindow() {
     void loadRange(visibleStartLine + largeWindowLines);
+  }
+
+  async function handleReloadCurrentFile() {
+    if (!path) return;
+    if (isDirty && !window.confirm("Discard unsaved changes and reload from disk?")) return;
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const document = await invoke<MarkdownDocument>("open_markdown_path", { path });
+      applyDocument(document);
+      rememberDocument(document.path);
+      setNotice({ tone: "info", message: `Reloaded ${fileName(document.path)}.` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -517,6 +573,43 @@ export default function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [busy, content, isDirty, path, readOnly, savedContent, workspace]);
+
+  useEffect(() => {
+    if (!path || !knownModifiedMs) return;
+
+    let cancelled = false;
+    async function checkCurrentFile() {
+      try {
+        const metadata = await invoke<FileMetadata>("file_metadata", { path });
+        if (cancelled) return;
+
+        if (!metadata.exists) {
+          setExternalChange({ kind: "missing" });
+          return;
+        }
+
+        if (metadata.modifiedMs && metadata.modifiedMs !== knownModifiedMs) {
+          setExternalChange({
+            kind: "modified",
+            modifiedMs: metadata.modifiedMs,
+            byteSize: metadata.byteSize,
+          });
+        }
+      } catch {
+        // External change checks should not interrupt editing.
+      }
+    }
+
+    const interval = window.setInterval(() => {
+      void checkCurrentFile();
+    }, 5000);
+    void checkCurrentFile();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [knownModifiedMs, path]);
 
   return (
     <main className="app-shell">
@@ -714,6 +807,21 @@ export default function App() {
             <button type="button" onClick={() => setNotice(null)}>
               Dismiss
             </button>
+          </div>
+        )}
+
+        {externalChange && (
+          <div className="notice warning">
+            <span>
+              {externalChange.kind === "missing"
+                ? "This file was removed from disk."
+                : "This file changed on disk."}
+            </span>
+            {externalChange.kind === "modified" && (
+              <button type="button" onClick={() => void handleReloadCurrentFile()} disabled={busy}>
+                Reload
+              </button>
+            )}
           </div>
         )}
 

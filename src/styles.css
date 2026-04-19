@@ -397,6 +397,12 @@ button:disabled {
   color: #7f1d2d;
 }
 
+.notice.warning {
+  border-color: #d8bd72;
+  background: #fffaf0;
+  color: #5f4711;
+}
+
 .notice button {
   height: 30px;
   flex: 0 0 auto;
