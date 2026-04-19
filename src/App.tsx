@@ -46,6 +46,15 @@ type Workspace = {
   files: WorkspaceFile[];
 };
 
+type SearchMatch = {
+  path: string;
+  relativePath: string;
+  lineNumber: number;
+  lineText: string;
+  matchStart: number;
+  matchEnd: number;
+};
+
 type Notice = {
   tone: "info" | "error";
   message: string;
@@ -105,6 +114,9 @@ export default function App() {
   const [visibleStartLine, setVisibleStartLine] = useState(1);
   const [visibleLineCount, setVisibleLineCount] = useState(3);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [workspaceQuery, setWorkspaceQuery] = useState("");
+  const [workspaceMatches, setWorkspaceMatches] = useState<SearchMatch[]>([]);
+  const [workspaceSearchActive, setWorkspaceSearchActive] = useState(false);
   const [search, setSearch] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
@@ -190,6 +202,9 @@ export default function App() {
       const nextWorkspace = await invoke<Workspace | null>("open_workspace");
       if (!nextWorkspace) return;
       setWorkspace(nextWorkspace);
+      setWorkspaceQuery("");
+      setWorkspaceMatches([]);
+      setWorkspaceSearchActive(false);
       setNotice({
         tone: "info",
         message: `Opened workspace with ${nextWorkspace.files.length.toLocaleString()} files.`,
@@ -201,20 +216,62 @@ export default function App() {
     }
   }
 
-  async function handleOpenWorkspaceFile(file: WorkspaceFile) {
-    if (file.path === path) return;
+  async function openPath(pathToOpen: string, displayName: string) {
+    if (pathToOpen === path) return;
     if (isDirty && !window.confirm("Discard unsaved changes?")) return;
 
     setBusy(true);
     setNotice(null);
     try {
-      const document = await invoke<MarkdownDocument>("open_markdown_path", { path: file.path });
+      const document = await invoke<MarkdownDocument>("open_markdown_path", { path: pathToOpen });
       applyDocument(document);
       setNotice({
         tone: "info",
         message: document.isLarge
-          ? `Opened ${file.name} in read-only large-file mode.`
-          : `Opened ${file.name}.`,
+          ? `Opened ${displayName} in read-only large-file mode.`
+          : `Opened ${displayName}.`,
+      });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleOpenWorkspaceFile(file: WorkspaceFile) {
+    await openPath(file.path, file.name);
+  }
+
+  async function handleOpenSearchMatch(match: SearchMatch) {
+    await openPath(match.path, `${match.relativePath}:${match.lineNumber}`);
+  }
+
+  async function handleWorkspaceSearch() {
+    if (!workspace) {
+      setNotice({ tone: "error", message: "Open a workspace before searching." });
+      return;
+    }
+
+    const query = workspaceQuery.trim();
+    if (!query) {
+      setWorkspaceMatches([]);
+      setWorkspaceSearchActive(false);
+      return;
+    }
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const matches = await invoke<SearchMatch[]>("search_workspace", {
+        rootPath: workspace.rootPath,
+        query,
+        maxResults: 80,
+      });
+      setWorkspaceMatches(matches);
+      setWorkspaceSearchActive(true);
+      setNotice({
+        tone: "info",
+        message: `Found ${matches.length.toLocaleString()} workspace matches.`,
       });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -328,8 +385,50 @@ export default function App() {
           {workspace ? (
             <>
               <strong title={workspace.rootPath}>{fileName(workspace.rootPath)}</strong>
+              <form
+                className="workspace-search"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handleWorkspaceSearch();
+                }}
+              >
+                <input
+                  value={workspaceQuery}
+                  onChange={(event) => {
+                    setWorkspaceQuery(event.target.value);
+                    setWorkspaceSearchActive(false);
+                    if (!event.target.value.trim()) {
+                      setWorkspaceMatches([]);
+                    }
+                  }}
+                  placeholder="Search workspace"
+                  disabled={busy}
+                />
+                <button type="submit" disabled={busy || !workspaceQuery.trim()}>
+                  Find
+                </button>
+              </form>
               <div className="file-list" aria-label="Workspace files">
-                {workspace.files.length > 0 ? (
+                {workspaceSearchActive ? (
+                  workspaceMatches.length > 0 ? (
+                    workspaceMatches.map((match, index) => (
+                      <button
+                        type="button"
+                        key={`${match.path}:${match.lineNumber}:${index}`}
+                        className={`file-item search-result ${match.path === path ? "active" : ""}`}
+                        onClick={() => void handleOpenSearchMatch(match)}
+                        disabled={busy}
+                        title={`${match.relativePath}:${match.lineNumber}`}
+                      >
+                        <span>{match.relativePath}</span>
+                        <small>Line {match.lineNumber.toLocaleString()}</small>
+                        <em>{match.lineText}</em>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="empty-workspace">No matches found.</p>
+                  )
+                ) : workspace.files.length > 0 ? (
                   workspace.files.map((file) => (
                     <button
                       type="button"

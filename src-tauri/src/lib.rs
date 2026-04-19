@@ -12,6 +12,7 @@ use serde::Serialize;
 const LARGE_FILE_THRESHOLD_BYTES: u64 = 5 * 1024 * 1024;
 const DEFAULT_WINDOW_LINES: usize = 600;
 const MAX_WORKSPACE_FILES: usize = 5000;
+const MAX_SEARCH_RESULTS: usize = 200;
 
 #[derive(Debug, Clone)]
 struct IndexedFile {
@@ -75,6 +76,17 @@ struct WorkspaceFile {
 struct Workspace {
     root_path: String,
     files: Vec<WorkspaceFile>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchMatch {
+    path: String,
+    relative_path: String,
+    line_number: usize,
+    line_text: String,
+    match_start: usize,
+    match_end: usize,
 }
 
 fn stats_for(content: &str) -> DocumentStats {
@@ -285,6 +297,47 @@ fn scan_workspace(root: &Path) -> Result<Vec<WorkspaceFile>, String> {
     Ok(files)
 }
 
+fn search_workspace_files(
+    root: &Path,
+    query: &str,
+    max_results: usize,
+) -> Result<Vec<SearchMatch>, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let needle = query.to_ascii_lowercase();
+    let mut matches = Vec::new();
+
+    for file in scan_workspace(root)? {
+        let path = PathBuf::from(&file.path);
+        let bytes = fs::read(&path)
+            .map_err(|error| format!("Could not search {}: {error}", path.display()))?;
+        let content = String::from_utf8_lossy(&bytes);
+
+        for (line_index, line) in content.lines().enumerate() {
+            let haystack = line.to_ascii_lowercase();
+            if let Some(match_start) = haystack.find(&needle) {
+                matches.push(SearchMatch {
+                    path: file.path.clone(),
+                    relative_path: file.relative_path.clone(),
+                    line_number: line_index + 1,
+                    line_text: line.chars().take(240).collect(),
+                    match_start,
+                    match_end: match_start + query.len(),
+                });
+
+                if matches.len() >= max_results {
+                    return Ok(matches);
+                }
+            }
+        }
+    }
+
+    Ok(matches)
+}
+
 fn open_markdown_path_inner(state: &AppState, path: &Path) -> Result<MarkdownDocument, String> {
     if !path.is_file() {
         return Err(format!("{} is not a file", path.display()));
@@ -373,6 +426,18 @@ fn open_workspace() -> Result<Option<Workspace>, String> {
 }
 
 #[tauri::command]
+fn search_workspace(
+    root_path: String,
+    query: String,
+    max_results: Option<usize>,
+) -> Result<Vec<SearchMatch>, String> {
+    let max_results = max_results
+        .unwrap_or(MAX_SEARCH_RESULTS)
+        .clamp(1, MAX_SEARCH_RESULTS);
+    search_workspace_files(&PathBuf::from(root_path), &query, max_results)
+}
+
+#[tauri::command]
 fn load_markdown_range(
     state: tauri::State<'_, AppState>,
     path: String,
@@ -430,6 +495,7 @@ pub fn run() {
             open_markdown_file,
             open_markdown_path,
             open_workspace,
+            search_workspace,
             save_markdown_file
         ])
         .run(tauri::generate_context!())
@@ -438,7 +504,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_index, read_line_range, scan_workspace};
+    use super::{build_index, read_line_range, scan_workspace, search_workspace_files};
     use std::{
         fs,
         path::PathBuf,
@@ -517,6 +583,26 @@ mod tests {
             relative_paths,
             vec!["notes/plain.txt", "notes/today.markdown", "README.md"]
         );
+
+        fs::remove_dir_all(root).expect("remove workspace");
+    }
+
+    #[test]
+    fn searches_workspace_files_with_result_limit() {
+        let root = temp_workspace_path("search");
+        fs::create_dir_all(root.join("notes")).expect("create notes dir");
+        fs::write(root.join("alpha.md"), "One needle\nTwo needle\n").expect("write markdown");
+        fs::write(root.join("notes/beta.txt"), "No match\nNeedle here\n").expect("write text");
+
+        let matches = search_workspace_files(&root, "needle", 2).expect("search workspace");
+
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].relative_path, "alpha.md");
+        assert_eq!(matches[0].line_number, 1);
+        assert_eq!(matches[0].match_start, 4);
+        assert_eq!(matches[0].match_end, 10);
+        assert_eq!(matches[1].relative_path, "alpha.md");
+        assert_eq!(matches[1].line_number, 2);
 
         fs::remove_dir_all(root).expect("remove workspace");
     }

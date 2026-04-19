@@ -130,6 +130,33 @@ button:disabled {
   color: #65756e;
 }
 
+.workspace-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.workspace-search input {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid #cbd8d2;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2522;
+  outline: none;
+  padding: 0 10px;
+}
+
+.workspace-search input:focus {
+  border-color: #2d6b5b;
+  box-shadow: 0 0 0 3px rgba(45, 107, 91, 0.16);
+}
+
+.workspace-search button {
+  height: 34px;
+  padding: 0 10px;
+}
+
 .file-list {
   display: grid;
   align-content: start;
@@ -151,16 +178,28 @@ button:disabled {
   text-align: left;
 }
 
+.file-item.search-result {
+  grid-template-rows: auto auto;
+}
+
 .file-item.active {
   border-color: #24594a;
   background: #edf6f2;
 }
 
 .file-item span,
-.file-item small {
+.file-item small,
+.file-item em {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-item em {
+  grid-column: 1 / -1;
+  color: #65756e;
+  font-size: 0.78rem;
+  font-style: normal;
 }
 
 .file-item small {
