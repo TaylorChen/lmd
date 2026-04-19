@@ -55,12 +55,23 @@ type SearchMatch = {
   matchEnd: number;
 };
 
+type RecentFile = {
+  path: string;
+  name: string;
+};
+
 type Notice = {
   tone: "info" | "error";
   message: string;
 };
 
 const largeWindowLines = 600;
+const recentFileLimit = 8;
+const storageKeys = {
+  lastDocumentPath: "lmd:last-document-path",
+  lastWorkspaceRoot: "lmd:last-workspace-root",
+  recentFiles: "lmd:recent-files",
+};
 const emptyDocument = `# Untitled
 
 Start writing in Markdown.
@@ -88,6 +99,28 @@ function isPathInsideRoot(pathToCheck: string, rootPath: string) {
   if (pathToCheck === rootPath) return true;
   const normalizedRoot = rootPath.endsWith("/") ? rootPath : `${rootPath}/`;
   return pathToCheck.startsWith(normalizedRoot);
+}
+
+function readRecentFiles() {
+  try {
+    const rawValue = window.localStorage.getItem(storageKeys.recentFiles);
+    if (!rawValue) return [];
+    const parsedValue = JSON.parse(rawValue);
+    if (!Array.isArray(parsedValue)) return [];
+
+    return parsedValue
+      .filter(
+        (item): item is RecentFile =>
+          typeof item?.path === "string" && typeof item?.name === "string",
+      )
+      .slice(0, recentFileLimit);
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentFiles(files: RecentFile[]) {
+  window.localStorage.setItem(storageKeys.recentFiles, JSON.stringify(files.slice(0, recentFileLimit)));
 }
 
 function countSearchMatches(content: string, query: string) {
@@ -123,6 +156,7 @@ export default function App() {
   const [workspaceQuery, setWorkspaceQuery] = useState("");
   const [workspaceMatches, setWorkspaceMatches] = useState<SearchMatch[]>([]);
   const [workspaceSearchActive, setWorkspaceSearchActive] = useState(false);
+  const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => readRecentFiles());
   const [search, setSearch] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
@@ -162,6 +196,23 @@ export default function App() {
     setSearch("");
   }
 
+  function rememberDocument(documentPath: string) {
+    const recentFile = {
+      path: documentPath,
+      name: fileName(documentPath),
+    };
+
+    setRecentFiles((currentRecentFiles) => {
+      const nextRecentFiles = [
+        recentFile,
+        ...currentRecentFiles.filter((file) => file.path !== documentPath),
+      ].slice(0, recentFileLimit);
+      writeRecentFiles(nextRecentFiles);
+      return nextRecentFiles;
+    });
+    window.localStorage.setItem(storageKeys.lastDocumentPath, documentPath);
+  }
+
   async function handleNew() {
     if (isDirty && !window.confirm("Discard unsaved changes?")) return;
     setContent(emptyDocument);
@@ -186,6 +237,7 @@ export default function App() {
       const document = await invoke<MarkdownDocument | null>("open_markdown_file");
       if (!document) return;
       applyDocument(document);
+      rememberDocument(document.path);
       setNotice({
         tone: "info",
         message: document.isLarge
@@ -208,6 +260,7 @@ export default function App() {
       const nextWorkspace = await invoke<Workspace | null>("open_workspace");
       if (!nextWorkspace) return;
       setWorkspace(nextWorkspace);
+      window.localStorage.setItem(storageKeys.lastWorkspaceRoot, nextWorkspace.rootPath);
       setWorkspaceQuery("");
       setWorkspaceMatches([]);
       setWorkspaceSearchActive(false);
@@ -235,6 +288,7 @@ export default function App() {
         rootPath: workspace.rootPath,
       });
       setWorkspace(nextWorkspace);
+      window.localStorage.setItem(storageKeys.lastWorkspaceRoot, nextWorkspace.rootPath);
       setWorkspaceSearchActive(false);
       if (showNotice) {
         setNotice({
@@ -258,6 +312,7 @@ export default function App() {
     try {
       const document = await invoke<MarkdownDocument>("open_markdown_path", { path: pathToOpen });
       applyDocument(document);
+      rememberDocument(document.path);
       setNotice({
         tone: "info",
         message: document.isLarge
@@ -331,6 +386,7 @@ export default function App() {
       setSavedContent(content);
       setByteSize(result.byteSize);
       setLineCount(result.lineCount);
+      rememberDocument(result.path);
       if (workspace && isPathInsideRoot(result.path, workspace.rootPath)) {
         void handleRefreshWorkspace(false);
       }
@@ -388,6 +444,52 @@ export default function App() {
   function handleNextWindow() {
     void loadRange(visibleStartLine + largeWindowLines);
   }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restoreSession() {
+      const lastWorkspaceRoot = window.localStorage.getItem(storageKeys.lastWorkspaceRoot);
+      const lastDocumentPath = window.localStorage.getItem(storageKeys.lastDocumentPath);
+
+      if (!lastWorkspaceRoot && !lastDocumentPath) return;
+
+      setBusy(true);
+      try {
+        if (lastWorkspaceRoot) {
+          const restoredWorkspace = await invoke<Workspace>("refresh_workspace", {
+            rootPath: lastWorkspaceRoot,
+          });
+          if (!cancelled) setWorkspace(restoredWorkspace);
+        }
+
+        if (lastDocumentPath) {
+          const document = await invoke<MarkdownDocument>("open_markdown_path", {
+            path: lastDocumentPath,
+          });
+          if (!cancelled) {
+            applyDocument(document);
+            rememberDocument(document.path);
+          }
+        }
+
+        if (!cancelled) {
+          setNotice({ tone: "info", message: "Restored previous session." });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setNotice({ tone: "error", message: `Could not restore previous session: ${String(error)}` });
+        }
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    }
+
+    void restoreSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -515,6 +617,31 @@ export default function App() {
             </>
           ) : (
             <p className="empty-workspace">Open a folder to browse notes.</p>
+          )}
+        </div>
+
+        <div className="recent-panel">
+          <div className="workspace-header">
+            <span className="label">Recent</span>
+            <small>{recentFiles.length.toLocaleString()}</small>
+          </div>
+          {recentFiles.length > 0 ? (
+            <div className="recent-list" aria-label="Recent files">
+              {recentFiles.map((file) => (
+                <button
+                  type="button"
+                  key={file.path}
+                  className={`recent-item ${file.path === path ? "active" : ""}`}
+                  onClick={() => void openPath(file.path, file.name)}
+                  disabled={busy}
+                  title={file.path}
+                >
+                  {file.name}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-workspace">No recent files yet.</p>
           )}
         </div>
 
