@@ -15,7 +15,9 @@ The first version includes:
 - Save current document back to disk.
 - Create an untitled in-memory document.
 - Open a folder as a workspace and browse Markdown/text files from the left rail.
+- Refresh an open workspace after files change on disk.
 - Search Markdown/text files in the active workspace.
+- Use keyboard shortcuts for New, Open, Open Workspace, Save, and Refresh Workspace.
 - Basic in-document search with match count.
 - File metadata display: path, dirty state, byte size, line count.
 - Rust commands for file open/save and file metadata.
@@ -32,6 +34,7 @@ Rust backend exposes a small command surface:
 - `open_markdown_file`: ask the user for a Markdown/text file and return its path, text content, byte size, and line count.
 - `open_markdown_path`: open a Markdown/text file by absolute path. Workspace file clicks use this command.
 - `open_workspace`: ask the user for a folder, recursively scan Markdown/text files, and return a sorted file list.
+- `refresh_workspace`: rescan an existing workspace root without opening a folder picker.
 - `search_workspace`: search Markdown/text files in a workspace and return capped line-level matches.
 - `load_markdown_range`: return a line window for large files by using the cached line offset index.
 - `save_markdown_file`: write content to an existing path or ask for a save path when the document is untitled.
@@ -44,6 +47,8 @@ For files above the large-file threshold, Rust maps the file with `memmap2`, sca
 The app opens directly into the editor. A left rail contains document actions and status. The main area is the CodeMirror editor. A top toolbar includes New, Open, Save, search, and current file state.
 
 The left rail also supports a workspace file browser and manual workspace search. Workspace scanning filters generated and hidden directories such as `.git`, `.superpowers`, `node_modules`, `target`, `dist`, and `build`.
+
+Keyboard shortcuts are mapped to common macOS editing flows: `Cmd+N`, `Cmd+O`, `Cmd+Shift+O`, `Cmd+S`, and `Cmd+R`.
 
 Visual direction: restrained macOS-style editor, Claude-adjacent warmth, high readability, no marketing screen.
 
@@ -61,6 +66,7 @@ Minimum verification:
 - Rust/Tauri build configuration is valid.
 - The app can open, edit, and save a Markdown file.
 - A workspace folder can be scanned and files can be opened by clicking the side rail.
+- An open workspace can be refreshed without reopening the folder picker.
 - Workspace search returns capped line-level results and opens files from result clicks.
 - A file above the large-file threshold opens in read-only window mode and can page through line ranges.
 - Search updates match count without changing the document.

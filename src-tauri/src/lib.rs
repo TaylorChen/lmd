@@ -426,6 +426,17 @@ fn open_workspace() -> Result<Option<Workspace>, String> {
 }
 
 #[tauri::command]
+fn refresh_workspace(root_path: String) -> Result<Workspace, String> {
+    let root_path = PathBuf::from(root_path);
+    let files = scan_workspace(&root_path)?;
+
+    Ok(Workspace {
+        root_path: root_path.to_string_lossy().to_string(),
+        files,
+    })
+}
+
+#[tauri::command]
 fn search_workspace(
     root_path: String,
     query: String,
@@ -495,6 +506,7 @@ pub fn run() {
             open_markdown_file,
             open_markdown_path,
             open_workspace,
+            refresh_workspace,
             search_workspace,
             save_markdown_file
         ])

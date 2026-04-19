@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
@@ -82,6 +82,12 @@ function localStats(content: string): DocumentStats {
     byteSize: new TextEncoder().encode(content).length,
     lineCount: content ? content.split(/\r\n|\r|\n/).length : 0,
   };
+}
+
+function isPathInsideRoot(pathToCheck: string, rootPath: string) {
+  if (pathToCheck === rootPath) return true;
+  const normalizedRoot = rootPath.endsWith("/") ? rootPath : `${rootPath}/`;
+  return pathToCheck.startsWith(normalizedRoot);
 }
 
 function countSearchMatches(content: string, query: string) {
@@ -216,6 +222,33 @@ export default function App() {
     }
   }
 
+  async function handleRefreshWorkspace(showNotice = true) {
+    if (!workspace) {
+      setNotice({ tone: "error", message: "Open a workspace before refreshing." });
+      return;
+    }
+
+    setBusy(true);
+    if (showNotice) setNotice(null);
+    try {
+      const nextWorkspace = await invoke<Workspace>("refresh_workspace", {
+        rootPath: workspace.rootPath,
+      });
+      setWorkspace(nextWorkspace);
+      setWorkspaceSearchActive(false);
+      if (showNotice) {
+        setNotice({
+          tone: "info",
+          message: `Refreshed workspace with ${nextWorkspace.files.length.toLocaleString()} files.`,
+        });
+      }
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function openPath(pathToOpen: string, displayName: string) {
     if (pathToOpen === path) return;
     if (isDirty && !window.confirm("Discard unsaved changes?")) return;
@@ -298,6 +331,9 @@ export default function App() {
       setSavedContent(content);
       setByteSize(result.byteSize);
       setLineCount(result.lineCount);
+      if (workspace && isPathInsideRoot(result.path, workspace.rootPath)) {
+        void handleRefreshWorkspace(false);
+      }
       setNotice({ tone: "info", message: `Saved ${fileName(result.path)}.` });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -353,6 +389,33 @@ export default function App() {
     void loadRange(visibleStartLine + largeWindowLines);
   }
 
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!event.metaKey || event.altKey || event.ctrlKey) return;
+
+      const key = event.key.toLowerCase();
+      if (key === "s") {
+        event.preventDefault();
+        if (!busy && !readOnly && isDirty) void handleSave();
+      } else if (key === "o" && event.shiftKey) {
+        event.preventDefault();
+        if (!busy) void handleOpenWorkspace();
+      } else if (key === "o") {
+        event.preventDefault();
+        if (!busy) void handleOpen();
+      } else if (key === "n") {
+        event.preventDefault();
+        if (!busy) void handleNew();
+      } else if (key === "r") {
+        event.preventDefault();
+        if (!busy && workspace) void handleRefreshWorkspace();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [busy, content, isDirty, path, readOnly, savedContent, workspace]);
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -370,6 +433,9 @@ export default function App() {
           </button>
           <button type="button" onClick={handleOpenWorkspace} disabled={busy}>
             Workspace
+          </button>
+          <button type="button" onClick={() => void handleRefreshWorkspace()} disabled={busy || !workspace}>
+            Refresh
           </button>
           <button type="button" onClick={handleSave} disabled={busy || !isDirty}>
             Save
