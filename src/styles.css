@@ -123,6 +123,23 @@ button:disabled {
   white-space: nowrap;
 }
 
+.large-file-card {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid #bed7cf;
+  border-radius: 8px;
+  background: #f8fcfa;
+}
+
+.large-file-card strong {
+  color: #24594a;
+}
+
+.large-file-card small {
+  color: #65756e;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -181,6 +198,12 @@ button:disabled {
 .toolbar p {
   margin: 6px 0 0;
   color: #65756e;
+}
+
+.range-controls {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .search-box {

@@ -11,6 +11,10 @@ type MarkdownDocument = {
   content: string;
   byteSize: number;
   lineCount: number;
+  isLarge: boolean;
+  readOnly: boolean;
+  visibleStartLine: number;
+  visibleLineCount: number;
 };
 
 type SaveResult = {
@@ -24,11 +28,18 @@ type DocumentStats = {
   lineCount: number;
 };
 
+type LineRange = {
+  content: string;
+  startLine: number;
+  lineCount: number;
+};
+
 type Notice = {
   tone: "info" | "error";
   message: string;
 };
 
+const largeWindowLines = 600;
 const emptyDocument = `# Untitled
 
 Start writing in Markdown.
@@ -77,23 +88,34 @@ export default function App() {
   const [path, setPath] = useState<string | null>(null);
   const [byteSize, setByteSize] = useState(emptyDocument.length);
   const [lineCount, setLineCount] = useState(3);
+  const [isLarge, setIsLarge] = useState(false);
+  const [readOnly, setReadOnly] = useState(false);
+  const [visibleStartLine, setVisibleStartLine] = useState(1);
+  const [visibleLineCount, setVisibleLineCount] = useState(3);
   const [search, setSearch] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const isDirty = content !== savedContent;
+  const isDirty = !readOnly && content !== savedContent;
   const matches = useMemo(() => countSearchMatches(content, search), [content, search]);
+  const visibleEndLine =
+    visibleLineCount === 0 ? 0 : Math.min(lineCount, visibleStartLine + visibleLineCount - 1);
+  const canPageBack = isLarge && visibleStartLine > 1;
+  const canPageForward = isLarge && visibleEndLine < lineCount;
 
   const extensions = useMemo(
     () => [
-      lineNumbers(),
+      lineNumbers({
+        formatNumber: (lineNo) => String(isLarge ? visibleStartLine + lineNo - 1 : lineNo),
+      }),
       history(),
       markdown(),
       highlightSelectionMatches(),
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
       EditorView.lineWrapping,
+      EditorView.editable.of(!readOnly),
     ],
-    [],
+    [isLarge, readOnly, visibleStartLine],
   );
 
   async function handleNew() {
@@ -103,6 +125,10 @@ export default function App() {
     setPath(null);
     setByteSize(emptyDocument.length);
     setLineCount(3);
+    setIsLarge(false);
+    setReadOnly(false);
+    setVisibleStartLine(1);
+    setVisibleLineCount(3);
     setNotice({ tone: "info", message: "New document ready." });
   }
 
@@ -119,7 +145,16 @@ export default function App() {
       setPath(document.path);
       setByteSize(document.byteSize);
       setLineCount(document.lineCount);
-      setNotice({ tone: "info", message: `Opened ${fileName(document.path)}.` });
+      setIsLarge(document.isLarge);
+      setReadOnly(document.readOnly);
+      setVisibleStartLine(document.visibleStartLine);
+      setVisibleLineCount(document.visibleLineCount);
+      setNotice({
+        tone: "info",
+        message: document.isLarge
+          ? `Opened ${fileName(document.path)} in read-only large-file mode.`
+          : `Opened ${fileName(document.path)}.`,
+      });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -128,6 +163,11 @@ export default function App() {
   }
 
   async function handleSave() {
+    if (readOnly) {
+      setNotice({ tone: "error", message: "Large files are read-only in this version." });
+      return;
+    }
+
     setBusy(true);
     setNotice(null);
     try {
@@ -149,10 +189,50 @@ export default function App() {
   }
 
   function handleChange(nextContent: string) {
+    if (readOnly) return;
     setContent(nextContent);
     const stats = localStats(nextContent);
     setByteSize(stats.byteSize);
     setLineCount(stats.lineCount);
+    setVisibleStartLine(stats.lineCount === 0 ? 0 : 1);
+    setVisibleLineCount(stats.lineCount);
+  }
+
+  async function loadRange(startLine: number) {
+    if (!path || !isLarge) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const range = await invoke<LineRange>("load_markdown_range", {
+        path,
+        startLine,
+        lineCount: largeWindowLines,
+      });
+      setContent(range.content);
+      setSavedContent(range.content);
+      setVisibleStartLine(range.startLine);
+      setVisibleLineCount(range.lineCount);
+      setNotice({
+        tone: "info",
+        message: `Loaded lines ${range.startLine.toLocaleString()}-${(
+          range.startLine +
+          range.lineCount -
+          1
+        ).toLocaleString()}.`,
+      });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handlePreviousWindow() {
+    void loadRange(Math.max(1, visibleStartLine - largeWindowLines));
+  }
+
+  function handleNextWindow() {
+    void loadRange(visibleStartLine + largeWindowLines);
   }
 
   return (
@@ -181,6 +261,16 @@ export default function App() {
           <small title={path ?? undefined}>{path ?? "Not saved yet"}</small>
         </div>
 
+        {isLarge && (
+          <div className="large-file-card">
+            <span className="label">Large file</span>
+            <strong>Read-only window</strong>
+            <small>
+              Lines {visibleStartLine.toLocaleString()}-{visibleEndLine.toLocaleString()}
+            </small>
+          </div>
+        )}
+
         <div className="stats-grid">
           <div>
             <span>{formatBytes(byteSize)}</span>
@@ -197,11 +287,28 @@ export default function App() {
         <header className="toolbar">
           <div>
             <h1>{fileName(path)}</h1>
-            <p>{isDirty ? "Unsaved changes" : "All changes saved"}</p>
+            <p>
+              {readOnly
+                ? `Read-only lines ${visibleStartLine.toLocaleString()}-${visibleEndLine.toLocaleString()}`
+                : isDirty
+                  ? "Unsaved changes"
+                  : "All changes saved"}
+            </p>
           </div>
 
+          {isLarge && (
+            <div className="range-controls">
+              <button type="button" onClick={handlePreviousWindow} disabled={busy || !canPageBack}>
+                Previous
+              </button>
+              <button type="button" onClick={handleNextWindow} disabled={busy || !canPageForward}>
+                Next
+              </button>
+            </div>
+          )}
+
           <label className="search-box">
-            <span>Search</span>
+            <span>{isLarge ? "Search window" : "Search"}</span>
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
