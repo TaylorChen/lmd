@@ -34,6 +34,18 @@ type LineRange = {
   lineCount: number;
 };
 
+type WorkspaceFile = {
+  path: string;
+  relativePath: string;
+  name: string;
+  byteSize: number;
+};
+
+type Workspace = {
+  rootPath: string;
+  files: WorkspaceFile[];
+};
+
 type Notice = {
   tone: "info" | "error";
   message: string;
@@ -92,6 +104,7 @@ export default function App() {
   const [readOnly, setReadOnly] = useState(false);
   const [visibleStartLine, setVisibleStartLine] = useState(1);
   const [visibleLineCount, setVisibleLineCount] = useState(3);
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [search, setSearch] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
@@ -118,6 +131,19 @@ export default function App() {
     [isLarge, readOnly, visibleStartLine],
   );
 
+  function applyDocument(document: MarkdownDocument) {
+    setContent(document.content);
+    setSavedContent(document.content);
+    setPath(document.path);
+    setByteSize(document.byteSize);
+    setLineCount(document.lineCount);
+    setIsLarge(document.isLarge);
+    setReadOnly(document.readOnly);
+    setVisibleStartLine(document.visibleStartLine);
+    setVisibleLineCount(document.visibleLineCount);
+    setSearch("");
+  }
+
   async function handleNew() {
     if (isDirty && !window.confirm("Discard unsaved changes?")) return;
     setContent(emptyDocument);
@@ -129,6 +155,7 @@ export default function App() {
     setReadOnly(false);
     setVisibleStartLine(1);
     setVisibleLineCount(3);
+    setSearch("");
     setNotice({ tone: "info", message: "New document ready." });
   }
 
@@ -140,20 +167,54 @@ export default function App() {
     try {
       const document = await invoke<MarkdownDocument | null>("open_markdown_file");
       if (!document) return;
-      setContent(document.content);
-      setSavedContent(document.content);
-      setPath(document.path);
-      setByteSize(document.byteSize);
-      setLineCount(document.lineCount);
-      setIsLarge(document.isLarge);
-      setReadOnly(document.readOnly);
-      setVisibleStartLine(document.visibleStartLine);
-      setVisibleLineCount(document.visibleLineCount);
+      applyDocument(document);
       setNotice({
         tone: "info",
         message: document.isLarge
           ? `Opened ${fileName(document.path)} in read-only large-file mode.`
           : `Opened ${fileName(document.path)}.`,
+      });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleOpenWorkspace() {
+    if (isDirty && !window.confirm("Discard unsaved changes?")) return;
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const nextWorkspace = await invoke<Workspace | null>("open_workspace");
+      if (!nextWorkspace) return;
+      setWorkspace(nextWorkspace);
+      setNotice({
+        tone: "info",
+        message: `Opened workspace with ${nextWorkspace.files.length.toLocaleString()} files.`,
+      });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleOpenWorkspaceFile(file: WorkspaceFile) {
+    if (file.path === path) return;
+    if (isDirty && !window.confirm("Discard unsaved changes?")) return;
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const document = await invoke<MarkdownDocument>("open_markdown_path", { path: file.path });
+      applyDocument(document);
+      setNotice({
+        tone: "info",
+        message: document.isLarge
+          ? `Opened ${file.name} in read-only large-file mode.`
+          : `Opened ${file.name}.`,
       });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -250,9 +311,46 @@ export default function App() {
           <button type="button" onClick={handleOpen} disabled={busy}>
             Open
           </button>
+          <button type="button" onClick={handleOpenWorkspace} disabled={busy}>
+            Workspace
+          </button>
           <button type="button" onClick={handleSave} disabled={busy || !isDirty}>
             Save
           </button>
+        </div>
+
+        <div className="workspace-panel">
+          <div className="workspace-header">
+            <span className="label">Workspace</span>
+            <small>{workspace ? `${workspace.files.length.toLocaleString()} files` : "None"}</small>
+          </div>
+
+          {workspace ? (
+            <>
+              <strong title={workspace.rootPath}>{fileName(workspace.rootPath)}</strong>
+              <div className="file-list" aria-label="Workspace files">
+                {workspace.files.length > 0 ? (
+                  workspace.files.map((file) => (
+                    <button
+                      type="button"
+                      key={file.path}
+                      className={`file-item ${file.path === path ? "active" : ""}`}
+                      onClick={() => void handleOpenWorkspaceFile(file)}
+                      disabled={busy}
+                      title={file.relativePath}
+                    >
+                      <span>{file.relativePath}</span>
+                      <small>{formatBytes(file.byteSize)}</small>
+                    </button>
+                  ))
+                ) : (
+                  <p className="empty-workspace">No Markdown files found.</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="empty-workspace">Open a folder to browse notes.</p>
+          )}
         </div>
 
         <div className="document-card">

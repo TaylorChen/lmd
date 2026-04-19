@@ -14,6 +14,7 @@ The first version includes:
 - Open Markdown file from disk.
 - Save current document back to disk.
 - Create an untitled in-memory document.
+- Open a folder as a workspace and browse Markdown/text files from the left rail.
 - Basic in-document search with match count.
 - File metadata display: path, dirty state, byte size, line count.
 - Rust commands for file open/save and file metadata.
@@ -28,6 +29,8 @@ Frontend owns UI state and editing interactions. It calls Rust through Tauri IPC
 Rust backend exposes a small command surface:
 
 - `open_markdown_file`: ask the user for a Markdown/text file and return its path, text content, byte size, and line count.
+- `open_markdown_path`: open a Markdown/text file by absolute path. Workspace file clicks use this command.
+- `open_workspace`: ask the user for a folder, recursively scan Markdown/text files, and return a sorted file list.
 - `load_markdown_range`: return a line window for large files by using the cached line offset index.
 - `save_markdown_file`: write content to an existing path or ask for a save path when the document is untitled.
 - `document_stats`: compute byte size and line count for current content.
@@ -37,6 +40,8 @@ For files above the large-file threshold, Rust maps the file with `memmap2`, sca
 ## UI
 
 The app opens directly into the editor. A left rail contains document actions and status. The main area is the CodeMirror editor. A top toolbar includes New, Open, Save, search, and current file state.
+
+The left rail also supports a workspace file browser. Workspace scanning filters generated and hidden directories such as `.git`, `.superpowers`, `node_modules`, `target`, `dist`, and `build`.
 
 Visual direction: restrained macOS-style editor, Claude-adjacent warmth, high readability, no marketing screen.
 
@@ -53,6 +58,7 @@ Minimum verification:
 - TypeScript build succeeds.
 - Rust/Tauri build configuration is valid.
 - The app can open, edit, and save a Markdown file.
+- A workspace folder can be scanned and files can be opened by clicking the side rail.
 - A file above the large-file threshold opens in read-only window mode and can page through line ranges.
 - Search updates match count without changing the document.
 

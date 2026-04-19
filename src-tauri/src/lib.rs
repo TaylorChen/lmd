@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fs::{self, File},
     path::{Path, PathBuf},
     sync::Mutex,
@@ -11,6 +11,7 @@ use serde::Serialize;
 
 const LARGE_FILE_THRESHOLD_BYTES: u64 = 5 * 1024 * 1024;
 const DEFAULT_WINDOW_LINES: usize = 600;
+const MAX_WORKSPACE_FILES: usize = 5000;
 
 #[derive(Debug, Clone)]
 struct IndexedFile {
@@ -58,6 +59,22 @@ struct LineRange {
     content: String,
     start_line: usize,
     line_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceFile {
+    path: String,
+    relative_path: String,
+    name: String,
+    byte_size: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Workspace {
+    root_path: String,
+    files: Vec<WorkspaceFile>,
 }
 
 fn stats_for(content: &str) -> DocumentStats {
@@ -176,6 +193,143 @@ fn cached_or_build_index(state: &AppState, path: &Path) -> Result<IndexedFile, S
     Ok(index)
 }
 
+fn is_markdown_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "md" | "markdown" | "mdown" | "txt"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn should_skip_dir(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| {
+            name.starts_with('.')
+                || matches!(
+                    name,
+                    "node_modules" | "target" | "dist" | "build" | ".git" | ".superpowers"
+                )
+        })
+        .unwrap_or(false)
+}
+
+fn scan_workspace(root: &Path) -> Result<Vec<WorkspaceFile>, String> {
+    let mut files = Vec::new();
+    let mut pending = VecDeque::from([root.to_path_buf()]);
+
+    while let Some(dir) = pending.pop_front() {
+        let entries = fs::read_dir(&dir)
+            .map_err(|error| format!("Could not read directory {}: {error}", dir.display()))?;
+
+        for entry in entries {
+            let entry =
+                entry.map_err(|error| format!("Could not read directory entry: {error}"))?;
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
+
+            if file_type.is_dir() {
+                if !should_skip_dir(&path) {
+                    pending.push_back(path);
+                }
+                continue;
+            }
+
+            if !file_type.is_file() || !is_markdown_path(&path) {
+                continue;
+            }
+
+            let metadata = entry
+                .metadata()
+                .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
+
+            let relative_path = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string();
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("Untitled")
+                .to_string();
+
+            files.push(WorkspaceFile {
+                path: path.to_string_lossy().to_string(),
+                relative_path,
+                name,
+                byte_size: metadata.len(),
+            });
+
+            if files.len() >= MAX_WORKSPACE_FILES {
+                break;
+            }
+        }
+
+        if files.len() >= MAX_WORKSPACE_FILES {
+            break;
+        }
+    }
+
+    files.sort_by(|left, right| {
+        left.relative_path
+            .to_ascii_lowercase()
+            .cmp(&right.relative_path.to_ascii_lowercase())
+    });
+    Ok(files)
+}
+
+fn open_markdown_path_inner(state: &AppState, path: &Path) -> Result<MarkdownDocument, String> {
+    if !path.is_file() {
+        return Err(format!("{} is not a file", path.display()));
+    }
+
+    let metadata = fs::metadata(path)
+        .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
+
+    if metadata.len() > LARGE_FILE_THRESHOLD_BYTES {
+        let index = build_index(path)?;
+        let range = read_line_range(path, &index, 1, DEFAULT_WINDOW_LINES)?;
+        state
+            .indexed_files
+            .lock()
+            .map_err(|_| "Could not lock file index cache".to_string())?
+            .insert(path.to_string_lossy().to_string(), index.clone());
+
+        return Ok(MarkdownDocument {
+            path: path.to_string_lossy().to_string(),
+            content: range.content,
+            byte_size: index.byte_size,
+            line_count: index.line_offsets.len(),
+            is_large: true,
+            read_only: true,
+            visible_start_line: range.start_line,
+            visible_line_count: range.line_count,
+        });
+    }
+
+    let content = fs::read_to_string(path)
+        .map_err(|error| format!("Could not read {}: {error}", path.display()))?;
+    let stats = stats_for(&content);
+
+    Ok(MarkdownDocument {
+        path: path.to_string_lossy().to_string(),
+        content,
+        byte_size: stats.byte_size,
+        line_count: stats.line_count,
+        is_large: false,
+        read_only: false,
+        visible_start_line: if stats.line_count == 0 { 0 } else { 1 },
+        visible_line_count: stats.line_count,
+    })
+}
+
 #[tauri::command]
 fn document_stats(content: String) -> DocumentStats {
     stats_for(&content)
@@ -193,43 +347,28 @@ fn open_markdown_file(
         return Ok(None);
     };
 
-    let metadata = fs::metadata(&path)
-        .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
+    open_markdown_path_inner(&state, &path).map(Some)
+}
 
-    if metadata.len() > LARGE_FILE_THRESHOLD_BYTES {
-        let index = build_index(&path)?;
-        let range = read_line_range(&path, &index, 1, DEFAULT_WINDOW_LINES)?;
-        state
-            .indexed_files
-            .lock()
-            .map_err(|_| "Could not lock file index cache".to_string())?
-            .insert(path.to_string_lossy().to_string(), index.clone());
+#[tauri::command]
+fn open_markdown_path(
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<MarkdownDocument, String> {
+    open_markdown_path_inner(&state, &PathBuf::from(path))
+}
 
-        return Ok(Some(MarkdownDocument {
-            path: path.to_string_lossy().to_string(),
-            content: range.content,
-            byte_size: index.byte_size,
-            line_count: index.line_offsets.len(),
-            is_large: true,
-            read_only: true,
-            visible_start_line: range.start_line,
-            visible_line_count: range.line_count,
-        }));
-    }
+#[tauri::command]
+fn open_workspace() -> Result<Option<Workspace>, String> {
+    let Some(root_path) = rfd::FileDialog::new().pick_folder() else {
+        return Ok(None);
+    };
 
-    let content = fs::read_to_string(&path)
-        .map_err(|error| format!("Could not read {}: {error}", path.display()))?;
-    let stats = stats_for(&content);
+    let files = scan_workspace(&root_path)?;
 
-    Ok(Some(MarkdownDocument {
-        path: path.to_string_lossy().to_string(),
-        content,
-        byte_size: stats.byte_size,
-        line_count: stats.line_count,
-        is_large: false,
-        read_only: false,
-        visible_start_line: if stats.line_count == 0 { 0 } else { 1 },
-        visible_line_count: stats.line_count,
+    Ok(Some(Workspace {
+        root_path: root_path.to_string_lossy().to_string(),
+        files,
     }))
 }
 
@@ -289,6 +428,8 @@ pub fn run() {
             document_stats,
             load_markdown_range,
             open_markdown_file,
+            open_markdown_path,
+            open_workspace,
             save_markdown_file
         ])
         .run(tauri::generate_context!())
@@ -297,7 +438,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_index, read_line_range};
+    use super::{build_index, read_line_range, scan_workspace};
     use std::{
         fs,
         path::PathBuf,
@@ -310,6 +451,14 @@ mod tests {
             .expect("system time before epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("lmd-{name}-{}-{nonce}.md", std::process::id()))
+    }
+
+    fn temp_workspace_path(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("lmd-{name}-{}-{nonce}", std::process::id()))
     }
 
     #[test]
@@ -342,5 +491,33 @@ mod tests {
         assert_eq!(clamped.content, "four\n");
 
         fs::remove_file(path).expect("remove test file");
+    }
+
+    #[test]
+    fn scans_workspace_markdown_files_and_skips_generated_dirs() {
+        let root = temp_workspace_path("workspace");
+        fs::create_dir_all(root.join("notes")).expect("create notes dir");
+        fs::create_dir_all(root.join("node_modules/pkg")).expect("create skipped dir");
+        fs::create_dir_all(root.join(".git")).expect("create hidden dir");
+        fs::write(root.join("README.md"), "# readme").expect("write markdown");
+        fs::write(root.join("notes/today.markdown"), "# today").expect("write markdown");
+        fs::write(root.join("notes/plain.txt"), "plain").expect("write text");
+        fs::write(root.join("notes/image.png"), "png").expect("write ignored file");
+        fs::write(root.join("node_modules/pkg/ignored.md"), "# ignored")
+            .expect("write ignored file");
+        fs::write(root.join(".git/config.md"), "# ignored").expect("write ignored file");
+
+        let files = scan_workspace(&root).expect("scan workspace");
+        let relative_paths = files
+            .iter()
+            .map(|file| file.relative_path.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            relative_paths,
+            vec!["notes/plain.txt", "notes/today.markdown", "README.md"]
+        );
+
+        fs::remove_dir_all(root).expect("remove workspace");
     }
 }
