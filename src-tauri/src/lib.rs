@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     fs::{self, File},
     path::{Path, PathBuf},
     sync::Mutex,
@@ -9,10 +9,10 @@ use std::{
 use memmap2::Mmap;
 use serde::Serialize;
 
+mod workspace;
+
 const LARGE_FILE_THRESHOLD_BYTES: u64 = 5 * 1024 * 1024;
 const DEFAULT_WINDOW_LINES: usize = 600;
-const MAX_WORKSPACE_FILES: usize = 5000;
-const MAX_SEARCH_RESULTS: usize = 200;
 
 #[derive(Debug, Clone)]
 struct IndexedFile {
@@ -70,33 +70,6 @@ struct LineRange {
     content: String,
     start_line: usize,
     line_count: usize,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct WorkspaceFile {
-    path: String,
-    relative_path: String,
-    name: String,
-    byte_size: u64,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Workspace {
-    root_path: String,
-    files: Vec<WorkspaceFile>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SearchMatch {
-    path: String,
-    relative_path: String,
-    line_number: usize,
-    line_text: String,
-    match_start: usize,
-    match_end: usize,
 }
 
 fn stats_for(content: &str) -> DocumentStats {
@@ -225,139 +198,6 @@ fn cached_or_build_index(state: &AppState, path: &Path) -> Result<IndexedFile, S
     Ok(index)
 }
 
-fn is_markdown_path(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "md" | "markdown" | "mdown" | "txt"
-            )
-        })
-        .unwrap_or(false)
-}
-
-fn should_skip_dir(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .map(|name| {
-            name.starts_with('.')
-                || matches!(
-                    name,
-                    "node_modules" | "target" | "dist" | "build" | ".git" | ".superpowers"
-                )
-        })
-        .unwrap_or(false)
-}
-
-fn scan_workspace(root: &Path) -> Result<Vec<WorkspaceFile>, String> {
-    let mut files = Vec::new();
-    let mut pending = VecDeque::from([root.to_path_buf()]);
-
-    while let Some(dir) = pending.pop_front() {
-        let entries = fs::read_dir(&dir)
-            .map_err(|error| format!("Could not read directory {}: {error}", dir.display()))?;
-
-        for entry in entries {
-            let entry =
-                entry.map_err(|error| format!("Could not read directory entry: {error}"))?;
-            let path = entry.path();
-            let file_type = entry
-                .file_type()
-                .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
-
-            if file_type.is_dir() {
-                if !should_skip_dir(&path) {
-                    pending.push_back(path);
-                }
-                continue;
-            }
-
-            if !file_type.is_file() || !is_markdown_path(&path) {
-                continue;
-            }
-
-            let metadata = entry
-                .metadata()
-                .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
-
-            let relative_path = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .to_string();
-            let name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("Untitled")
-                .to_string();
-
-            files.push(WorkspaceFile {
-                path: path.to_string_lossy().to_string(),
-                relative_path,
-                name,
-                byte_size: metadata.len(),
-            });
-
-            if files.len() >= MAX_WORKSPACE_FILES {
-                break;
-            }
-        }
-
-        if files.len() >= MAX_WORKSPACE_FILES {
-            break;
-        }
-    }
-
-    files.sort_by(|left, right| {
-        left.relative_path
-            .to_ascii_lowercase()
-            .cmp(&right.relative_path.to_ascii_lowercase())
-    });
-    Ok(files)
-}
-
-fn search_workspace_files(
-    root: &Path,
-    query: &str,
-    max_results: usize,
-) -> Result<Vec<SearchMatch>, String> {
-    let query = query.trim();
-    if query.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let needle = query.to_ascii_lowercase();
-    let mut matches = Vec::new();
-
-    for file in scan_workspace(root)? {
-        let path = PathBuf::from(&file.path);
-        let bytes = fs::read(&path)
-            .map_err(|error| format!("Could not search {}: {error}", path.display()))?;
-        let content = String::from_utf8_lossy(&bytes);
-
-        for (line_index, line) in content.lines().enumerate() {
-            let haystack = line.to_ascii_lowercase();
-            if let Some(match_start) = haystack.find(&needle) {
-                matches.push(SearchMatch {
-                    path: file.path.clone(),
-                    relative_path: file.relative_path.clone(),
-                    line_number: line_index + 1,
-                    line_text: line.chars().take(240).collect(),
-                    match_start,
-                    match_end: match_start + query.len(),
-                });
-
-                if matches.len() >= max_results {
-                    return Ok(matches);
-                }
-            }
-        }
-    }
-
-    Ok(matches)
-}
-
 fn open_markdown_path_inner(state: &AppState, path: &Path) -> Result<MarkdownDocument, String> {
     if !path.is_file() {
         return Err(format!("{} is not a file", path.display()));
@@ -452,25 +292,25 @@ fn open_markdown_path(
 }
 
 #[tauri::command]
-fn open_workspace() -> Result<Option<Workspace>, String> {
+fn open_workspace() -> Result<Option<workspace::Workspace>, String> {
     let Some(root_path) = rfd::FileDialog::new().pick_folder() else {
         return Ok(None);
     };
 
-    let files = scan_workspace(&root_path)?;
+    let files = workspace::scan_workspace(&root_path)?;
 
-    Ok(Some(Workspace {
+    Ok(Some(workspace::Workspace {
         root_path: root_path.to_string_lossy().to_string(),
         files,
     }))
 }
 
 #[tauri::command]
-fn refresh_workspace(root_path: String) -> Result<Workspace, String> {
+fn refresh_workspace(root_path: String) -> Result<workspace::Workspace, String> {
     let root_path = PathBuf::from(root_path);
-    let files = scan_workspace(&root_path)?;
+    let files = workspace::scan_workspace(&root_path)?;
 
-    Ok(Workspace {
+    Ok(workspace::Workspace {
         root_path: root_path.to_string_lossy().to_string(),
         files,
     })
@@ -481,11 +321,11 @@ fn search_workspace(
     root_path: String,
     query: String,
     max_results: Option<usize>,
-) -> Result<Vec<SearchMatch>, String> {
+) -> Result<Vec<workspace::SearchMatch>, String> {
     let max_results = max_results
-        .unwrap_or(MAX_SEARCH_RESULTS)
-        .clamp(1, MAX_SEARCH_RESULTS);
-    search_workspace_files(&PathBuf::from(root_path), &query, max_results)
+        .unwrap_or(workspace::MAX_SEARCH_RESULTS)
+        .clamp(1, workspace::MAX_SEARCH_RESULTS);
+    workspace::search_workspace_files(&PathBuf::from(root_path), &query, max_results)
 }
 
 #[tauri::command]
@@ -560,7 +400,8 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_index, read_line_range, scan_workspace, search_workspace_files};
+    use super::workspace::{scan_workspace, search_workspace_files};
+    use super::{build_index, read_line_range};
     use std::{
         fs,
         path::PathBuf,
