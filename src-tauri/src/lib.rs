@@ -137,6 +137,28 @@ fn export_markdown_html(path: Option<String>, content: String) -> Result<Option<
     export::export_html(&target_path, &title, &content).map(Some)
 }
 
+#[tauri::command]
+fn export_markdown_pdf(path: Option<String>, content: String) -> Result<Option<String>, String> {
+    let default_name = path
+        .as_deref()
+        .and_then(|path| {
+            PathBuf::from(path)
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().to_string())
+        })
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "untitled".to_string());
+    let Some(target_path) = rfd::FileDialog::new()
+        .add_filter("PDF", &["pdf"])
+        .set_file_name(format!("{default_name}.pdf"))
+        .save_file()
+    else {
+        return Ok(None);
+    };
+
+    export::export_pdf(&target_path, &content).map(Some)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -144,6 +166,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             document_stats,
             export_markdown_html,
+            export_markdown_pdf,
             file_metadata,
             load_markdown_range,
             open_markdown_file,
@@ -160,7 +183,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::document::{build_index, read_line_range};
-    use super::export::markdown_to_html;
+    use super::export::{markdown_to_html, pdf_document};
     use super::workspace::{scan_workspace, search_workspace_files};
     use std::{
         fs,
@@ -271,5 +294,16 @@ mod tests {
         assert!(html.contains("<h1>Title</h1>"));
         assert!(html.contains("<li>&lt;script&gt;</li>"));
         assert!(html.contains("<pre><code>&lt;div&gt;x&lt;/div&gt;</code></pre>"));
+    }
+
+    #[test]
+    fn exports_markdown_as_pdf_bytes() {
+        let pdf = pdf_document("# Title\n\nBody text");
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.starts_with("%PDF-1.4"));
+        assert!(text.contains("/Type /Catalog"));
+        assert!(text.contains("(Title) Tj"));
+        assert!(text.ends_with("%%EOF\n"));
     }
 }

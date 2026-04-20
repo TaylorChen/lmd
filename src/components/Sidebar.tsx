@@ -22,6 +22,7 @@ type SidebarProps = {
   onRefreshWorkspace: () => void;
   onSave: () => void;
   onExportHtml: () => void;
+  onExportPdf: () => void;
   onWorkspaceQueryChange: (query: string) => void;
   onWorkspaceSearch: () => void;
   onOpenWorkspaceFile: (file: WorkspaceFile) => void;
@@ -51,6 +52,7 @@ export function Sidebar({
   onRefreshWorkspace,
   onSave,
   onExportHtml,
+  onExportPdf,
   onWorkspaceQueryChange,
   onWorkspaceSearch,
   onOpenWorkspaceFile,
@@ -87,6 +89,9 @@ export function Sidebar({
         </button>
         <button type="button" onClick={onExportHtml} disabled={busy}>
           Export HTML
+        </button>
+        <button type="button" onClick={onExportPdf} disabled={busy}>
+          Export PDF
         </button>
       </div>
 

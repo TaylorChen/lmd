@@ -311,6 +311,23 @@ export default function App() {
     }
   }
 
+  async function handleExportPdf() {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const exportedPath = await invoke<string | null>("export_markdown_pdf", {
+        path,
+        content,
+      });
+      if (!exportedPath) return;
+      setNotice({ tone: "info", message: `Exported PDF to ${fileName(exportedPath)}.` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function handleChange(nextContent: string) {
     if (readOnly) return;
     setContent(nextContent);
@@ -469,6 +486,7 @@ export default function App() {
         onRefreshWorkspace={() => void handleRefreshWorkspace()}
         onSave={() => void handleSave()}
         onExportHtml={() => void handleExportHtml()}
+        onExportPdf={() => void handleExportPdf()}
         onWorkspaceQueryChange={(query) => {
           setWorkspaceQuery(query);
           setWorkspaceSearchActive(false);
