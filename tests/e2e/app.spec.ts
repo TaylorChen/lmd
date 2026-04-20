@@ -78,6 +78,12 @@ async function installTauriMock(page: Page) {
         }
 
         if (command === "export_markdown_html") {
+          if (!String(args?.html ?? "").includes("<h1>Saved title</h1>")) {
+            throw new Error("HTML export did not receive rendered markdown");
+          }
+          if (!String(args?.html ?? "").startsWith("<!doctype html>")) {
+            throw new Error("HTML export did not receive a full document");
+          }
           return "/tmp/untitled.html";
         }
 
@@ -109,12 +115,16 @@ test("edits markdown and renders preview modes", async ({ page }) => {
 
   await page.locator(".cm-content").click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
-  await page.keyboard.type("# Preview title\n\n- item one");
+  await page.keyboard.type(
+    "# Preview title\n\n| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n\n- [x] done item\n\nhttps://example.com",
+  );
 
   await page.getByRole("button", { name: "Split" }).click();
   await expect(page.locator(".markdown-preview")).toBeVisible();
   await expect(page.locator(".markdown-preview h1")).toHaveText("Preview title");
-  await expect(page.locator(".markdown-preview li")).toHaveText("item one");
+  await expect(page.locator(".markdown-preview table")).toContainText("Alpha");
+  await expect(page.getByRole("checkbox", { name: "done item" })).toBeChecked();
+  await expect(page.getByRole("link", { name: "https://example.com" })).toBeVisible();
 
   await page.getByRole("button", { name: "Preview" }).click();
   await expect(page.locator(".editor-frame")).toHaveCount(0);

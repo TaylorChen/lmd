@@ -8,6 +8,7 @@ import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { useEditorExtensions } from "./hooks/useEditorExtensions";
 import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
 import { countSearchMatches, fileName, isPathInsideRoot, localStats } from "./lib/format";
+import { renderMarkdownDocument } from "./lib/markdown";
 import { readRecentFiles, readSettings, recentFileLimit, storageKeys, writeRecentFiles, writeSettings } from "./lib/storage";
 import { invokeCommand } from "./lib/tauri";
 import type {
@@ -300,7 +301,7 @@ export default function App() {
     try {
       const exportedPath = await invokeCommand<string | null>("export_markdown_html", {
         path,
-        content,
+        html: renderMarkdownDocument(fileName(path), content),
       });
       if (!exportedPath) return;
       setNotice({ tone: "info", message: `Exported HTML to ${fileName(exportedPath)}.` });

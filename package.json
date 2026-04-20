@@ -18,12 +18,15 @@
     "@codemirror/view": "^6.36.8",
     "@tauri-apps/api": "^2.4.0",
     "@uiw/react-codemirror": "^4.23.8",
+    "markdown-it": "^14.1.1",
+    "markdown-it-task-lists": "^2.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
     "@tauri-apps/cli": "^2.4.0",
+    "@types/markdown-it": "^14.1.2",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",

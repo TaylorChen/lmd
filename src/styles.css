@@ -532,6 +532,7 @@ button:disabled {
 .markdown-preview p,
 .markdown-preview ul,
 .markdown-preview ol,
+.markdown-preview table,
 .markdown-preview blockquote,
 .markdown-preview pre {
   margin: 0 0 1em;
@@ -540,6 +541,37 @@ button:disabled {
 .markdown-preview ul,
 .markdown-preview ol {
   padding-left: 1.5em;
+}
+
+.markdown-preview table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.markdown-preview th,
+.markdown-preview td {
+  border: 1px solid #d5e0da;
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-preview th {
+  background: #f6faf8;
+}
+
+.markdown-preview img {
+  max-width: 100%;
+  height: auto;
+}
+
+.markdown-preview .contains-task-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.markdown-preview .task-list-item-checkbox {
+  margin-right: 8px;
 }
 
 .markdown-preview blockquote {
