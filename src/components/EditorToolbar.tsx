@@ -1,4 +1,5 @@
 import { fileName } from "../lib/format";
+import type { EditorMode } from "../types";
 
 type EditorToolbarProps = {
   path: string | null;
@@ -12,9 +13,11 @@ type EditorToolbarProps = {
   canPageForward: boolean;
   search: string;
   matches: number;
+  mode: EditorMode;
   onPreviousWindow: () => void;
   onNextWindow: () => void;
   onSearchChange: (search: string) => void;
+  onModeChange: (mode: EditorMode) => void;
 };
 
 export function EditorToolbar({
@@ -29,9 +32,11 @@ export function EditorToolbar({
   canPageForward,
   search,
   matches,
+  mode,
   onPreviousWindow,
   onNextWindow,
   onSearchChange,
+  onModeChange,
 }: EditorToolbarProps) {
   return (
     <header className="toolbar">
@@ -56,6 +61,19 @@ export function EditorToolbar({
           </button>
         </div>
       )}
+
+      <div className="mode-switch" aria-label="Editor mode">
+        {(["edit", "split", "preview"] as const).map((nextMode) => (
+          <button
+            type="button"
+            key={nextMode}
+            className={mode === nextMode ? "active" : ""}
+            onClick={() => onModeChange(nextMode)}
+          >
+            {nextMode === "edit" ? "Edit" : nextMode === "split" ? "Split" : "Preview"}
+          </button>
+        ))}
+      </div>
 
       <label className="search-box">
         <span>{isLarge ? "Search window" : "Search"}</span>

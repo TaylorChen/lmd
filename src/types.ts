@@ -74,3 +74,5 @@ export type Notice = {
   tone: "info" | "error";
   message: string;
 };
+
+export type EditorMode = "edit" | "split" | "preview";

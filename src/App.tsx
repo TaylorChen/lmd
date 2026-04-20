@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { invoke } from "@tauri-apps/api/core";
 import { EditorToolbar } from "./components/EditorToolbar";
+import { MarkdownPreview } from "./components/MarkdownPreview";
 import { NoticeStack } from "./components/NoticeStack";
 import { Sidebar } from "./components/Sidebar";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
@@ -11,6 +12,7 @@ import { countSearchMatches, fileName, isPathInsideRoot, localStats } from "./li
 import { readRecentFiles, recentFileLimit, storageKeys, writeRecentFiles } from "./lib/storage";
 import type {
   ExternalChange,
+  EditorMode,
   LineRange,
   MarkdownDocument,
   Notice,
@@ -45,6 +47,7 @@ export default function App() {
   const [knownModifiedMs, setKnownModifiedMs] = useState<number | null>(null);
   const [externalChange, setExternalChange] = useState<ExternalChange | null>(null);
   const [search, setSearch] = useState("");
+  const [editorMode, setEditorMode] = useState<EditorMode>("edit");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -466,9 +469,11 @@ export default function App() {
           canPageForward={canPageForward}
           search={search}
           matches={matches}
+          mode={editorMode}
           onPreviousWindow={handlePreviousWindow}
           onNextWindow={handleNextWindow}
           onSearchChange={setSearch}
+          onModeChange={setEditorMode}
         />
 
         <NoticeStack
@@ -479,15 +484,21 @@ export default function App() {
           onReloadCurrentFile={() => void handleReloadCurrentFile()}
         />
 
-        <div className="editor-frame">
-          <CodeMirror
-            value={content}
-            height="100%"
-            basicSetup={false}
-            extensions={extensions}
-            onChange={handleChange}
-            theme="light"
-          />
+        <div className={`document-workspace ${editorMode}`}>
+          {editorMode !== "preview" && (
+            <div className="editor-frame">
+              <CodeMirror
+                value={content}
+                height="100%"
+                basicSetup={false}
+                extensions={extensions}
+                onChange={handleChange}
+                theme="light"
+              />
+            </div>
+          )}
+
+          {editorMode !== "edit" && <MarkdownPreview content={content} />}
         </div>
       </section>
     </main>
