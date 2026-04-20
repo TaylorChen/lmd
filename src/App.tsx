@@ -5,7 +5,10 @@ import { markdown } from "@codemirror/lang-markdown";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
-import { countSearchMatches, fileName, formatBytes, isPathInsideRoot, localStats } from "./lib/format";
+import { EditorToolbar } from "./components/EditorToolbar";
+import { NoticeStack } from "./components/NoticeStack";
+import { Sidebar } from "./components/Sidebar";
+import { countSearchMatches, fileName, isPathInsideRoot, localStats } from "./lib/format";
 import { readRecentFiles, recentFileLimit, storageKeys, writeRecentFiles } from "./lib/storage";
 import type {
   ExternalChange,
@@ -479,217 +482,63 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <aside className="sidebar">
-        <div>
-          <div className="app-mark">LMD</div>
-          <p className="sidebar-copy">Light Markdown</p>
-        </div>
-
-        <div className="sidebar-actions">
-          <button type="button" onClick={handleNew} disabled={busy}>
-            New
-          </button>
-          <button type="button" onClick={handleOpen} disabled={busy}>
-            Open
-          </button>
-          <button type="button" onClick={handleOpenWorkspace} disabled={busy}>
-            Workspace
-          </button>
-          <button type="button" onClick={() => void handleRefreshWorkspace()} disabled={busy || !workspace}>
-            Refresh
-          </button>
-          <button type="button" onClick={handleSave} disabled={busy || !isDirty}>
-            Save
-          </button>
-        </div>
-
-        <div className="workspace-panel">
-          <div className="workspace-header">
-            <span className="label">Workspace</span>
-            <small>{workspace ? `${workspace.files.length.toLocaleString()} files` : "None"}</small>
-          </div>
-
-          {workspace ? (
-            <>
-              <strong title={workspace.rootPath}>{fileName(workspace.rootPath)}</strong>
-              <form
-                className="workspace-search"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void handleWorkspaceSearch();
-                }}
-              >
-                <input
-                  value={workspaceQuery}
-                  onChange={(event) => {
-                    setWorkspaceQuery(event.target.value);
-                    setWorkspaceSearchActive(false);
-                    if (!event.target.value.trim()) {
-                      setWorkspaceMatches([]);
-                    }
-                  }}
-                  placeholder="Search workspace"
-                  disabled={busy}
-                />
-                <button type="submit" disabled={busy || !workspaceQuery.trim()}>
-                  Find
-                </button>
-              </form>
-              <div className="file-list" aria-label="Workspace files">
-                {workspaceSearchActive ? (
-                  workspaceMatches.length > 0 ? (
-                    workspaceMatches.map((match, index) => (
-                      <button
-                        type="button"
-                        key={`${match.path}:${match.lineNumber}:${index}`}
-                        className={`file-item search-result ${match.path === path ? "active" : ""}`}
-                        onClick={() => void handleOpenSearchMatch(match)}
-                        disabled={busy}
-                        title={`${match.relativePath}:${match.lineNumber}`}
-                      >
-                        <span>{match.relativePath}</span>
-                        <small>Line {match.lineNumber.toLocaleString()}</small>
-                        <em>{match.lineText}</em>
-                      </button>
-                    ))
-                  ) : (
-                    <p className="empty-workspace">No matches found.</p>
-                  )
-                ) : workspace.files.length > 0 ? (
-                  workspace.files.map((file) => (
-                    <button
-                      type="button"
-                      key={file.path}
-                      className={`file-item ${file.path === path ? "active" : ""}`}
-                      onClick={() => void handleOpenWorkspaceFile(file)}
-                      disabled={busy}
-                      title={file.relativePath}
-                    >
-                      <span>{file.relativePath}</span>
-                      <small>{formatBytes(file.byteSize)}</small>
-                    </button>
-                  ))
-                ) : (
-                  <p className="empty-workspace">No Markdown files found.</p>
-                )}
-              </div>
-            </>
-          ) : (
-            <p className="empty-workspace">Open a folder to browse notes.</p>
-          )}
-        </div>
-
-        <div className="recent-panel">
-          <div className="workspace-header">
-            <span className="label">Recent</span>
-            <small>{recentFiles.length.toLocaleString()}</small>
-          </div>
-          {recentFiles.length > 0 ? (
-            <div className="recent-list" aria-label="Recent files">
-              {recentFiles.map((file) => (
-                <button
-                  type="button"
-                  key={file.path}
-                  className={`recent-item ${file.path === path ? "active" : ""}`}
-                  onClick={() => void openPath(file.path, file.name)}
-                  disabled={busy}
-                  title={file.path}
-                >
-                  {file.name}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="empty-workspace">No recent files yet.</p>
-          )}
-        </div>
-
-        <div className="document-card">
-          <span className="label">Document</span>
-          <strong>{fileName(path)}</strong>
-          <small title={path ?? undefined}>{path ?? "Not saved yet"}</small>
-        </div>
-
-        {isLarge && (
-          <div className="large-file-card">
-            <span className="label">Large file</span>
-            <strong>Read-only window</strong>
-            <small>
-              Lines {visibleStartLine.toLocaleString()}-{visibleEndLine.toLocaleString()}
-            </small>
-          </div>
-        )}
-
-        <div className="stats-grid">
-          <div>
-            <span>{formatBytes(byteSize)}</span>
-            <small>Size</small>
-          </div>
-          <div>
-            <span>{lineCount.toLocaleString()}</span>
-            <small>Lines</small>
-          </div>
-        </div>
-      </aside>
+      <Sidebar
+        busy={busy}
+        workspace={workspace}
+        workspaceQuery={workspaceQuery}
+        workspaceMatches={workspaceMatches}
+        workspaceSearchActive={workspaceSearchActive}
+        recentFiles={recentFiles}
+        path={path}
+        isLarge={isLarge}
+        isDirty={isDirty}
+        byteSize={byteSize}
+        lineCount={lineCount}
+        visibleStartLine={visibleStartLine}
+        visibleEndLine={visibleEndLine}
+        onNew={() => void handleNew()}
+        onOpen={() => void handleOpen()}
+        onOpenWorkspace={() => void handleOpenWorkspace()}
+        onRefreshWorkspace={() => void handleRefreshWorkspace()}
+        onSave={() => void handleSave()}
+        onWorkspaceQueryChange={(query) => {
+          setWorkspaceQuery(query);
+          setWorkspaceSearchActive(false);
+          if (!query.trim()) {
+            setWorkspaceMatches([]);
+          }
+        }}
+        onWorkspaceSearch={() => void handleWorkspaceSearch()}
+        onOpenWorkspaceFile={(file) => void handleOpenWorkspaceFile(file)}
+        onOpenSearchMatch={(match) => void handleOpenSearchMatch(match)}
+        onOpenRecentFile={(recentPath, name) => void openPath(recentPath, name)}
+      />
 
       <section className="editor-pane">
-        <header className="toolbar">
-          <div>
-            <h1>{fileName(path)}</h1>
-            <p>
-              {readOnly
-                ? `Read-only lines ${visibleStartLine.toLocaleString()}-${visibleEndLine.toLocaleString()}`
-                : isDirty
-                  ? "Unsaved changes"
-                  : "All changes saved"}
-            </p>
-          </div>
+        <EditorToolbar
+          path={path}
+          readOnly={readOnly}
+          isDirty={isDirty}
+          isLarge={isLarge}
+          visibleStartLine={visibleStartLine}
+          visibleEndLine={visibleEndLine}
+          busy={busy}
+          canPageBack={canPageBack}
+          canPageForward={canPageForward}
+          search={search}
+          matches={matches}
+          onPreviousWindow={handlePreviousWindow}
+          onNextWindow={handleNextWindow}
+          onSearchChange={setSearch}
+        />
 
-          {isLarge && (
-            <div className="range-controls">
-              <button type="button" onClick={handlePreviousWindow} disabled={busy || !canPageBack}>
-                Previous
-              </button>
-              <button type="button" onClick={handleNextWindow} disabled={busy || !canPageForward}>
-                Next
-              </button>
-            </div>
-          )}
-
-          <label className="search-box">
-            <span>{isLarge ? "Search window" : "Search"}</span>
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Find in document"
-            />
-            <strong>{search.trim() ? matches : 0}</strong>
-          </label>
-        </header>
-
-        {notice && (
-          <div className={`notice ${notice.tone}`}>
-            <span>{notice.message}</span>
-            <button type="button" onClick={() => setNotice(null)}>
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {externalChange && (
-          <div className="notice warning">
-            <span>
-              {externalChange.kind === "missing"
-                ? "This file was removed from disk."
-                : "This file changed on disk."}
-            </span>
-            {externalChange.kind === "modified" && (
-              <button type="button" onClick={() => void handleReloadCurrentFile()} disabled={busy}>
-                Reload
-              </button>
-            )}
-          </div>
-        )}
+        <NoticeStack
+          notice={notice}
+          externalChange={externalChange}
+          busy={busy}
+          onDismissNotice={() => setNotice(null)}
+          onReloadCurrentFile={() => void handleReloadCurrentFile()}
+        />
 
         <div className="editor-frame">
           <CodeMirror
