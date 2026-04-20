@@ -198,6 +198,7 @@ export function Sidebar({
         <label>
           <span>Default view</span>
           <select
+            aria-label="Default view"
             value={settings.defaultEditorMode}
             onChange={(event) => updateSetting({ defaultEditorMode: event.target.value as EditorMode })}
           >
@@ -210,6 +211,7 @@ export function Sidebar({
         <label>
           <span>Search results</span>
           <select
+            aria-label="Search results"
             value={settings.searchResultLimit}
             onChange={(event) => updateSetting({ searchResultLimit: Number(event.target.value) })}
           >
@@ -223,6 +225,7 @@ export function Sidebar({
         <label>
           <span>File check</span>
           <select
+            aria-label="File check"
             value={settings.externalCheckSeconds}
             onChange={(event) => updateSetting({ externalCheckSeconds: Number(event.target.value) })}
           >

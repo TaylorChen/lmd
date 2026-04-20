@@ -5,6 +5,7 @@ Run this checklist before handing off a build.
 ## Automated Checks
 
 - `npm run build`
+- `npm run test:e2e`
 - `cargo test` from `src-tauri`
 - `npm run tauri build`
 
@@ -30,10 +31,11 @@ DMG creation uses macOS disk image tooling. If it fails in a sandboxed shell, re
 8. Open a large Markdown file over 5 MB and verify read-only paging.
 9. Modify the active file outside LMD and verify the external-change warning appears.
 10. Export HTML and open the result in a browser.
+11. Export PDF and open the result in Preview.
 
 ## Current Limits
 
 - Preview covers common Markdown blocks, but not full GFM tables or task lists.
 - HTML export uses the same lightweight renderer style; advanced Markdown should be checked manually.
-- PDF export is not implemented yet.
+- PDF export is a lightweight text-based PDF renderer. Complex Markdown layout should be checked manually.
 - Release builds are unsigned and not notarized.
