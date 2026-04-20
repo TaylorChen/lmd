@@ -1,18 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { markdown } from "@codemirror/lang-markdown";
-import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
 import { EditorToolbar } from "./components/EditorToolbar";
 import { NoticeStack } from "./components/NoticeStack";
 import { Sidebar } from "./components/Sidebar";
+import { useAppShortcuts } from "./hooks/useAppShortcuts";
+import { useEditorExtensions } from "./hooks/useEditorExtensions";
+import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
 import { countSearchMatches, fileName, isPathInsideRoot, localStats } from "./lib/format";
 import { readRecentFiles, recentFileLimit, storageKeys, writeRecentFiles } from "./lib/storage";
 import type {
   ExternalChange,
-  FileMetadata,
   LineRange,
   MarkdownDocument,
   Notice,
@@ -57,20 +55,7 @@ export default function App() {
   const canPageBack = isLarge && visibleStartLine > 1;
   const canPageForward = isLarge && visibleEndLine < lineCount;
 
-  const extensions = useMemo(
-    () => [
-      lineNumbers({
-        formatNumber: (lineNo) => String(isLarge ? visibleStartLine + lineNo - 1 : lineNo),
-      }),
-      history(),
-      markdown(),
-      highlightSelectionMatches(),
-      keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
-      EditorView.lineWrapping,
-      EditorView.editable.of(!readOnly),
-    ],
-    [isLarge, readOnly, visibleStartLine],
-  );
+  const extensions = useEditorExtensions(isLarge, readOnly, visibleStartLine);
 
   function applyDocument(document: MarkdownDocument) {
     setContent(document.content);
@@ -416,69 +401,23 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (!event.metaKey || event.altKey || event.ctrlKey) return;
+  useAppShortcuts({
+    busy,
+    readOnly,
+    isDirty,
+    workspace,
+    onSave: () => void handleSave(),
+    onOpen: () => void handleOpen(),
+    onOpenWorkspace: () => void handleOpenWorkspace(),
+    onNew: () => void handleNew(),
+    onRefreshWorkspace: () => void handleRefreshWorkspace(),
+  });
 
-      const key = event.key.toLowerCase();
-      if (key === "s") {
-        event.preventDefault();
-        if (!busy && !readOnly && isDirty) void handleSave();
-      } else if (key === "o" && event.shiftKey) {
-        event.preventDefault();
-        if (!busy) void handleOpenWorkspace();
-      } else if (key === "o") {
-        event.preventDefault();
-        if (!busy) void handleOpen();
-      } else if (key === "n") {
-        event.preventDefault();
-        if (!busy) void handleNew();
-      } else if (key === "r") {
-        event.preventDefault();
-        if (!busy && workspace) void handleRefreshWorkspace();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [busy, content, isDirty, path, readOnly, savedContent, workspace]);
-
-  useEffect(() => {
-    if (!path || !knownModifiedMs) return;
-
-    let cancelled = false;
-    async function checkCurrentFile() {
-      try {
-        const metadata = await invoke<FileMetadata>("file_metadata", { path });
-        if (cancelled) return;
-
-        if (!metadata.exists) {
-          setExternalChange({ kind: "missing" });
-          return;
-        }
-
-        if (metadata.modifiedMs && metadata.modifiedMs !== knownModifiedMs) {
-          setExternalChange({
-            kind: "modified",
-            modifiedMs: metadata.modifiedMs,
-            byteSize: metadata.byteSize,
-          });
-        }
-      } catch {
-        // External change checks should not interrupt editing.
-      }
-    }
-
-    const interval = window.setInterval(() => {
-      void checkCurrentFile();
-    }, 5000);
-    void checkCurrentFile();
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [knownModifiedMs, path]);
+  useExternalChangePolling({
+    path,
+    knownModifiedMs,
+    onExternalChange: setExternalChange,
+  });
 
   return (
     <main className="app-shell">
