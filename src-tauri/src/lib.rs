@@ -288,12 +288,16 @@ mod tests {
 
     #[test]
     fn exports_markdown_as_pdf_bytes() {
-        let pdf = pdf_document("# Title\n\nBody text");
+        let pdf = pdf_document("# Title\n\n- [x] Done\n\n```rust\nlet x = 1;\n```");
         let text = String::from_utf8_lossy(&pdf);
 
         assert!(text.starts_with("%PDF-1.4"));
         assert!(text.contains("/Type /Catalog"));
+        assert!(text.contains("/BaseFont /Helvetica-Bold"));
+        assert!(text.contains("/BaseFont /Courier"));
         assert!(text.contains("(Title) Tj"));
+        assert!(text.contains("([x] Done) Tj"));
+        assert!(text.contains("(let x = 1;) Tj"));
         assert!(text.ends_with("%%EOF\n"));
     }
 }
