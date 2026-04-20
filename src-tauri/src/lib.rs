@@ -181,12 +181,17 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::document::{build_index, read_line_range};
-    use super::export::pdf_document;
+    use super::document::{
+        build_index, file_metadata, open_markdown_path, read_line_range, save_markdown_file,
+        DocumentCache,
+    };
+    use super::export::{export_html_document, export_pdf, pdf_document};
     use super::workspace::{scan_workspace, search_workspace_files};
+    use serde_json::to_value;
     use std::{
         fs,
         path::PathBuf,
+        thread,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -204,6 +209,79 @@ mod tests {
             .expect("system time before epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("lmd-{name}-{}-{nonce}", std::process::id()))
+    }
+
+    #[test]
+    fn saves_and_reopens_real_markdown_file() {
+        let cache = DocumentCache::default();
+        let path = temp_markdown_path("save-open");
+        let content = "# Saved\n\nBody text";
+
+        let save_result = save_markdown_file(&cache, &path, content).expect("save markdown");
+        let save_json = to_value(save_result).expect("serialize save result");
+        assert_eq!(fs::read_to_string(&path).expect("read saved file"), content);
+        assert_eq!(save_json["path"], path.to_string_lossy().to_string());
+        assert_eq!(save_json["lineCount"], 3);
+        assert!(save_json["modifiedMs"].as_u64().is_some());
+
+        let opened = open_markdown_path(&cache, &path).expect("open saved markdown");
+        let opened_json = to_value(opened).expect("serialize markdown document");
+        assert_eq!(opened_json["content"], content);
+        assert_eq!(opened_json["isLarge"], false);
+        assert_eq!(opened_json["readOnly"], false);
+
+        fs::remove_file(path).expect("remove saved file");
+    }
+
+    #[test]
+    fn exports_html_and_pdf_to_real_files() {
+        let html_path = temp_workspace_path("export-html").with_extension("html");
+        let pdf_path = temp_workspace_path("export-pdf").with_extension("pdf");
+        let html = "<!doctype html><html><body><h1>Exported</h1></body></html>";
+
+        let exported_html = export_html_document(&html_path, html).expect("export html");
+        assert_eq!(exported_html, html_path.to_string_lossy().to_string());
+        assert_eq!(fs::read_to_string(&html_path).expect("read html"), html);
+
+        let exported_pdf = export_pdf(&pdf_path, "# Exported\n\nBody").expect("export pdf");
+        let pdf_bytes = fs::read(&pdf_path).expect("read pdf");
+        assert_eq!(exported_pdf, pdf_path.to_string_lossy().to_string());
+        assert!(String::from_utf8_lossy(&pdf_bytes).starts_with("%PDF-1.4"));
+
+        fs::remove_file(html_path).expect("remove html");
+        fs::remove_file(pdf_path).expect("remove pdf");
+    }
+
+    #[test]
+    fn reports_external_modification_and_missing_file_metadata() {
+        let path = temp_markdown_path("metadata");
+        fs::write(&path, "alpha").expect("write initial file");
+
+        let initial = to_value(file_metadata(&path).expect("metadata for initial file"))
+            .expect("serialize initial metadata");
+        assert_eq!(initial["exists"], true);
+        assert_eq!(initial["byteSize"], 5);
+        assert!(initial["modifiedMs"].as_u64().is_some());
+
+        thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(&path, "alpha\nbeta").expect("modify file");
+
+        let modified = to_value(file_metadata(&path).expect("metadata for modified file"))
+            .expect("serialize modified metadata");
+        assert_eq!(modified["exists"], true);
+        assert_eq!(modified["byteSize"], 10);
+        assert!(
+            modified["modifiedMs"].as_u64().expect("modified mtime")
+                >= initial["modifiedMs"].as_u64().expect("initial mtime")
+        );
+
+        fs::remove_file(&path).expect("remove file");
+
+        let missing = to_value(file_metadata(&path).expect("metadata for missing file"))
+            .expect("serialize missing metadata");
+        assert_eq!(missing["exists"], false);
+        assert!(missing["byteSize"].is_null());
+        assert!(missing["modifiedMs"].is_null());
     }
 
     #[test]
