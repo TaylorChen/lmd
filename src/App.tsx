@@ -9,7 +9,7 @@ import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { useEditorExtensions } from "./hooks/useEditorExtensions";
 import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
 import { countSearchMatches, fileName, isPathInsideRoot, localStats } from "./lib/format";
-import { readRecentFiles, recentFileLimit, storageKeys, writeRecentFiles } from "./lib/storage";
+import { readRecentFiles, readSettings, recentFileLimit, storageKeys, writeRecentFiles, writeSettings } from "./lib/storage";
 import type {
   ExternalChange,
   EditorMode,
@@ -44,10 +44,11 @@ export default function App() {
   const [workspaceMatches, setWorkspaceMatches] = useState<SearchMatch[]>([]);
   const [workspaceSearchActive, setWorkspaceSearchActive] = useState(false);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => readRecentFiles());
+  const [settings, setSettings] = useState(() => readSettings());
   const [knownModifiedMs, setKnownModifiedMs] = useState<number | null>(null);
   const [externalChange, setExternalChange] = useState<ExternalChange | null>(null);
   const [search, setSearch] = useState("");
-  const [editorMode, setEditorMode] = useState<EditorMode>("edit");
+  const [editorMode, setEditorMode] = useState<EditorMode>(() => settings.defaultEditorMode);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -234,7 +235,7 @@ export default function App() {
       const matches = await invoke<SearchMatch[]>("search_workspace", {
         rootPath: workspace.rootPath,
         query,
-        maxResults: 80,
+        maxResults: settings.searchResultLimit,
       });
       setWorkspaceMatches(matches);
       setWorkspaceSearchActive(true);
@@ -436,8 +437,14 @@ export default function App() {
   useExternalChangePolling({
     path,
     knownModifiedMs,
+    intervalMs: settings.externalCheckSeconds * 1000,
     onExternalChange: setExternalChange,
   });
+
+  function handleSettingsChange(nextSettings: typeof settings) {
+    setSettings(nextSettings);
+    writeSettings(nextSettings);
+  }
 
   return (
     <main className="app-shell">
@@ -455,6 +462,7 @@ export default function App() {
         lineCount={lineCount}
         visibleStartLine={visibleStartLine}
         visibleEndLine={visibleEndLine}
+        settings={settings}
         onNew={() => void handleNew()}
         onOpen={() => void handleOpen()}
         onOpenWorkspace={() => void handleOpenWorkspace()}
@@ -472,6 +480,7 @@ export default function App() {
         onOpenWorkspaceFile={(file) => void handleOpenWorkspaceFile(file)}
         onOpenSearchMatch={(match) => void handleOpenSearchMatch(match)}
         onOpenRecentFile={(recentPath, name) => void openPath(recentPath, name)}
+        onSettingsChange={handleSettingsChange}
       />
 
       <section className="editor-pane">

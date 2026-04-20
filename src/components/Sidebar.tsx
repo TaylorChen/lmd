@@ -1,5 +1,5 @@
 import { fileName, formatBytes } from "../lib/format";
-import type { RecentFile, SearchMatch, Workspace, WorkspaceFile } from "../types";
+import type { AppSettings, EditorMode, RecentFile, SearchMatch, Workspace, WorkspaceFile } from "../types";
 
 type SidebarProps = {
   busy: boolean;
@@ -15,6 +15,7 @@ type SidebarProps = {
   lineCount: number;
   visibleStartLine: number;
   visibleEndLine: number;
+  settings: AppSettings;
   onNew: () => void;
   onOpen: () => void;
   onOpenWorkspace: () => void;
@@ -26,6 +27,7 @@ type SidebarProps = {
   onOpenWorkspaceFile: (file: WorkspaceFile) => void;
   onOpenSearchMatch: (match: SearchMatch) => void;
   onOpenRecentFile: (path: string, name: string) => void;
+  onSettingsChange: (settings: AppSettings) => void;
 };
 
 export function Sidebar({
@@ -42,6 +44,7 @@ export function Sidebar({
   lineCount,
   visibleStartLine,
   visibleEndLine,
+  settings,
   onNew,
   onOpen,
   onOpenWorkspace,
@@ -53,7 +56,12 @@ export function Sidebar({
   onOpenWorkspaceFile,
   onOpenSearchMatch,
   onOpenRecentFile,
+  onSettingsChange,
 }: SidebarProps) {
+  function updateSetting(nextSettings: Partial<AppSettings>) {
+    onSettingsChange({ ...settings, ...nextSettings });
+  }
+
   return (
     <aside className="sidebar">
       <div>
@@ -175,6 +183,50 @@ export function Sidebar({
         ) : (
           <p className="empty-workspace">No recent files yet.</p>
         )}
+      </div>
+
+      <div className="settings-panel">
+        <div className="workspace-header">
+          <span className="label">Settings</span>
+        </div>
+
+        <label>
+          <span>Default view</span>
+          <select
+            value={settings.defaultEditorMode}
+            onChange={(event) => updateSetting({ defaultEditorMode: event.target.value as EditorMode })}
+          >
+            <option value="edit">Edit</option>
+            <option value="split">Split</option>
+            <option value="preview">Preview</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Search results</span>
+          <select
+            value={settings.searchResultLimit}
+            onChange={(event) => updateSetting({ searchResultLimit: Number(event.target.value) })}
+          >
+            <option value={40}>40</option>
+            <option value={80}>80</option>
+            <option value={120}>120</option>
+            <option value={200}>200</option>
+          </select>
+        </label>
+
+        <label>
+          <span>File check</span>
+          <select
+            value={settings.externalCheckSeconds}
+            onChange={(event) => updateSetting({ externalCheckSeconds: Number(event.target.value) })}
+          >
+            <option value={2}>2 sec</option>
+            <option value={5}>5 sec</option>
+            <option value={10}>10 sec</option>
+            <option value={30}>30 sec</option>
+          </select>
+        </label>
       </div>
 
       <div className="document-card">

@@ -5,12 +5,14 @@ import type { ExternalChange, FileMetadata } from "../types";
 type ExternalChangePollingOptions = {
   path: string | null;
   knownModifiedMs: number | null;
+  intervalMs: number;
   onExternalChange: (change: ExternalChange) => void;
 };
 
 export function useExternalChangePolling({
   path,
   knownModifiedMs,
+  intervalMs,
   onExternalChange,
 }: ExternalChangePollingOptions) {
   useEffect(() => {
@@ -41,12 +43,12 @@ export function useExternalChangePolling({
 
     const interval = window.setInterval(() => {
       void checkCurrentFile();
-    }, 5000);
+    }, intervalMs);
     void checkCurrentFile();
 
     return () => {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [knownModifiedMs, onExternalChange, path]);
+  }, [intervalMs, knownModifiedMs, onExternalChange, path]);
 }

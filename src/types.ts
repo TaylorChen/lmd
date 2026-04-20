@@ -76,3 +76,9 @@ export type Notice = {
 };
 
 export type EditorMode = "edit" | "split" | "preview";
+
+export type AppSettings = {
+  defaultEditorMode: EditorMode;
+  searchResultLimit: number;
+  externalCheckSeconds: number;
+};
