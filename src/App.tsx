@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { invoke } from "@tauri-apps/api/core";
 import { EditorToolbar } from "./components/EditorToolbar";
 import { MarkdownPreview } from "./components/MarkdownPreview";
 import { NoticeStack } from "./components/NoticeStack";
@@ -10,6 +9,7 @@ import { useEditorExtensions } from "./hooks/useEditorExtensions";
 import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
 import { countSearchMatches, fileName, isPathInsideRoot, localStats } from "./lib/format";
 import { readRecentFiles, readSettings, recentFileLimit, storageKeys, writeRecentFiles, writeSettings } from "./lib/storage";
+import { invokeCommand } from "./lib/tauri";
 import type {
   ExternalChange,
   EditorMode,
@@ -116,7 +116,7 @@ export default function App() {
     setBusy(true);
     setNotice(null);
     try {
-      const document = await invoke<MarkdownDocument | null>("open_markdown_file");
+      const document = await invokeCommand<MarkdownDocument | null>("open_markdown_file");
       if (!document) return;
       applyDocument(document);
       rememberDocument(document.path);
@@ -139,7 +139,7 @@ export default function App() {
     setBusy(true);
     setNotice(null);
     try {
-      const nextWorkspace = await invoke<Workspace | null>("open_workspace");
+      const nextWorkspace = await invokeCommand<Workspace | null>("open_workspace");
       if (!nextWorkspace) return;
       setWorkspace(nextWorkspace);
       window.localStorage.setItem(storageKeys.lastWorkspaceRoot, nextWorkspace.rootPath);
@@ -166,7 +166,7 @@ export default function App() {
     setBusy(true);
     if (showNotice) setNotice(null);
     try {
-      const nextWorkspace = await invoke<Workspace>("refresh_workspace", {
+      const nextWorkspace = await invokeCommand<Workspace>("refresh_workspace", {
         rootPath: workspace.rootPath,
       });
       setWorkspace(nextWorkspace);
@@ -192,7 +192,7 @@ export default function App() {
     setBusy(true);
     setNotice(null);
     try {
-      const document = await invoke<MarkdownDocument>("open_markdown_path", { path: pathToOpen });
+      const document = await invokeCommand<MarkdownDocument>("open_markdown_path", { path: pathToOpen });
       applyDocument(document);
       rememberDocument(document.path);
       setNotice({
@@ -232,7 +232,7 @@ export default function App() {
     setBusy(true);
     setNotice(null);
     try {
-      const matches = await invoke<SearchMatch[]>("search_workspace", {
+      const matches = await invokeCommand<SearchMatch[]>("search_workspace", {
         rootPath: workspace.rootPath,
         query,
         maxResults: settings.searchResultLimit,
@@ -271,7 +271,7 @@ export default function App() {
     setBusy(true);
     setNotice(null);
     try {
-      const result = await invoke<SaveResult | null>("save_markdown_file", {
+      const result = await invokeCommand<SaveResult | null>("save_markdown_file", {
         path,
         content,
       });
@@ -298,7 +298,7 @@ export default function App() {
     setBusy(true);
     setNotice(null);
     try {
-      const exportedPath = await invoke<string | null>("export_markdown_html", {
+      const exportedPath = await invokeCommand<string | null>("export_markdown_html", {
         path,
         content,
       });
@@ -315,7 +315,7 @@ export default function App() {
     setBusy(true);
     setNotice(null);
     try {
-      const exportedPath = await invoke<string | null>("export_markdown_pdf", {
+      const exportedPath = await invokeCommand<string | null>("export_markdown_pdf", {
         path,
         content,
       });
@@ -343,7 +343,7 @@ export default function App() {
     setBusy(true);
     setNotice(null);
     try {
-      const range = await invoke<LineRange>("load_markdown_range", {
+      const range = await invokeCommand<LineRange>("load_markdown_range", {
         path,
         startLine,
         lineCount: largeWindowLines,
@@ -382,7 +382,7 @@ export default function App() {
     setBusy(true);
     setNotice(null);
     try {
-      const document = await invoke<MarkdownDocument>("open_markdown_path", { path });
+      const document = await invokeCommand<MarkdownDocument>("open_markdown_path", { path });
       applyDocument(document);
       rememberDocument(document.path);
       setNotice({ tone: "info", message: `Reloaded ${fileName(document.path)}.` });
@@ -405,14 +405,14 @@ export default function App() {
       setBusy(true);
       try {
         if (lastWorkspaceRoot) {
-          const restoredWorkspace = await invoke<Workspace>("refresh_workspace", {
+          const restoredWorkspace = await invokeCommand<Workspace>("refresh_workspace", {
             rootPath: lastWorkspaceRoot,
           });
           if (!cancelled) setWorkspace(restoredWorkspace);
         }
 
         if (lastDocumentPath) {
-          const document = await invoke<MarkdownDocument>("open_markdown_path", {
+          const document = await invokeCommand<MarkdownDocument>("open_markdown_path", {
             path: lastDocumentPath,
           });
           if (!cancelled) {

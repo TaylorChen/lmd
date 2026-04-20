@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invokeCommand } from "../lib/tauri";
 import type { ExternalChange, FileMetadata } from "../types";
 
 type ExternalChangePollingOptions = {
@@ -21,7 +21,7 @@ export function useExternalChangePolling({
     let cancelled = false;
     async function checkCurrentFile() {
       try {
-        const metadata = await invoke<FileMetadata>("file_metadata", { path });
+        const metadata = await invokeCommand<FileMetadata>("file_metadata", { path });
         if (cancelled) return;
 
         if (!metadata.exists) {

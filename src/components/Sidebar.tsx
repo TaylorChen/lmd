@@ -112,6 +112,7 @@ export function Sidebar({
               }}
             >
               <input
+                aria-label="Search workspace"
                 value={workspaceQuery}
                 onChange={(event) => onWorkspaceQueryChange(event.target.value)}
                 placeholder="Search workspace"
