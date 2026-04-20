@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 mod document;
+mod export;
 mod workspace;
 
 #[derive(Default)]
@@ -113,12 +114,36 @@ fn save_markdown_file(
     document::save_markdown_file(&state.documents, &target_path, &content).map(Some)
 }
 
+#[tauri::command]
+fn export_markdown_html(path: Option<String>, content: String) -> Result<Option<String>, String> {
+    let default_name = path
+        .as_deref()
+        .and_then(|path| {
+            PathBuf::from(path)
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().to_string())
+        })
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "untitled".to_string());
+    let title = default_name.clone();
+    let Some(target_path) = rfd::FileDialog::new()
+        .add_filter("HTML", &["html", "htm"])
+        .set_file_name(format!("{default_name}.html"))
+        .save_file()
+    else {
+        return Ok(None);
+    };
+
+    export::export_html(&target_path, &title, &content).map(Some)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             document_stats,
+            export_markdown_html,
             file_metadata,
             load_markdown_range,
             open_markdown_file,
@@ -135,6 +160,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::document::{build_index, read_line_range};
+    use super::export::markdown_to_html;
     use super::workspace::{scan_workspace, search_workspace_files};
     use std::{
         fs,
@@ -236,5 +262,14 @@ mod tests {
         assert_eq!(matches[1].line_number, 2);
 
         fs::remove_dir_all(root).expect("remove workspace");
+    }
+
+    #[test]
+    fn exports_markdown_as_escaped_html_blocks() {
+        let html = markdown_to_html("# Title\n\n- <script>\n\n```html\n<div>x</div>\n```");
+
+        assert!(html.contains("<h1>Title</h1>"));
+        assert!(html.contains("<li>&lt;script&gt;</li>"));
+        assert!(html.contains("<pre><code>&lt;div&gt;x&lt;/div&gt;</code></pre>"));
     }
 }

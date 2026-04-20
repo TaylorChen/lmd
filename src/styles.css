@@ -89,7 +89,7 @@ button:disabled {
   gap: 10px;
 }
 
-.sidebar-actions button:last-child {
+.sidebar-actions button.primary-action {
   background: #24594a;
   border-color: #24594a;
   color: #ffffff;

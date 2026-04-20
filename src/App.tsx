@@ -293,6 +293,23 @@ export default function App() {
     }
   }
 
+  async function handleExportHtml() {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const exportedPath = await invoke<string | null>("export_markdown_html", {
+        path,
+        content,
+      });
+      if (!exportedPath) return;
+      setNotice({ tone: "info", message: `Exported HTML to ${fileName(exportedPath)}.` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function handleChange(nextContent: string) {
     if (readOnly) return;
     setContent(nextContent);
@@ -443,6 +460,7 @@ export default function App() {
         onOpenWorkspace={() => void handleOpenWorkspace()}
         onRefreshWorkspace={() => void handleRefreshWorkspace()}
         onSave={() => void handleSave()}
+        onExportHtml={() => void handleExportHtml()}
         onWorkspaceQueryChange={(query) => {
           setWorkspaceQuery(query);
           setWorkspaceSearchActive(false);

@@ -20,6 +20,7 @@ type SidebarProps = {
   onOpenWorkspace: () => void;
   onRefreshWorkspace: () => void;
   onSave: () => void;
+  onExportHtml: () => void;
   onWorkspaceQueryChange: (query: string) => void;
   onWorkspaceSearch: () => void;
   onOpenWorkspaceFile: (file: WorkspaceFile) => void;
@@ -46,6 +47,7 @@ export function Sidebar({
   onOpenWorkspace,
   onRefreshWorkspace,
   onSave,
+  onExportHtml,
   onWorkspaceQueryChange,
   onWorkspaceSearch,
   onOpenWorkspaceFile,
@@ -72,8 +74,11 @@ export function Sidebar({
         <button type="button" onClick={onRefreshWorkspace} disabled={busy || !workspace}>
           Refresh
         </button>
-        <button type="button" onClick={onSave} disabled={busy || !isDirty}>
+        <button type="button" className="primary-action" onClick={onSave} disabled={busy || !isDirty}>
           Save
+        </button>
+        <button type="button" onClick={onExportHtml} disabled={busy}>
+          Export HTML
         </button>
       </div>
 
