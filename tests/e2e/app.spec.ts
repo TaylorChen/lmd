@@ -37,6 +37,36 @@ async function installTauriMock(page: Page) {
                 byteSize: 42,
               },
             ],
+            knowledge: {
+              isInitialized: false,
+              notesPath: "/workspace/notes",
+              sourcesPath: "/workspace/sources",
+              wikiPath: "/workspace/wiki",
+              schemaPath: "/workspace/AGENTS.md",
+              manifestPath: "/workspace/.lmd/knowledge/manifest.json",
+            },
+          };
+        }
+
+        if (command === "initialize_knowledge_workspace") {
+          return {
+            rootPath: "/workspace",
+            files: [
+              {
+                path: "/workspace/alpha.md",
+                relativePath: "alpha.md",
+                name: "alpha.md",
+                byteSize: 42,
+              },
+            ],
+            knowledge: {
+              isInitialized: true,
+              notesPath: "/workspace/notes",
+              sourcesPath: "/workspace/sources",
+              wikiPath: "/workspace/wiki",
+              schemaPath: "/workspace/AGENTS.md",
+              manifestPath: "/workspace/.lmd/knowledge/manifest.json",
+            },
           };
         }
 
@@ -186,4 +216,19 @@ test("opens workspace, searches, and opens a match", async ({ page }) => {
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "search_workspace"),
   );
   expect(searchCall?.args).toMatchObject({ rootPath: "/workspace", query: "needle", maxResults: 80 });
+});
+
+test("initializes a knowledge workspace", async ({ page }) => {
+  await page.getByRole("button", { name: "Workspace" }).click();
+  await expect(page.getByText("Standard workspace")).toBeVisible();
+
+  await page.getByRole("button", { name: "Init Knowledge" }).click();
+  await expect(page.getByText("Knowledge workspace initialized.")).toBeVisible();
+  await expect(page.getByText("Knowledge workspace ready")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Init Knowledge" })).toBeDisabled();
+
+  const initCall = await page.evaluate(() =>
+    window.__LMD_TEST_CALLS__?.find((call) => call.command === "initialize_knowledge_workspace"),
+  );
+  expect(initCall?.args).toMatchObject({ rootPath: "/workspace" });
 });

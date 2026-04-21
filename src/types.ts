@@ -44,6 +44,16 @@ export type WorkspaceFile = {
 export type Workspace = {
   rootPath: string;
   files: WorkspaceFile[];
+  knowledge: WorkspaceKnowledge;
+};
+
+export type WorkspaceKnowledge = {
+  isInitialized: boolean;
+  notesPath: string;
+  sourcesPath: string;
+  wikiPath: string;
+  schemaPath: string;
+  manifestPath: string;
 };
 
 export type SearchMatch = {

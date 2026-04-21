@@ -186,6 +186,29 @@ export default function App() {
     }
   }
 
+  async function handleInitializeKnowledgeWorkspace() {
+    if (!workspace) {
+      setNotice({ tone: "error", message: "Open a workspace before initializing knowledge mode." });
+      return;
+    }
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const nextWorkspace = await invokeCommand<Workspace>("initialize_knowledge_workspace", {
+        rootPath: workspace.rootPath,
+      });
+      setWorkspace(nextWorkspace);
+      window.localStorage.setItem(storageKeys.lastWorkspaceRoot, nextWorkspace.rootPath);
+      setWorkspaceSearchActive(false);
+      setNotice({ tone: "info", message: "Knowledge workspace initialized." });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function openPath(pathToOpen: string, displayName: string) {
     if (pathToOpen === path) return;
     if (isDirty && !window.confirm("Discard unsaved changes?")) return;
@@ -484,6 +507,7 @@ export default function App() {
         onNew={() => void handleNew()}
         onOpen={() => void handleOpen()}
         onOpenWorkspace={() => void handleOpenWorkspace()}
+        onInitializeKnowledgeWorkspace={() => void handleInitializeKnowledgeWorkspace()}
         onRefreshWorkspace={() => void handleRefreshWorkspace()}
         onSave={() => void handleSave()}
         onExportHtml={() => void handleExportHtml()}

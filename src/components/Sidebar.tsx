@@ -19,6 +19,7 @@ type SidebarProps = {
   onNew: () => void;
   onOpen: () => void;
   onOpenWorkspace: () => void;
+  onInitializeKnowledgeWorkspace: () => void;
   onRefreshWorkspace: () => void;
   onSave: () => void;
   onExportHtml: () => void;
@@ -49,6 +50,7 @@ export function Sidebar({
   onNew,
   onOpen,
   onOpenWorkspace,
+  onInitializeKnowledgeWorkspace,
   onRefreshWorkspace,
   onSave,
   onExportHtml,
@@ -81,6 +83,13 @@ export function Sidebar({
         <button type="button" onClick={onOpenWorkspace} disabled={busy}>
           Workspace
         </button>
+        <button
+          type="button"
+          onClick={onInitializeKnowledgeWorkspace}
+          disabled={busy || !workspace || workspace.knowledge.isInitialized}
+        >
+          Init Knowledge
+        </button>
         <button type="button" onClick={onRefreshWorkspace} disabled={busy || !workspace}>
           Refresh
         </button>
@@ -104,6 +113,9 @@ export function Sidebar({
         {workspace ? (
           <>
             <strong title={workspace.rootPath}>{fileName(workspace.rootPath)}</strong>
+            <small className={`workspace-mode ${workspace.knowledge.isInitialized ? "ready" : "pending"}`}>
+              {workspace.knowledge.isInitialized ? "Knowledge workspace ready" : "Standard workspace"}
+            </small>
             <form
               className="workspace-search"
               onSubmit={(event) => {

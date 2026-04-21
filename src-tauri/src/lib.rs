@@ -48,23 +48,18 @@ fn open_workspace() -> Result<Option<workspace::Workspace>, String> {
         return Ok(None);
     };
 
-    let files = workspace::scan_workspace(&root_path)?;
-
-    Ok(Some(workspace::Workspace {
-        root_path: root_path.to_string_lossy().to_string(),
-        files,
-    }))
+    workspace::load_workspace(&root_path).map(Some)
 }
 
 #[tauri::command]
 fn refresh_workspace(root_path: String) -> Result<workspace::Workspace, String> {
     let root_path = PathBuf::from(root_path);
-    let files = workspace::scan_workspace(&root_path)?;
+    workspace::load_workspace(&root_path)
+}
 
-    Ok(workspace::Workspace {
-        root_path: root_path.to_string_lossy().to_string(),
-        files,
-    })
+#[tauri::command]
+fn initialize_knowledge_workspace(root_path: String) -> Result<workspace::Workspace, String> {
+    workspace::initialize_knowledge_workspace(&PathBuf::from(root_path))
 }
 
 #[tauri::command]
@@ -168,6 +163,7 @@ pub fn run() {
             export_markdown_pdf,
             file_metadata,
             load_markdown_range,
+            initialize_knowledge_workspace,
             open_markdown_file,
             open_markdown_path,
             open_workspace,
@@ -186,7 +182,9 @@ mod tests {
         DocumentCache,
     };
     use super::export::{export_html_document, export_pdf, pdf_document};
-    use super::workspace::{scan_workspace, search_workspace_files};
+    use super::workspace::{
+        initialize_knowledge_workspace, load_workspace, scan_workspace, search_workspace_files,
+    };
     use serde_json::to_value;
     use std::{
         fs,
@@ -360,6 +358,35 @@ mod tests {
         assert_eq!(matches[0].match_end, 10);
         assert_eq!(matches[1].relative_path, "alpha.md");
         assert_eq!(matches[1].line_number, 2);
+
+        fs::remove_dir_all(root).expect("remove workspace");
+    }
+
+    #[test]
+    fn initializes_knowledge_workspace_protocol() {
+        let root = temp_workspace_path("knowledge-init");
+
+        let workspace = initialize_knowledge_workspace(&root).expect("initialize knowledge workspace");
+        assert!(workspace.knowledge.is_initialized);
+        assert!(root.join("notes").is_dir());
+        assert!(root.join("sources").is_dir());
+        assert!(root.join("wiki/index.md").is_file());
+        assert!(root.join("wiki/log.md").is_file());
+        assert!(root.join("wiki/inbox").is_dir());
+        assert!(root.join("wiki/entities").is_dir());
+        assert!(root.join("wiki/concepts").is_dir());
+        assert!(root.join("wiki/syntheses").is_dir());
+        assert!(root.join("wiki/sources").is_dir());
+        assert!(root.join("AGENTS.md").is_file());
+        assert!(root.join(".lmd/knowledge/manifest.json").is_file());
+
+        let manifest = fs::read_to_string(root.join(".lmd/knowledge/manifest.json"))
+            .expect("read manifest");
+        assert!(manifest.contains("\"indexVersion\": 1"));
+        assert!(manifest.contains("\"lastCompileStatus\": \"idle\""));
+
+        let loaded = load_workspace(&root).expect("reload initialized workspace");
+        assert!(loaded.knowledge.is_initialized);
 
         fs::remove_dir_all(root).expect("remove workspace");
     }

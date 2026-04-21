@@ -126,6 +126,20 @@ button:disabled {
   white-space: nowrap;
 }
 
+.workspace-mode {
+  display: block;
+  color: #65756e;
+  font-size: 0.78rem;
+}
+
+.workspace-mode.ready {
+  color: #24594a;
+}
+
+.workspace-mode.pending {
+  color: #8b6b2d;
+}
+
 .workspace-header small,
 .empty-workspace {
   color: #65756e;
