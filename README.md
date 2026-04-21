@@ -160,3 +160,6 @@ High-priority remaining work:
 
 - [Contributing guide](/Users/ahyk/nodejs/lmd/CONTRIBUTING.md)
 - [Roadmap](/Users/ahyk/nodejs/lmd/ROADMAP.md)
+- [Security policy](/Users/ahyk/nodejs/lmd/SECURITY.md)
+- [Code of conduct](/Users/ahyk/nodejs/lmd/CODE_OF_CONDUCT.md)
+- [Changelog](/Users/ahyk/nodejs/lmd/CHANGELOG.md)
