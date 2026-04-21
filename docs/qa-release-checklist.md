@@ -38,4 +38,5 @@ DMG creation uses macOS disk image tooling. If it fails in a sandboxed shell, re
 - Preview and HTML export use `markdown-it` with tables, task lists, strikethrough, images, and linkify enabled.
 - Preview and HTML export intentionally disable raw HTML input.
 - PDF export is a lightweight Markdown-aware renderer with heading, list, quote, and code styling. Complex layout, tables, images, and font embedding should be checked manually.
+- Native Tauri WebDriver automation is not available on macOS; see `docs/tauri-webview-automation-notes.md`.
 - Release builds are unsigned and not notarized.
