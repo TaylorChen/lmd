@@ -139,6 +139,22 @@ pub(crate) struct DocumentKnowledge {
     pub(crate) related_wiki_pages: Vec<Backlink>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct KnowledgeLintIssue {
+    pub(crate) kind: String,
+    pub(crate) severity: String,
+    pub(crate) path: String,
+    pub(crate) relative_path: String,
+    pub(crate) message: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct KnowledgeLintReport {
+    pub(crate) issues: Vec<KnowledgeLintIssue>,
+}
+
 #[derive(Debug, Clone)]
 struct IndexedDocument {
     path: String,
@@ -318,6 +334,86 @@ pub(crate) fn document_knowledge(
         unresolved_links,
         related_wiki_pages,
     })
+}
+
+pub(crate) fn knowledge_lint_report(root: &Path) -> Result<KnowledgeLintReport, String> {
+    let files = scan_workspace(root)?;
+    let indexed = index_workspace_documents(&files, &root.join("__lmd_none__.md"), None)?;
+    let index_path = root.join("wiki/index.md").to_string_lossy().to_string();
+    let linked_from_index = indexed
+        .iter()
+        .find(|document| document.path == index_path)
+        .map(|document| {
+            document
+                .links
+                .iter()
+                .filter_map(|link| link.resolved_path.clone())
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let mut issues = Vec::new();
+
+    for document in &indexed {
+        for link in &document.links {
+            if link.resolved_path.is_none() {
+                issues.push(KnowledgeLintIssue {
+                    kind: "unresolved_link".to_string(),
+                    severity: "warning".to_string(),
+                    path: document.path.clone(),
+                    relative_path: document.relative_path.clone(),
+                    message: format!("Unresolved link: {}", link.target),
+                });
+            }
+        }
+    }
+
+    for document in &indexed {
+        if document.source_kind != "wiki" {
+            continue;
+        }
+
+        if matches!(
+            document.relative_path.as_str(),
+            "wiki/index.md" | "wiki/log.md"
+        ) {
+            continue;
+        }
+
+        let has_backlinks = indexed.iter().any(|candidate| {
+            candidate
+                .links
+                .iter()
+                .any(|link| link.resolved_path.as_deref() == Some(document.path.as_str()))
+        });
+        if !has_backlinks {
+            issues.push(KnowledgeLintIssue {
+                kind: "orphan_wiki_page".to_string(),
+                severity: "warning".to_string(),
+                path: document.path.clone(),
+                relative_path: document.relative_path.clone(),
+                message: "Wiki page has no backlinks.".to_string(),
+            });
+        }
+
+        if !linked_from_index.contains(&document.path) {
+            issues.push(KnowledgeLintIssue {
+                kind: "not_in_index".to_string(),
+                severity: "info".to_string(),
+                path: document.path.clone(),
+                relative_path: document.relative_path.clone(),
+                message: "Wiki page is not linked from wiki/index.md.".to_string(),
+            });
+        }
+    }
+
+    issues.sort_by(|left, right| {
+        left.relative_path
+            .to_ascii_lowercase()
+            .cmp(&right.relative_path.to_ascii_lowercase())
+            .then_with(|| left.kind.cmp(&right.kind))
+    });
+
+    Ok(KnowledgeLintReport { issues })
 }
 
 pub(crate) fn inspect_workspace(root: &Path) -> WorkspaceKnowledge {

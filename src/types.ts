@@ -89,6 +89,18 @@ export type DocumentKnowledge = {
   relatedWikiPages: Backlink[];
 };
 
+export type KnowledgeLintIssue = {
+  kind: "unresolved_link" | "orphan_wiki_page" | "not_in_index";
+  severity: "info" | "warning" | "error";
+  path: string;
+  relativePath: string;
+  message: string;
+};
+
+export type KnowledgeLintReport = {
+  issues: KnowledgeLintIssue[];
+};
+
 export type SearchMatch = {
   path: string;
   relativePath: string;

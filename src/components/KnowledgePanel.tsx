@@ -1,7 +1,10 @@
-import type { Backlink, DocumentKnowledge } from "../types";
+import type { Backlink, DocumentKnowledge, KnowledgeLintReport } from "../types";
 
 type KnowledgePanelProps = {
   knowledge: DocumentKnowledge | null;
+  lint: KnowledgeLintReport | null;
+  workspaceIndexPath: string | null;
+  workspaceLogPath: string | null;
   busy: boolean;
   onOpenPath: (path: string, name: string) => void;
 };
@@ -13,7 +16,14 @@ function sourceKindLabel(value: Backlink["sourceKind"] | "unknown" | null) {
   return "Unknown";
 }
 
-export function KnowledgePanel({ knowledge, busy, onOpenPath }: KnowledgePanelProps) {
+export function KnowledgePanel({
+  knowledge,
+  lint,
+  workspaceIndexPath,
+  workspaceLogPath,
+  busy,
+  onOpenPath,
+}: KnowledgePanelProps) {
   if (!knowledge) {
     return (
       <aside className="knowledge-panel" aria-label="Knowledge panel">
@@ -29,6 +39,30 @@ export function KnowledgePanel({ knowledge, busy, onOpenPath }: KnowledgePanelPr
           <span className="label">Knowledge</span>
           <small>{knowledge.currentRelativePath}</small>
         </div>
+        {(workspaceIndexPath || workspaceLogPath) && (
+          <div className="knowledge-actions">
+            {workspaceIndexPath && (
+              <button
+                type="button"
+                className="knowledge-action-button"
+                onClick={() => onOpenPath(workspaceIndexPath, "index.md")}
+                disabled={busy}
+              >
+                Open index.md
+              </button>
+            )}
+            {workspaceLogPath && (
+              <button
+                type="button"
+                className="knowledge-action-button"
+                onClick={() => onOpenPath(workspaceLogPath, "log.md")}
+                disabled={busy}
+              >
+                Open log.md
+              </button>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="knowledge-section">
@@ -130,6 +164,33 @@ export function KnowledgePanel({ knowledge, busy, onOpenPath }: KnowledgePanelPr
         )}
       </section>
 
+      <section className="knowledge-section">
+        <div className="knowledge-header">
+          <span className="label">Related Wiki</span>
+          <small>{knowledge.relatedWikiPages.length.toLocaleString()}</small>
+        </div>
+        {knowledge.relatedWikiPages.length > 0 ? (
+          <div className="knowledge-link-list">
+            {knowledge.relatedWikiPages.map((link) => (
+              <button
+                type="button"
+                key={`related:${link.path}`}
+                className="knowledge-link-item"
+                onClick={() => onOpenPath(link.path, link.name)}
+                disabled={busy}
+                title={link.relativePath}
+              >
+                <strong>{link.name}</strong>
+                <span>{link.relativePath}</span>
+                <small>{sourceKindLabel(link.sourceKind)}</small>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="knowledge-empty">No related wiki pages yet.</p>
+        )}
+      </section>
+
       {knowledge.unresolvedLinks.length > 0 && (
         <section className="knowledge-section">
           <div className="knowledge-header">
@@ -147,6 +208,33 @@ export function KnowledgePanel({ knowledge, busy, onOpenPath }: KnowledgePanelPr
           </div>
         </section>
       )}
+
+      <section className="knowledge-section">
+        <div className="knowledge-header">
+          <span className="label">Lint</span>
+          <small>{lint?.issues.length.toLocaleString() ?? "0"}</small>
+        </div>
+        {lint && lint.issues.length > 0 ? (
+          <div className="knowledge-link-list">
+            {lint.issues.map((issue, index) => (
+              <button
+                type="button"
+                key={`${issue.kind}:${issue.path}:${index}`}
+                className={`knowledge-link-item lint-${issue.severity}`}
+                onClick={() => onOpenPath(issue.path, issue.relativePath)}
+                disabled={busy}
+                title={issue.relativePath}
+              >
+                <strong>{issue.message}</strong>
+                <span>{issue.relativePath}</span>
+                <small>{issue.severity}</small>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="knowledge-empty">No lint issues in the current workspace.</p>
+        )}
+      </section>
     </aside>
   );
 }

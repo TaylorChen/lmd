@@ -88,6 +88,11 @@ fn document_knowledge(
 }
 
 #[tauri::command]
+fn knowledge_lint_report(root_path: String) -> Result<workspace::KnowledgeLintReport, String> {
+    workspace::knowledge_lint_report(&PathBuf::from(root_path))
+}
+
+#[tauri::command]
 fn load_markdown_range(
     state: tauri::State<'_, AppState>,
     path: String,
@@ -178,6 +183,7 @@ pub fn run() {
             file_metadata,
             load_markdown_range,
             initialize_knowledge_workspace,
+            knowledge_lint_report,
             open_markdown_file,
             open_markdown_path,
             open_workspace,
@@ -197,8 +203,8 @@ mod tests {
     };
     use super::export::{export_html_document, export_pdf, pdf_document};
     use super::workspace::{
-        document_knowledge, initialize_knowledge_workspace, load_workspace, scan_workspace,
-        search_workspace_files,
+        document_knowledge, initialize_knowledge_workspace, knowledge_lint_report, load_workspace,
+        scan_workspace, search_workspace_files,
     };
     use serde_json::{json, to_value};
     use std::{
@@ -437,6 +443,28 @@ mod tests {
         assert_eq!(knowledge_json["unresolvedLinks"][0]["target"], "Missing Page");
         assert_eq!(knowledge_json["backlinks"][0]["relativePath"], "wiki/concepts/beta.md");
         assert_eq!(knowledge_json["relatedWikiPages"][0]["relativePath"], "wiki/concepts/beta.md");
+
+        fs::remove_dir_all(root).expect("remove workspace");
+    }
+
+    #[test]
+    fn builds_knowledge_lint_report_for_wiki_issues() {
+        let root = temp_workspace_path("knowledge-lint");
+        fs::create_dir_all(root.join("wiki")).expect("create wiki");
+        fs::write(root.join("wiki/index.md"), "# Index\n\n- [[Existing]]\n").expect("write index");
+        fs::write(root.join("wiki/existing.md"), "# Existing\n\n[[Missing Topic]]\n")
+            .expect("write existing");
+        fs::write(root.join("wiki/orphan.md"), "# Orphan\n").expect("write orphan");
+
+        let report = knowledge_lint_report(&root).expect("lint report");
+        let report_json = to_value(report).expect("serialize lint report");
+        let issues = report_json["issues"].as_array().expect("issues array");
+
+        assert!(issues.iter().any(|issue| issue["kind"] == "unresolved_link"));
+        assert!(issues.iter().any(|issue| issue["kind"] == "orphan_wiki_page"));
+        assert!(issues
+            .iter()
+            .any(|issue| issue["kind"] == "not_in_index" && issue["relativePath"] == "wiki/orphan.md"));
 
         fs::remove_dir_all(root).expect("remove workspace");
     }

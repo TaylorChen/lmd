@@ -16,6 +16,7 @@ import type {
   ExternalChange,
   DocumentKnowledge,
   EditorMode,
+  KnowledgeLintReport,
   LineRange,
   MarkdownDocument,
   Notice,
@@ -54,6 +55,7 @@ export default function App() {
   const [editorMode, setEditorMode] = useState<EditorMode>(() => settings.defaultEditorMode);
   const [inspectorTab, setInspectorTab] = useState<"preview" | "knowledge">("preview");
   const [documentKnowledge, setDocumentKnowledge] = useState<DocumentKnowledge | null>(null);
+  const [knowledgeLint, setKnowledgeLint] = useState<KnowledgeLintReport | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -83,6 +85,7 @@ export default function App() {
 
   function clearKnowledge() {
     setDocumentKnowledge(null);
+    setKnowledgeLint(null);
   }
 
   function rememberDocument(documentPath: string) {
@@ -446,13 +449,19 @@ export default function App() {
       }
 
       try {
-        const knowledge = await invokeCommand<DocumentKnowledge>("document_knowledge", {
-          rootPath: workspace.rootPath,
-          currentPath: path,
-          currentContent: content,
-        });
+        const [knowledge, lint] = await Promise.all([
+          invokeCommand<DocumentKnowledge>("document_knowledge", {
+            rootPath: workspace.rootPath,
+            currentPath: path,
+            currentContent: content,
+          }),
+          invokeCommand<KnowledgeLintReport>("knowledge_lint_report", {
+            rootPath: workspace.rootPath,
+          }),
+        ]);
         if (!cancelled) {
           setDocumentKnowledge(knowledge);
+          setKnowledgeLint(lint);
         }
       } catch {
         if (!cancelled) clearKnowledge();
@@ -625,6 +634,9 @@ export default function App() {
             ) : (
               <KnowledgePanel
                 knowledge={documentKnowledge}
+                lint={knowledgeLint}
+                workspaceIndexPath={workspace ? `${workspace.knowledge.wikiPath}/index.md` : null}
+                workspaceLogPath={workspace ? `${workspace.knowledge.wikiPath}/log.md` : null}
                 busy={busy}
                 onOpenPath={(nextPath, name) => void openPath(nextPath, name)}
               />

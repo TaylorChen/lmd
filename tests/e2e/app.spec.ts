@@ -95,6 +95,27 @@ async function installTauriMock(page: Page) {
           };
         }
 
+        if (command === "knowledge_lint_report") {
+          return {
+            issues: [
+              {
+                kind: "unresolved_link",
+                severity: "warning",
+                path: "/workspace/alpha.md",
+                relativePath: "alpha.md",
+                message: "Unresolved link: Missing Topic",
+              },
+              {
+                kind: "not_in_index",
+                severity: "info",
+                path: "/workspace/wiki/overview.md",
+                relativePath: "wiki/overview.md",
+                message: "Wiki page is not linked from wiki/index.md.",
+              },
+            ],
+          };
+        }
+
         if (command === "initialize_knowledge_workspace") {
           return {
             rootPath: "/workspace",
@@ -290,9 +311,12 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
   await page.getByRole("button", { name: "Split" }).click();
   await page.locator(".toolbar").getByRole("button", { name: "Knowledge" }).click();
 
-  await expect(page.getByText("wiki/overview.md")).toBeVisible();
+  await expect(page.locator(".knowledge-link-item span").filter({ hasText: "wiki/overview.md" }).first()).toBeVisible();
   await expect(page.getByText("#writing")).toBeVisible();
   await expect(page.locator(".knowledge-link-item.unresolved strong").first()).toHaveText("Missing Topic");
+  await expect(page.getByRole("button", { name: "Open index.md" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open log.md" })).toBeVisible();
+  await expect(page.getByText("Unresolved link: Missing Topic")).toBeVisible();
 
   const knowledgeCall = await page.evaluate(() =>
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "document_knowledge"),
@@ -301,4 +325,9 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
     rootPath: "/workspace",
     currentPath: "/workspace/alpha.md",
   });
+
+  const lintCall = await page.evaluate(() =>
+    window.__LMD_TEST_CALLS__?.find((call) => call.command === "knowledge_lint_report"),
+  );
+  expect(lintCall?.args).toMatchObject({ rootPath: "/workspace" });
 });

@@ -526,6 +526,17 @@ button:disabled {
   gap: 10px;
 }
 
+.knowledge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.knowledge-action-button {
+  height: 30px;
+  padding: 0 10px;
+}
+
 .knowledge-header {
   display: flex;
   align-items: center;
@@ -586,6 +597,16 @@ button:disabled {
 .knowledge-link-item.unresolved {
   border-color: #d8bd72;
   background: #fffaf0;
+}
+
+.knowledge-link-item.lint-warning {
+  border-color: #d8bd72;
+  background: #fffaf0;
+}
+
+.knowledge-link-item.lint-info {
+  border-color: #bed7cf;
+  background: #f4f8f6;
 }
 
 .knowledge-tag-list {
