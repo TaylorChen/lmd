@@ -549,6 +549,8 @@ mod tests {
         let root = temp_workspace_path("assistant-draft");
         fs::create_dir_all(root.join("notes")).expect("create notes");
         fs::create_dir_all(root.join("wiki/inbox")).expect("create inbox");
+        fs::write(root.join("wiki/index.md"), "# Knowledge Index\n").expect("write index");
+        fs::write(root.join("wiki/log.md"), "# Knowledge Log\n").expect("write log");
         fs::write(root.join("notes/topic.md"), "# Topic\n\nBody").expect("write topic");
 
         let context = query_context(&root, &root.join("notes/topic.md"), None).expect("query context");
@@ -558,8 +560,15 @@ mod tests {
 
         let saved_path = save_wiki_draft(&root, &draft.title, &draft.content).expect("save draft");
         let saved_content = fs::read_to_string(&saved_path).expect("read saved draft");
+        let log_content = fs::read_to_string(root.join("wiki/log.md")).expect("read log");
+        let index_content = fs::read_to_string(root.join("wiki/index.md")).expect("read index");
         assert!(saved_path.contains("/wiki/inbox/"));
+        assert!(saved_content.starts_with("---\n"));
+        assert!(saved_content.contains("status: draft"));
         assert!(saved_content.contains("## Summary"));
+        assert!(log_content.contains("Saved assistant draft"));
+        assert!(index_content.contains("## Inbox"));
+        assert!(index_content.contains("topic-summary.md"));
 
         fs::remove_dir_all(root).expect("remove workspace");
     }

@@ -575,8 +575,11 @@ pub(crate) fn save_wiki_draft(
 ) -> Result<String, String> {
     let file_name = format!("{}.md", slugify_title(title));
     let target_path = root.join("wiki/inbox").join(file_name);
-    fs::write(&target_path, content)
+    let draft_content = format_wiki_draft(title, content);
+    fs::write(&target_path, draft_content)
         .map_err(|error| format!("Could not write {}: {error}", target_path.display()))?;
+    append_to_knowledge_log(root, &target_path)?;
+    ensure_inbox_entry_in_index(root, &target_path)?;
     Ok(target_path.to_string_lossy().to_string())
 }
 
@@ -862,6 +865,62 @@ fn slugify_title(title: &str) -> String {
     }
 
     slug.trim_matches('-').to_string().chars().take(64).collect()
+}
+
+fn format_wiki_draft(title: &str, content: &str) -> String {
+    let date = format!(
+        "{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    );
+    format!(
+        "---\ntitle: {title}\nstatus: draft\ncreatedAt: {date}\n---\n\n{}",
+        content.trim()
+    )
+}
+
+fn append_to_knowledge_log(root: &Path, target_path: &Path) -> Result<(), String> {
+    let log_path = root.join("wiki/log.md");
+    let relative_path = target_path
+        .strip_prefix(root)
+        .unwrap_or(target_path)
+        .to_string_lossy()
+        .to_string();
+    let mut log = fs::read_to_string(&log_path)
+        .unwrap_or_else(|_| "# Knowledge Log\n".to_string());
+    if !log.ends_with('\n') {
+        log.push('\n');
+    }
+    log.push_str(&format!("- Saved assistant draft: [{relative_path}]({relative_path})\n"));
+    fs::write(&log_path, log).map_err(|error| format!("Could not write {}: {error}", log_path.display()))
+}
+
+fn ensure_inbox_entry_in_index(root: &Path, target_path: &Path) -> Result<(), String> {
+    let index_path = root.join("wiki/index.md");
+    let relative_path = target_path
+        .strip_prefix(root.join("wiki"))
+        .unwrap_or(target_path)
+        .to_string_lossy()
+        .to_string();
+    let link_line = format!("- [{0}]({1})", Path::new(&relative_path).file_name().and_then(|name| name.to_str()).unwrap_or("draft"), relative_path);
+    let mut index = fs::read_to_string(&index_path)
+        .unwrap_or_else(|_| DEFAULT_INDEX_MD.to_string());
+    if !index.contains("## Inbox") {
+        if !index.ends_with('\n') {
+            index.push('\n');
+        }
+        index.push_str("\n## Inbox\n\n");
+    }
+    if !index.contains(&link_line) {
+        if !index.ends_with('\n') {
+            index.push('\n');
+        }
+        index.push_str(&format!("{link_line}\n"));
+    }
+    fs::write(&index_path, index)
+        .map_err(|error| format!("Could not write {}: {error}", index_path.display()))
 }
 
 fn index_workspace_documents(
