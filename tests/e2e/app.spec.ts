@@ -150,6 +150,17 @@ async function installTauriMock(page: Page) {
           };
         }
 
+        if (command === "summarize_query_context") {
+          return {
+            title: "alpha summary",
+            content: "# alpha summary\n\n## Summary\n\n- Draft from current query context.",
+          };
+        }
+
+        if (command === "save_wiki_draft") {
+          return "/workspace/wiki/inbox/alpha-summary.md";
+        }
+
         if (command === "initialize_knowledge_workspace") {
           return {
             rootPath: "/workspace",
@@ -374,5 +385,37 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
   expect(contextCall?.args).toMatchObject({
     rootPath: "/workspace",
     currentPath: "/workspace/alpha.md",
+  });
+});
+
+test("builds and saves an assistant draft", async ({ page }) => {
+  await page.getByRole("button", { name: "Workspace" }).click();
+  await page.getByRole("button", { name: "Init Knowledge" }).click();
+  await page.locator(".file-list .file-item").first().focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Split" }).click();
+  await page.locator(".toolbar").getByRole("button", { name: "Assistant" }).click();
+
+  await page.getByRole("button", { name: "Summarize Context" }).click();
+  await expect(page.getByText("Assistant draft generated.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "alpha summary" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Save as Wiki Page" }).click();
+  await expect(page.getByText("Saved wiki draft to alpha-summary.md.")).toBeVisible();
+
+  const summarizeCall = await page.evaluate(() =>
+    window.__LMD_TEST_CALLS__?.find((call) => call.command === "summarize_query_context"),
+  );
+  expect(summarizeCall?.args).toMatchObject({
+    rootPath: "/workspace",
+    currentPath: "/workspace/alpha.md",
+  });
+
+  const saveDraftCall = await page.evaluate(() =>
+    window.__LMD_TEST_CALLS__?.find((call) => call.command === "save_wiki_draft"),
+  );
+  expect(saveDraftCall?.args).toMatchObject({
+    rootPath: "/workspace",
+    title: "alpha summary",
   });
 });

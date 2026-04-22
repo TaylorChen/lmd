@@ -117,6 +117,11 @@ export type QueryContext = {
   items: QueryContextItem[];
 };
 
+export type AssistantDraft = {
+  title: string;
+  content: string;
+};
+
 export type SearchMatch = {
   path: string;
   relativePath: string;

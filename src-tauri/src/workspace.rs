@@ -175,6 +175,13 @@ pub(crate) struct QueryContext {
     pub(crate) items: Vec<QueryContextItem>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AssistantDraft {
+    pub(crate) title: String,
+    pub(crate) content: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct IndexedDocument {
     path: String,
@@ -532,6 +539,47 @@ pub(crate) fn query_context(
     })
 }
 
+pub(crate) fn summarize_query_context(context: &QueryContext) -> AssistantDraft {
+    let mut content = String::new();
+    content.push_str("# ");
+    content.push_str(&suggest_wiki_title(context));
+    content.push_str("\n\n");
+    content.push_str("## Summary\n\n");
+    content.push_str(&format!(
+        "This draft was assembled from {} context items around `{}`.\n\n",
+        context.items.len(),
+        context.current_relative_path
+    ));
+
+    for item in &context.items {
+        content.push_str(&format!(
+            "- **{}** (`{}` / `{}`): {}\n",
+            item.name, item.source_kind, item.reason, item.excerpt
+        ));
+    }
+
+    content.push_str("\n## Notes\n\n");
+    content.push_str("- Expand the strongest threads into durable wiki pages.\n");
+    content.push_str("- Replace placeholder synthesis with reviewed prose before publishing.\n");
+
+    AssistantDraft {
+        title: suggest_wiki_title(context),
+        content,
+    }
+}
+
+pub(crate) fn save_wiki_draft(
+    root: &Path,
+    title: &str,
+    content: &str,
+) -> Result<String, String> {
+    let file_name = format!("{}.md", slugify_title(title));
+    let target_path = root.join("wiki/inbox").join(file_name);
+    fs::write(&target_path, content)
+        .map_err(|error| format!("Could not write {}: {error}", target_path.display()))?;
+    Ok(target_path.to_string_lossy().to_string())
+}
+
 pub(crate) fn inspect_workspace(root: &Path) -> WorkspaceKnowledge {
     let notes_path = root.join("notes");
     let sources_path = root.join("sources");
@@ -785,6 +833,35 @@ fn excerpt_for_content(content: &str) -> String {
         .chars()
         .take(280)
         .collect()
+}
+
+fn suggest_wiki_title(context: &QueryContext) -> String {
+    let base = Path::new(&context.current_relative_path)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("context")
+        .replace(['-', '_'], " ");
+    format!("{base} summary")
+}
+
+fn slugify_title(title: &str) -> String {
+    let mut slug = String::new();
+    let mut previous_dash = false;
+
+    for character in title.chars() {
+        let next = if character.is_ascii_alphanumeric() {
+            previous_dash = false;
+            character.to_ascii_lowercase()
+        } else if !previous_dash {
+            previous_dash = true;
+            '-'
+        } else {
+            continue;
+        };
+        slug.push(next);
+    }
+
+    slug.trim_matches('-').to_string().chars().take(64).collect()
 }
 
 fn index_workspace_documents(

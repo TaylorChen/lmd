@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
+import { AssistantPanel } from "./components/AssistantPanel";
 import { EditorToolbar } from "./components/EditorToolbar";
 import { KnowledgePanel } from "./components/KnowledgePanel";
 import { MarkdownPreview } from "./components/MarkdownPreview";
@@ -13,6 +14,7 @@ import { renderMarkdownDocument } from "./lib/markdown";
 import { readRecentFiles, readSettings, recentFileLimit, storageKeys, writeRecentFiles, writeSettings } from "./lib/storage";
 import { invokeCommand } from "./lib/tauri";
 import type {
+  AssistantDraft,
   ExternalChange,
   DocumentKnowledge,
   EditorMode,
@@ -54,10 +56,11 @@ export default function App() {
   const [externalChange, setExternalChange] = useState<ExternalChange | null>(null);
   const [search, setSearch] = useState("");
   const [editorMode, setEditorMode] = useState<EditorMode>(() => settings.defaultEditorMode);
-  const [inspectorTab, setInspectorTab] = useState<"preview" | "knowledge">("preview");
+  const [inspectorTab, setInspectorTab] = useState<"preview" | "knowledge" | "assistant">("preview");
   const [documentKnowledge, setDocumentKnowledge] = useState<DocumentKnowledge | null>(null);
   const [knowledgeLint, setKnowledgeLint] = useState<KnowledgeLintReport | null>(null);
   const [queryContext, setQueryContext] = useState<QueryContext | null>(null);
+  const [assistantDraft, setAssistantDraft] = useState<AssistantDraft | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -89,6 +92,7 @@ export default function App() {
     setDocumentKnowledge(null);
     setKnowledgeLint(null);
     setQueryContext(null);
+    setAssistantDraft(null);
   }
 
   function rememberDocument(documentPath: string) {
@@ -370,6 +374,51 @@ export default function App() {
     }
   }
 
+  async function handleSummarizeContext() {
+    if (!workspace || !path) {
+      setNotice({ tone: "error", message: "Open a document inside a knowledge workspace first." });
+      return;
+    }
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const draft = await invokeCommand<AssistantDraft>("summarize_query_context", {
+        rootPath: workspace.rootPath,
+        currentPath: path,
+        currentContent: isDirty ? content : undefined,
+      });
+      setAssistantDraft(draft);
+      setNotice({ tone: "info", message: "Assistant draft generated." });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSaveAssistantDraft() {
+    if (!workspace || !assistantDraft) {
+      return;
+    }
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const savedPath = await invokeCommand<string>("save_wiki_draft", {
+        rootPath: workspace.rootPath,
+        title: assistantDraft.title,
+        content: assistantDraft.content,
+      });
+      setNotice({ tone: "info", message: `Saved wiki draft to ${fileName(savedPath)}.` });
+      await handleRefreshWorkspace(false);
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function handleChange(nextContent: string) {
     if (readOnly) return;
     setContent(nextContent);
@@ -640,6 +689,14 @@ export default function App() {
           {editorMode !== "edit" &&
             (inspectorTab === "preview" || !workspace?.knowledge.isInitialized ? (
               <MarkdownPreview content={content} />
+            ) : inspectorTab === "assistant" ? (
+              <AssistantPanel
+                busy={busy}
+                queryContext={queryContext}
+                draft={assistantDraft}
+                onSummarize={() => void handleSummarizeContext()}
+                onSaveDraft={() => void handleSaveAssistantDraft()}
+              />
             ) : (
               <KnowledgePanel
                 knowledge={documentKnowledge}

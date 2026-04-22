@@ -106,6 +106,25 @@ fn query_context(
 }
 
 #[tauri::command]
+fn summarize_query_context(
+    root_path: String,
+    current_path: String,
+    current_content: Option<String>,
+) -> Result<workspace::AssistantDraft, String> {
+    let context = workspace::query_context(
+        &PathBuf::from(root_path),
+        &PathBuf::from(current_path),
+        current_content.as_deref(),
+    )?;
+    Ok(workspace::summarize_query_context(&context))
+}
+
+#[tauri::command]
+fn save_wiki_draft(root_path: String, title: String, content: String) -> Result<String, String> {
+    workspace::save_wiki_draft(&PathBuf::from(root_path), &title, &content)
+}
+
+#[tauri::command]
 fn load_markdown_range(
     state: tauri::State<'_, AppState>,
     path: String,
@@ -202,7 +221,9 @@ pub fn run() {
             open_workspace,
             query_context,
             refresh_workspace,
+            save_wiki_draft,
             search_workspace,
+            summarize_query_context,
             save_markdown_file
         ])
         .run(tauri::generate_context!())
@@ -218,7 +239,8 @@ mod tests {
     use super::export::{export_html_document, export_pdf, pdf_document};
     use super::workspace::{
         document_knowledge, initialize_knowledge_workspace, knowledge_lint_report, load_workspace,
-        query_context, scan_workspace, search_workspace_files,
+        query_context, save_wiki_draft, scan_workspace, search_workspace_files,
+        summarize_query_context,
     };
     use serde_json::{json, to_value};
     use std::{
@@ -518,6 +540,26 @@ mod tests {
         assert!(items.iter().any(|item| item["reason"] == "linked_wiki"));
         assert!(items.iter().any(|item| item["reason"] == "source_reference"));
         assert!(items.iter().any(|item| item["reason"] == "index_hint"));
+
+        fs::remove_dir_all(root).expect("remove workspace");
+    }
+
+    #[test]
+    fn summarizes_query_context_and_saves_wiki_draft() {
+        let root = temp_workspace_path("assistant-draft");
+        fs::create_dir_all(root.join("notes")).expect("create notes");
+        fs::create_dir_all(root.join("wiki/inbox")).expect("create inbox");
+        fs::write(root.join("notes/topic.md"), "# Topic\n\nBody").expect("write topic");
+
+        let context = query_context(&root, &root.join("notes/topic.md"), None).expect("query context");
+        let draft = summarize_query_context(&context);
+        assert!(draft.title.contains("topic"));
+        assert!(draft.content.contains("Summary"));
+
+        let saved_path = save_wiki_draft(&root, &draft.title, &draft.content).expect("save draft");
+        let saved_content = fs::read_to_string(&saved_path).expect("read saved draft");
+        assert!(saved_path.contains("/wiki/inbox/"));
+        assert!(saved_content.contains("## Summary"));
 
         fs::remove_dir_all(root).expect("remove workspace");
     }

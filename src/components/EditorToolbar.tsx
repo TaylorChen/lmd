@@ -14,13 +14,13 @@ type EditorToolbarProps = {
   search: string;
   matches: number;
   mode: EditorMode;
-  inspectorTab: "preview" | "knowledge";
+  inspectorTab: "preview" | "knowledge" | "assistant";
   canShowKnowledge: boolean;
   onPreviousWindow: () => void;
   onNextWindow: () => void;
   onSearchChange: (search: string) => void;
   onModeChange: (mode: EditorMode) => void;
-  onInspectorTabChange: (tab: "preview" | "knowledge") => void;
+  onInspectorTabChange: (tab: "preview" | "knowledge" | "assistant") => void;
 };
 
 export function EditorToolbar({
@@ -96,6 +96,13 @@ export function EditorToolbar({
             onClick={() => onInspectorTabChange("knowledge")}
           >
             Knowledge
+          </button>
+          <button
+            type="button"
+            className={inspectorTab === "assistant" ? "active" : ""}
+            onClick={() => onInspectorTabChange("assistant")}
+          >
+            Assistant
           </button>
         </div>
       )}

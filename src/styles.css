@@ -584,6 +584,7 @@ button:disabled {
 
 .knowledge-link-item strong,
 .knowledge-link-item span,
+.knowledge-link-item em,
 .knowledge-kv-item strong,
 .knowledge-kv-item span {
   overflow: hidden;
@@ -592,6 +593,13 @@ button:disabled {
 
 .knowledge-link-item small {
   color: #65756e;
+}
+
+.knowledge-link-item em {
+  color: #65756e;
+  font-size: 0.82rem;
+  font-style: normal;
+  line-height: 1.45;
 }
 
 .knowledge-link-item.unresolved {
@@ -624,6 +632,27 @@ button:disabled {
   border-radius: 8px;
   background: #edf6f2;
   color: #24594a;
+}
+
+.assistant-draft {
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-draft h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.assistant-draft pre {
+  margin: 0;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid #d5e0da;
+  border-radius: 8px;
+  background: #f8fbfa;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .markdown-preview > *:first-child {
