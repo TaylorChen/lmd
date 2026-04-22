@@ -1,7 +1,23 @@
 use crate::workspace::{AssistantDraft, QueryContext};
+use serde::Serialize;
 
 pub(crate) const DEFAULT_PROVIDER: &str = "builtin";
 pub(crate) const DEFAULT_MODEL: &str = "local-summary-v1";
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AssistantProviderInfo {
+    pub(crate) id: String,
+    pub(crate) label: String,
+    pub(crate) models: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AssistantCatalog {
+    pub(crate) default_provider: String,
+    pub(crate) providers: Vec<AssistantProviderInfo>,
+}
 
 pub(crate) struct AssistantRequest<'a> {
     pub(crate) provider: &'a str,
@@ -9,12 +25,52 @@ pub(crate) struct AssistantRequest<'a> {
     pub(crate) context: &'a QueryContext,
 }
 
-pub(crate) fn summarize_query_context(request: AssistantRequest<'_>) -> AssistantDraft {
-    match request.provider {
-        "builtin" => builtin_summary(request.context, request.provider, request.model),
-        "mock_openai" => mock_openai_summary(request.context, request.provider, request.model),
-        _ => builtin_summary(request.context, request.provider, request.model),
+pub(crate) fn catalog() -> AssistantCatalog {
+    AssistantCatalog {
+        default_provider: DEFAULT_PROVIDER.to_string(),
+        providers: vec![
+            AssistantProviderInfo {
+                id: "builtin".to_string(),
+                label: "Builtin".to_string(),
+                models: vec!["local-summary-v1".to_string(), "local-summary-v2".to_string()],
+            },
+            AssistantProviderInfo {
+                id: "mock_openai".to_string(),
+                label: "Mock OpenAI".to_string(),
+                models: vec!["gpt-mock-1".to_string(), "gpt-mock-2".to_string()],
+            },
+        ],
     }
+}
+
+pub(crate) fn summarize_query_context(request: AssistantRequest<'_>) -> Result<AssistantDraft, String> {
+    validate_request(&request)?;
+
+    match request.provider {
+        "builtin" => Ok(builtin_summary(request.context, request.provider, request.model)),
+        "mock_openai" => Ok(mock_openai_summary(request.context, request.provider, request.model)),
+        _ => Err(format!("Unsupported assistant provider: {}", request.provider)),
+    }
+}
+
+fn validate_request(request: &AssistantRequest<'_>) -> Result<(), String> {
+    let catalog = catalog();
+    let Some(provider) = catalog
+        .providers
+        .iter()
+        .find(|provider| provider.id == request.provider)
+    else {
+        return Err(format!("Unsupported assistant provider: {}", request.provider));
+    };
+
+    if provider.models.iter().any(|model| model == request.model) {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Unsupported model `{}` for provider `{}`",
+        request.model, request.provider
+    ))
 }
 
 fn builtin_summary(context: &QueryContext, provider: &str, model: &str) -> AssistantDraft {

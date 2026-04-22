@@ -119,13 +119,18 @@ fn summarize_query_context(
         &PathBuf::from(current_path),
         current_content.as_deref(),
     )?;
-    Ok(assistant::summarize_query_context(
+    assistant::summarize_query_context(
         assistant::AssistantRequest {
             provider: provider.as_deref().unwrap_or(assistant::DEFAULT_PROVIDER),
             model: model.as_deref().unwrap_or(assistant::DEFAULT_MODEL),
             context: &context,
         },
-    ))
+    )
+}
+
+#[tauri::command]
+fn assistant_catalog() -> assistant::AssistantCatalog {
+    assistant::catalog()
 }
 
 #[tauri::command]
@@ -221,6 +226,7 @@ pub fn run() {
             document_knowledge,
             export_markdown_html,
             export_markdown_pdf,
+            assistant_catalog,
             file_metadata,
             load_markdown_range,
             initialize_knowledge_workspace,
@@ -246,7 +252,8 @@ mod tests {
         DocumentCache,
     };
     use super::assistant::{
-        summarize_query_context as summarize_assistant_query_context, AssistantRequest,
+        catalog as assistant_catalog_state, summarize_query_context as summarize_assistant_query_context,
+        AssistantRequest,
     };
     use super::export::{export_html_document, export_pdf, pdf_document};
     use super::workspace::{
@@ -570,7 +577,8 @@ mod tests {
             provider: "builtin",
             model: "local-summary-v1",
             context: &context,
-        });
+        })
+        .expect("builtin summary");
         assert!(draft.title.contains("topic"));
         assert!(draft.content.contains("Summary"));
 
@@ -606,12 +614,50 @@ mod tests {
 
         let draft = summarize_assistant_query_context(AssistantRequest {
             provider: "mock_openai",
-            model: "gpt-mock",
+            model: "gpt-mock-1",
             context: &context,
-        });
+        })
+        .expect("mock summary");
 
-        assert!(draft.content.contains("_Provider: mock_openai / gpt-mock_"));
+        assert!(draft.content.contains("_Provider: mock_openai / gpt-mock-1_"));
         assert!(draft.content.contains("mock_openai adapter active"));
+    }
+
+    #[test]
+    fn rejects_invalid_model_for_provider() {
+        let context = QueryContext {
+            current_path: "/tmp/topic.md".to_string(),
+            current_relative_path: "notes/topic.md".to_string(),
+            items: vec![QueryContextItem {
+                path: "/tmp/topic.md".to_string(),
+                relative_path: "notes/topic.md".to_string(),
+                name: "topic.md".to_string(),
+                source_kind: "note".to_string(),
+                reason: "current_document".to_string(),
+                excerpt: "Topic excerpt".to_string(),
+            }],
+        };
+
+        let error = summarize_assistant_query_context(AssistantRequest {
+            provider: "builtin",
+            model: "gpt-mock-1",
+            context: &context,
+        })
+        .expect_err("invalid model should fail");
+
+        assert!(error.contains("Unsupported model"));
+    }
+
+    #[test]
+    fn exposes_assistant_catalog() {
+        let catalog = assistant_catalog_state();
+
+        assert_eq!(catalog.default_provider, "builtin");
+        assert!(catalog.providers.iter().any(|provider| provider.id == "builtin"));
+        assert!(catalog
+            .providers
+            .iter()
+            .any(|provider| provider.id == "mock_openai" && provider.models.iter().any(|model| model == "gpt-mock-1")));
     }
 
     #[test]

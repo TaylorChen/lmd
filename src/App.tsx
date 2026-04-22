@@ -14,6 +14,7 @@ import { renderMarkdownDocument } from "./lib/markdown";
 import { readRecentFiles, readSettings, recentFileLimit, storageKeys, writeRecentFiles, writeSettings } from "./lib/storage";
 import { invokeCommand } from "./lib/tauri";
 import type {
+  AssistantCatalog,
   AssistantDraft,
   ExternalChange,
   DocumentKnowledge,
@@ -36,6 +37,14 @@ const emptyDocument = `# Untitled
 Start writing in Markdown.
 `;
 
+const defaultAssistantCatalog: AssistantCatalog = {
+  defaultProvider: "builtin",
+  providers: [
+    { id: "builtin", label: "Builtin", models: ["local-summary-v1", "local-summary-v2"] },
+    { id: "mock_openai", label: "Mock OpenAI", models: ["gpt-mock-1", "gpt-mock-2"] },
+  ],
+};
+
 export default function App() {
   const [content, setContent] = useState(emptyDocument);
   const [savedContent, setSavedContent] = useState(emptyDocument);
@@ -52,6 +61,7 @@ export default function App() {
   const [workspaceSearchActive, setWorkspaceSearchActive] = useState(false);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => readRecentFiles());
   const [settings, setSettings] = useState(() => readSettings());
+  const [assistantCatalog, setAssistantCatalog] = useState<AssistantCatalog>(defaultAssistantCatalog);
   const [knownModifiedMs, setKnownModifiedMs] = useState<number | null>(null);
   const [externalChange, setExternalChange] = useState<ExternalChange | null>(null);
   const [search, setSearch] = useState("");
@@ -72,6 +82,51 @@ export default function App() {
   const canPageForward = isLarge && visibleEndLine < lineCount;
 
   const extensions = useEditorExtensions(isLarge, readOnly, visibleStartLine);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAssistantCatalog() {
+      try {
+        const catalog = await invokeCommand<AssistantCatalog>("assistant_catalog");
+        if (!cancelled) {
+          setAssistantCatalog(catalog);
+        }
+      } catch {
+        if (!cancelled) {
+          setAssistantCatalog(defaultAssistantCatalog);
+        }
+      }
+    }
+
+    void loadAssistantCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const selectedProvider =
+      assistantCatalog.providers.find((provider) => provider.id === settings.assistantProvider) ??
+      assistantCatalog.providers[0];
+    if (!selectedProvider) return;
+
+    if (selectedProvider.id !== settings.assistantProvider) {
+      handleSettingsChange({
+        ...settings,
+        assistantProvider: selectedProvider.id,
+        assistantModel: selectedProvider.models[0] ?? settings.assistantModel,
+      });
+      return;
+    }
+
+    if (!selectedProvider.models.includes(settings.assistantModel)) {
+      handleSettingsChange({
+        ...settings,
+        assistantModel: selectedProvider.models[0] ?? settings.assistantModel,
+      });
+    }
+  }, [assistantCatalog, settings]);
 
   function applyDocument(document: MarkdownDocument) {
     setContent(document.content);
@@ -621,6 +676,7 @@ export default function App() {
         visibleStartLine={visibleStartLine}
         visibleEndLine={visibleEndLine}
         settings={settings}
+        assistantCatalog={assistantCatalog}
         onNew={() => void handleNew()}
         onOpen={() => void handleOpen()}
         onOpenWorkspace={() => void handleOpenWorkspace()}

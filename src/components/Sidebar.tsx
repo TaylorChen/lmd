@@ -1,5 +1,13 @@
 import { fileName, formatBytes } from "../lib/format";
-import type { AppSettings, EditorMode, RecentFile, SearchMatch, Workspace, WorkspaceFile } from "../types";
+import type {
+  AppSettings,
+  AssistantCatalog,
+  EditorMode,
+  RecentFile,
+  SearchMatch,
+  Workspace,
+  WorkspaceFile,
+} from "../types";
 
 type SidebarProps = {
   busy: boolean;
@@ -16,6 +24,7 @@ type SidebarProps = {
   visibleStartLine: number;
   visibleEndLine: number;
   settings: AppSettings;
+  assistantCatalog: AssistantCatalog;
   onNew: () => void;
   onOpen: () => void;
   onOpenWorkspace: () => void;
@@ -47,6 +56,7 @@ export function Sidebar({
   visibleStartLine,
   visibleEndLine,
   settings,
+  assistantCatalog,
   onNew,
   onOpen,
   onOpenWorkspace,
@@ -65,6 +75,10 @@ export function Sidebar({
   function updateSetting(nextSettings: Partial<AppSettings>) {
     onSettingsChange({ ...settings, ...nextSettings });
   }
+
+  const selectedProvider =
+    assistantCatalog.providers.find((provider) => provider.id === settings.assistantProvider) ??
+    assistantCatalog.providers[0];
 
   return (
     <aside className="sidebar">
@@ -254,16 +268,22 @@ export function Sidebar({
           <select
             aria-label="Assistant provider"
             value={settings.assistantProvider}
-            onChange={(event) =>
+            onChange={(event) => {
+              const nextProvider = assistantCatalog.providers.find(
+                (provider) => provider.id === event.target.value,
+              );
+              if (!nextProvider) return;
               updateSetting({
-                assistantProvider: event.target.value as AppSettings["assistantProvider"],
-                assistantModel:
-                  event.target.value === "mock_openai" ? "gpt-mock-1" : "local-summary-v1",
-              })
-            }
+                assistantProvider: nextProvider.id,
+                assistantModel: nextProvider.models[0] ?? settings.assistantModel,
+              });
+            }}
           >
-            <option value="builtin">Builtin</option>
-            <option value="mock_openai">Mock OpenAI</option>
+            {assistantCatalog.providers.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.label}
+              </option>
+            ))}
           </select>
         </label>
 
@@ -274,17 +294,11 @@ export function Sidebar({
             value={settings.assistantModel}
             onChange={(event) => updateSetting({ assistantModel: event.target.value })}
           >
-            {settings.assistantProvider === "mock_openai" ? (
-              <>
-                <option value="gpt-mock-1">gpt-mock-1</option>
-                <option value="gpt-mock-2">gpt-mock-2</option>
-              </>
-            ) : (
-              <>
-                <option value="local-summary-v1">local-summary-v1</option>
-                <option value="local-summary-v2">local-summary-v2</option>
-              </>
-            )}
+            {selectedProvider?.models.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
           </select>
         </label>
       </div>

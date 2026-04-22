@@ -124,6 +124,17 @@ export type AssistantDraft = {
 
 export type AssistantProvider = "builtin" | "mock_openai";
 
+export type AssistantProviderInfo = {
+  id: AssistantProvider;
+  label: string;
+  models: string[];
+};
+
+export type AssistantCatalog = {
+  defaultProvider: AssistantProvider;
+  providers: AssistantProviderInfo[];
+};
+
 export type SearchMatch = {
   path: string;
   relativePath: string;

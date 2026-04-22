@@ -157,6 +157,24 @@ async function installTauriMock(page: Page) {
           };
         }
 
+        if (command === "assistant_catalog") {
+          return {
+            defaultProvider: "builtin",
+            providers: [
+              {
+                id: "builtin",
+                label: "Builtin",
+                models: ["local-summary-v1", "local-summary-v2"],
+              },
+              {
+                id: "mock_openai",
+                label: "Mock OpenAI",
+                models: ["gpt-mock-1", "gpt-mock-2"],
+              },
+            ],
+          };
+        }
+
         if (command === "save_wiki_draft") {
           return "/workspace/wiki/inbox/alpha-summary.md";
         }
