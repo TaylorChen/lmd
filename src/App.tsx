@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { EditorToolbar } from "./components/EditorToolbar";
+import { KnowledgePanel } from "./components/KnowledgePanel";
 import { MarkdownPreview } from "./components/MarkdownPreview";
 import { NoticeStack } from "./components/NoticeStack";
 import { Sidebar } from "./components/Sidebar";
@@ -13,6 +14,7 @@ import { readRecentFiles, readSettings, recentFileLimit, storageKeys, writeRecen
 import { invokeCommand } from "./lib/tauri";
 import type {
   ExternalChange,
+  DocumentKnowledge,
   EditorMode,
   LineRange,
   MarkdownDocument,
@@ -50,6 +52,8 @@ export default function App() {
   const [externalChange, setExternalChange] = useState<ExternalChange | null>(null);
   const [search, setSearch] = useState("");
   const [editorMode, setEditorMode] = useState<EditorMode>(() => settings.defaultEditorMode);
+  const [inspectorTab, setInspectorTab] = useState<"preview" | "knowledge">("preview");
+  const [documentKnowledge, setDocumentKnowledge] = useState<DocumentKnowledge | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -75,6 +79,10 @@ export default function App() {
     setVisibleStartLine(document.visibleStartLine);
     setVisibleLineCount(document.visibleLineCount);
     setSearch("");
+  }
+
+  function clearKnowledge() {
+    setDocumentKnowledge(null);
   }
 
   function rememberDocument(documentPath: string) {
@@ -108,6 +116,7 @@ export default function App() {
     setVisibleStartLine(1);
     setVisibleLineCount(3);
     setSearch("");
+    clearKnowledge();
     setNotice({ tone: "info", message: "New document ready." });
   }
 
@@ -171,6 +180,9 @@ export default function App() {
         rootPath: workspace.rootPath,
       });
       setWorkspace(nextWorkspace);
+      if (!nextWorkspace.knowledge.isInitialized) {
+        clearKnowledge();
+      }
       window.localStorage.setItem(storageKeys.lastWorkspaceRoot, nextWorkspace.rootPath);
       setWorkspaceSearchActive(false);
       if (showNotice) {
@@ -419,6 +431,42 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      void refreshKnowledge();
+    }, 120);
+
+    async function refreshKnowledge() {
+      if (
+        !workspace?.knowledge.isInitialized ||
+        !path ||
+        !isPathInsideRoot(path, workspace.rootPath)
+      ) {
+        if (!cancelled) clearKnowledge();
+        return;
+      }
+
+      try {
+        const knowledge = await invokeCommand<DocumentKnowledge>("document_knowledge", {
+          rootPath: workspace.rootPath,
+          currentPath: path,
+          currentContent: content,
+        });
+        if (!cancelled) {
+          setDocumentKnowledge(knowledge);
+        }
+      } catch {
+        if (!cancelled) clearKnowledge();
+      }
+    }
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [workspace, path, content]);
+
+  useEffect(() => {
+    let cancelled = false;
 
     async function restoreSession() {
       const lastWorkspaceRoot = window.localStorage.getItem(storageKeys.lastWorkspaceRoot);
@@ -540,10 +588,13 @@ export default function App() {
           search={search}
           matches={matches}
           mode={editorMode}
+          inspectorTab={inspectorTab}
+          canShowKnowledge={Boolean(workspace?.knowledge.isInitialized && path)}
           onPreviousWindow={handlePreviousWindow}
           onNextWindow={handleNextWindow}
           onSearchChange={setSearch}
           onModeChange={setEditorMode}
+          onInspectorTabChange={setInspectorTab}
         />
 
         <NoticeStack
@@ -568,7 +619,16 @@ export default function App() {
             </div>
           )}
 
-          {editorMode !== "edit" && <MarkdownPreview content={content} />}
+          {editorMode !== "edit" &&
+            (inspectorTab === "preview" || !workspace?.knowledge.isInitialized ? (
+              <MarkdownPreview content={content} />
+            ) : (
+              <KnowledgePanel
+                knowledge={documentKnowledge}
+                busy={busy}
+                onOpenPath={(nextPath, name) => void openPath(nextPath, name)}
+              />
+            ))}
         </div>
       </section>
     </main>

@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
 };
@@ -96,6 +96,68 @@ pub(crate) struct WorkspaceKnowledge {
     pub(crate) wiki_path: String,
     pub(crate) schema_path: String,
     pub(crate) manifest_path: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FrontmatterField {
+    pub(crate) key: String,
+    pub(crate) value: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct KnowledgeLink {
+    pub(crate) target: String,
+    pub(crate) label: String,
+    pub(crate) resolved_path: Option<String>,
+    pub(crate) resolved_relative_path: Option<String>,
+    pub(crate) resolved_name: Option<String>,
+    pub(crate) source_kind: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Backlink {
+    pub(crate) path: String,
+    pub(crate) relative_path: String,
+    pub(crate) name: String,
+    pub(crate) source_kind: String,
+    pub(crate) label: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DocumentKnowledge {
+    pub(crate) current_path: String,
+    pub(crate) current_relative_path: String,
+    pub(crate) frontmatter: Vec<FrontmatterField>,
+    pub(crate) tags: Vec<String>,
+    pub(crate) outgoing_links: Vec<KnowledgeLink>,
+    pub(crate) backlinks: Vec<Backlink>,
+    pub(crate) unresolved_links: Vec<KnowledgeLink>,
+    pub(crate) related_wiki_pages: Vec<Backlink>,
+}
+
+#[derive(Debug, Clone)]
+struct IndexedDocument {
+    path: String,
+    relative_path: String,
+    name: String,
+    source_kind: String,
+    frontmatter: Vec<FrontmatterField>,
+    tags: Vec<String>,
+    links: Vec<ResolvedLink>,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedLink {
+    target: String,
+    label: String,
+    resolved_path: Option<String>,
+    resolved_relative_path: Option<String>,
+    resolved_name: Option<String>,
+    source_kind: Option<String>,
 }
 
 impl Serialize for WorkspaceKnowledge {
@@ -218,6 +280,46 @@ pub(crate) fn scan_workspace(root: &Path) -> Result<Vec<WorkspaceFile>, String> 
     Ok(files)
 }
 
+pub(crate) fn document_knowledge(
+    root: &Path,
+    current_path: &Path,
+    current_content: Option<&str>,
+) -> Result<DocumentKnowledge, String> {
+    let files = scan_workspace(root)?;
+    let indexed = index_workspace_documents(&files, current_path, current_content)?;
+    let current_key = current_path.to_string_lossy().to_string();
+
+    let current = indexed
+        .iter()
+        .find(|document| document.path == current_key)
+        .ok_or_else(|| format!("Current document is not inside workspace: {}", current_path.display()))?;
+
+    let backlinks = collect_backlinks(&indexed, &current.path);
+    let unresolved_links = current
+        .links
+        .iter()
+        .filter(|link| link.resolved_path.is_none())
+        .map(to_knowledge_link)
+        .collect::<Vec<_>>();
+    let outgoing_links = current.links.iter().map(to_knowledge_link).collect::<Vec<_>>();
+    let related_wiki_pages = backlinks
+        .iter()
+        .filter(|link| link.source_kind == "wiki")
+        .cloned()
+        .collect::<Vec<_>>();
+
+    Ok(DocumentKnowledge {
+        current_path: current.path.clone(),
+        current_relative_path: current.relative_path.clone(),
+        frontmatter: current.frontmatter.clone(),
+        tags: current.tags.clone(),
+        outgoing_links,
+        backlinks,
+        unresolved_links,
+        related_wiki_pages,
+    })
+}
+
 pub(crate) fn inspect_workspace(root: &Path) -> WorkspaceKnowledge {
     let notes_path = root.join("notes");
     let sources_path = root.join("sources");
@@ -327,6 +429,333 @@ fn default_manifest(root: &Path, schema_path: &Path) -> Value {
         "integrationMode": "external_command",
         "indexVersion": 1
     })
+}
+
+fn index_workspace_documents(
+    files: &[WorkspaceFile],
+    current_path: &Path,
+    current_content: Option<&str>,
+) -> Result<Vec<IndexedDocument>, String> {
+    let current_key = current_path.to_string_lossy().to_string();
+    let mut docs = Vec::new();
+    let mut resolver = LinkResolver::default();
+
+    for file in files {
+        resolver.add(file, source_kind_for_path(&file.relative_path));
+    }
+
+    for file in files {
+        let raw_content = if file.path == current_key {
+            current_content
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| fs::read_to_string(&file.path).unwrap_or_default())
+        } else {
+            fs::read_to_string(&file.path)
+                .map_err(|error| format!("Could not read {}: {error}", file.path))?
+        };
+        let normalized_content = raw_content.replace("\r\n", "\n").replace('\r', "\n");
+
+        let (frontmatter, body_start) = parse_frontmatter(&normalized_content);
+        let body = &normalized_content[body_start..];
+        let source_kind = source_kind_for_path(&file.relative_path).to_string();
+        let tags = collect_tags(&frontmatter, body);
+        let links = extract_wikilinks(body)
+            .into_iter()
+            .map(|(target, label)| resolver.resolve_link(&target, &label))
+            .collect::<Vec<_>>();
+
+        docs.push(IndexedDocument {
+            path: file.path.clone(),
+            relative_path: file.relative_path.clone(),
+            name: file.name.clone(),
+            source_kind,
+            frontmatter,
+            tags,
+            links,
+        });
+    }
+
+    Ok(docs)
+}
+
+fn collect_backlinks(indexed: &[IndexedDocument], current_path: &str) -> Vec<Backlink> {
+    let mut backlinks = indexed
+        .iter()
+        .filter_map(|document| {
+            document
+                .links
+                .iter()
+                .find(|link| link.resolved_path.as_deref() == Some(current_path))
+                .map(|link| Backlink {
+                    path: document.path.clone(),
+                    relative_path: document.relative_path.clone(),
+                    name: document.name.clone(),
+                    source_kind: document.source_kind.clone(),
+                    label: link.label.clone(),
+                })
+        })
+        .collect::<Vec<_>>();
+
+    backlinks.sort_by(|left, right| {
+        left.relative_path
+            .to_ascii_lowercase()
+            .cmp(&right.relative_path.to_ascii_lowercase())
+    });
+    backlinks
+}
+
+fn to_knowledge_link(link: &ResolvedLink) -> KnowledgeLink {
+    KnowledgeLink {
+        target: link.target.clone(),
+        label: link.label.clone(),
+        resolved_path: link.resolved_path.clone(),
+        resolved_relative_path: link.resolved_relative_path.clone(),
+        resolved_name: link.resolved_name.clone(),
+        source_kind: link.source_kind.clone(),
+    }
+}
+
+fn source_kind_for_path(relative_path: &str) -> &'static str {
+    if relative_path.starts_with("wiki/") {
+        "wiki"
+    } else if relative_path.starts_with("sources/") {
+        "source"
+    } else {
+        "note"
+    }
+}
+
+fn parse_frontmatter(content: &str) -> (Vec<FrontmatterField>, usize) {
+    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+    if !normalized.starts_with("---\n") {
+        return (Vec::new(), 0);
+    }
+
+    let mut offset = 4usize;
+    let mut fields = Vec::new();
+    let mut current_key = String::new();
+    let mut current_value = Vec::new();
+
+    for line in normalized[4..].lines() {
+        let line_with_break = line.len() + 1;
+        if line.trim() == "---" {
+            if !current_key.is_empty() {
+                fields.push(FrontmatterField {
+                    key: current_key.clone(),
+                    value: current_value.join("\n").trim().to_string(),
+                });
+            }
+            return (normalize_frontmatter_fields(fields), offset + line_with_break);
+        }
+
+        if let Some(rest) = line.strip_prefix("- ") {
+            if !current_key.is_empty() {
+                current_value.push(rest.trim().to_string());
+            }
+        } else if let Some((key, value)) = line.split_once(':') {
+            if !current_key.is_empty() {
+                fields.push(FrontmatterField {
+                    key: current_key.clone(),
+                    value: current_value.join("\n").trim().to_string(),
+                });
+            }
+            current_key = key.trim().to_string();
+            current_value = vec![value.trim().trim_matches('"').trim_matches('\'').to_string()];
+        }
+
+        offset += line_with_break;
+    }
+
+    (Vec::new(), 0)
+}
+
+fn normalize_frontmatter_fields(fields: Vec<FrontmatterField>) -> Vec<FrontmatterField> {
+    fields
+        .into_iter()
+        .filter(|field| !field.key.trim().is_empty() && !field.value.trim().is_empty())
+        .collect()
+}
+
+fn collect_tags(frontmatter: &[FrontmatterField], body: &str) -> Vec<String> {
+    let mut tags = BTreeMap::<String, String>::new();
+
+    for field in frontmatter {
+        if field.key.eq_ignore_ascii_case("tags") {
+            for value in split_tag_values(&field.value) {
+                let normalized = normalize_tag(&value);
+                if !normalized.is_empty() {
+                    tags.entry(normalized.to_ascii_lowercase()).or_insert(normalized);
+                }
+            }
+        }
+    }
+
+    for tag in extract_inline_tags(body) {
+        let normalized = normalize_tag(&tag);
+        if !normalized.is_empty() {
+            tags.entry(normalized.to_ascii_lowercase()).or_insert(normalized);
+        }
+    }
+
+    tags.into_values().collect()
+}
+
+fn split_tag_values(value: &str) -> Vec<String> {
+    let trimmed = value.trim();
+    if trimmed.starts_with('[') && trimmed.ends_with(']') {
+        return trimmed[1..trimmed.len() - 1]
+            .split(',')
+            .map(|part| part.trim().trim_matches('"').trim_matches('\'').to_string())
+            .filter(|part| !part.is_empty())
+            .collect();
+    }
+
+    trimmed
+        .split('\n')
+        .flat_map(|line| line.split(','))
+        .map(|part| part.trim().trim_matches('"').trim_matches('\'').to_string())
+        .filter(|part| !part.is_empty())
+        .collect()
+}
+
+fn normalize_tag(value: &str) -> String {
+    value.trim().trim_start_matches('#').to_string()
+}
+
+fn extract_inline_tags(body: &str) -> Vec<String> {
+    let mut tags = HashSet::new();
+    for token in body.split_whitespace() {
+        if let Some(tag) = token.strip_prefix('#') {
+            let cleaned = tag
+                .trim_matches(|character: char| !character.is_alphanumeric() && character != '-' && character != '_');
+            if !cleaned.is_empty() {
+                tags.insert(cleaned.to_string());
+            }
+        }
+    }
+    let mut values = tags.into_iter().collect::<Vec<_>>();
+    values.sort_by(|left, right| left.to_ascii_lowercase().cmp(&right.to_ascii_lowercase()));
+    values
+}
+
+fn extract_wikilinks(body: &str) -> Vec<(String, String)> {
+    let mut links = Vec::new();
+    let mut start = 0usize;
+
+    while let Some(open) = body[start..].find("[[") {
+        let begin = start + open + 2;
+        let Some(close) = body[begin..].find("]]") else {
+            break;
+        };
+        let end = begin + close;
+        let raw = body[begin..end].trim();
+        if !raw.is_empty() {
+            let (target, label) = if let Some((target, label)) = raw.split_once('|') {
+                (target.trim().to_string(), label.trim().to_string())
+            } else {
+                (raw.to_string(), raw.to_string())
+            };
+            links.push((target, label));
+        }
+        start = end + 2;
+    }
+
+    links
+}
+
+#[derive(Default)]
+struct LinkResolver {
+    by_relative: HashMap<String, ResolverTarget>,
+    by_relative_without_ext: HashMap<String, ResolverTarget>,
+    by_stem: HashMap<String, Vec<ResolverTarget>>,
+}
+
+#[derive(Clone)]
+struct ResolverTarget {
+    path: String,
+    relative_path: String,
+    name: String,
+    source_kind: String,
+}
+
+impl LinkResolver {
+    fn add(&mut self, file: &WorkspaceFile, source_kind: &str) {
+        let target = ResolverTarget {
+            path: file.path.clone(),
+            relative_path: file.relative_path.clone(),
+            name: file.name.clone(),
+            source_kind: source_kind.to_string(),
+        };
+
+        self.by_relative
+            .insert(normalize_lookup_key(&target.relative_path), target.clone());
+        self.by_relative_without_ext
+            .insert(strip_extension(&normalize_lookup_key(&target.relative_path)), target.clone());
+        self.by_stem
+            .entry(strip_extension(&normalize_lookup_key(&file.name)))
+            .or_default()
+            .push(target);
+    }
+
+    fn resolve_link(&self, target: &str, label: &str) -> ResolvedLink {
+        let target_without_anchor = target.split('#').next().unwrap_or(target).trim();
+        let lookup = normalize_lookup_key(target_without_anchor);
+        let resolved = self
+            .by_relative
+            .get(&lookup)
+            .cloned()
+            .or_else(|| self.by_relative_without_ext.get(&strip_extension(&lookup)).cloned())
+            .or_else(|| {
+                let stem = strip_extension(&lookup);
+                self.by_stem.get(&stem).and_then(|targets| {
+                    if targets.len() == 1 {
+                        targets.first().cloned()
+                    } else {
+                        None
+                    }
+                })
+            });
+
+        ResolvedLink {
+            target: target.to_string(),
+            label: if label.trim().is_empty() {
+                target.to_string()
+            } else {
+                label.to_string()
+            },
+            resolved_path: resolved.as_ref().map(|item| item.path.clone()),
+            resolved_relative_path: resolved.as_ref().map(|item| item.relative_path.clone()),
+            resolved_name: resolved.as_ref().map(|item| item.name.clone()),
+            source_kind: resolved.as_ref().map(|item| item.source_kind.clone()),
+        }
+    }
+}
+
+fn normalize_lookup_key(value: &str) -> String {
+    value.replace('\\', "/")
+        .trim_start_matches("./")
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn strip_extension(value: &str) -> String {
+    if let Some((stem, _)) = value.rsplit_once('.') {
+        if !stem.contains('/') {
+            return stem.to_string();
+        }
+
+        let path = Path::new(value);
+        if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
+            let parent = path.parent().and_then(|parent| parent.to_str()).unwrap_or("");
+            return if parent.is_empty() {
+                stem.to_string()
+            } else {
+                format!("{parent}/{stem}")
+            };
+        }
+    }
+
+    value.to_string()
 }
 
 pub(crate) fn search_workspace_files(

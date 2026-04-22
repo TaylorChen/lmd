@@ -56,6 +56,39 @@ export type WorkspaceKnowledge = {
   manifestPath: string;
 };
 
+export type FrontmatterField = {
+  key: string;
+  value: string;
+};
+
+export type KnowledgeLink = {
+  target: string;
+  label: string;
+  resolvedPath: string | null;
+  resolvedRelativePath: string | null;
+  resolvedName: string | null;
+  sourceKind: "note" | "source" | "wiki" | null;
+};
+
+export type Backlink = {
+  path: string;
+  relativePath: string;
+  name: string;
+  sourceKind: "note" | "source" | "wiki";
+  label: string;
+};
+
+export type DocumentKnowledge = {
+  currentPath: string;
+  currentRelativePath: string;
+  frontmatter: FrontmatterField[];
+  tags: string[];
+  outgoingLinks: KnowledgeLink[];
+  backlinks: Backlink[];
+  unresolvedLinks: KnowledgeLink[];
+  relatedWikiPages: Backlink[];
+};
+
 export type SearchMatch = {
   path: string;
   relativePath: string;

@@ -48,6 +48,53 @@ async function installTauriMock(page: Page) {
           };
         }
 
+        if (command === "document_knowledge") {
+          return {
+            currentPath: String(args?.currentPath ?? "/workspace/alpha.md"),
+            currentRelativePath: "alpha.md",
+            frontmatter: [{ key: "title", value: "Alpha" }],
+            tags: ["writing", "focus"],
+            outgoingLinks: [
+              {
+                target: "Beta",
+                label: "Beta",
+                resolvedPath: "/workspace/wiki/beta.md",
+                resolvedRelativePath: "wiki/beta.md",
+                resolvedName: "beta.md",
+                sourceKind: "wiki",
+              },
+            ],
+            backlinks: [
+              {
+                path: "/workspace/wiki/overview.md",
+                relativePath: "wiki/overview.md",
+                name: "overview.md",
+                sourceKind: "wiki",
+                label: "Alpha",
+              },
+            ],
+            unresolvedLinks: [
+              {
+                target: "Missing Topic",
+                label: "Missing Topic",
+                resolvedPath: null,
+                resolvedRelativePath: null,
+                resolvedName: null,
+                sourceKind: null,
+              },
+            ],
+            relatedWikiPages: [
+              {
+                path: "/workspace/wiki/overview.md",
+                relativePath: "wiki/overview.md",
+                name: "overview.md",
+                sourceKind: "wiki",
+                label: "Alpha",
+              },
+            ],
+          };
+        }
+
         if (command === "initialize_knowledge_workspace") {
           return {
             rootPath: "/workspace",
@@ -231,4 +278,27 @@ test("initializes a knowledge workspace", async ({ page }) => {
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "initialize_knowledge_workspace"),
   );
   expect(initCall?.args).toMatchObject({ rootPath: "/workspace" });
+});
+
+test("shows document knowledge for initialized workspaces", async ({ page }) => {
+  await page.getByRole("button", { name: "Workspace" }).click();
+  await page.getByRole("button", { name: "Init Knowledge" }).click();
+
+  await page.locator(".file-list .file-item").first().focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "alpha.md" })).toBeVisible();
+  await page.getByRole("button", { name: "Split" }).click();
+  await page.locator(".toolbar").getByRole("button", { name: "Knowledge" }).click();
+
+  await expect(page.getByText("wiki/overview.md")).toBeVisible();
+  await expect(page.getByText("#writing")).toBeVisible();
+  await expect(page.locator(".knowledge-link-item.unresolved strong").first()).toHaveText("Missing Topic");
+
+  const knowledgeCall = await page.evaluate(() =>
+    window.__LMD_TEST_CALLS__?.find((call) => call.command === "document_knowledge"),
+  );
+  expect(knowledgeCall?.args).toMatchObject({
+    rootPath: "/workspace",
+    currentPath: "/workspace/alpha.md",
+  });
 });

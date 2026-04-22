@@ -75,6 +75,19 @@ fn search_workspace(
 }
 
 #[tauri::command]
+fn document_knowledge(
+    root_path: String,
+    current_path: String,
+    current_content: Option<String>,
+) -> Result<workspace::DocumentKnowledge, String> {
+    workspace::document_knowledge(
+        &PathBuf::from(root_path),
+        &PathBuf::from(current_path),
+        current_content.as_deref(),
+    )
+}
+
+#[tauri::command]
 fn load_markdown_range(
     state: tauri::State<'_, AppState>,
     path: String,
@@ -159,6 +172,7 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             document_stats,
+            document_knowledge,
             export_markdown_html,
             export_markdown_pdf,
             file_metadata,
@@ -183,9 +197,10 @@ mod tests {
     };
     use super::export::{export_html_document, export_pdf, pdf_document};
     use super::workspace::{
-        initialize_knowledge_workspace, load_workspace, scan_workspace, search_workspace_files,
+        document_knowledge, initialize_knowledge_workspace, load_workspace, scan_workspace,
+        search_workspace_files,
     };
-    use serde_json::to_value;
+    use serde_json::{json, to_value};
     use std::{
         fs,
         path::PathBuf,
@@ -387,6 +402,41 @@ mod tests {
 
         let loaded = load_workspace(&root).expect("reload initialized workspace");
         assert!(loaded.knowledge.is_initialized);
+
+        fs::remove_dir_all(root).expect("remove workspace");
+    }
+
+    #[test]
+    fn builds_document_knowledge_with_links_and_backlinks() {
+        let root = temp_workspace_path("document-knowledge");
+        fs::create_dir_all(root.join("notes")).expect("create notes");
+        fs::create_dir_all(root.join("wiki/concepts")).expect("create wiki");
+        fs::write(
+            root.join("notes/alpha.md"),
+            "---\ntags:\n- focus\n- draft\n---\n# Alpha\n\nLink to [[Beta]] and [[Missing Page]].\n\n#writing",
+        )
+        .expect("write alpha");
+        fs::write(
+            root.join("wiki/concepts/beta.md"),
+            "# Beta\n\nBacklink to [[alpha]].",
+        )
+        .expect("write beta");
+
+        let knowledge = document_knowledge(
+            &root,
+            &root.join("notes/alpha.md"),
+            None,
+        )
+        .expect("document knowledge");
+        let knowledge_json = to_value(knowledge).expect("serialize knowledge");
+
+        assert_eq!(knowledge_json["currentRelativePath"], "notes/alpha.md");
+        assert_eq!(knowledge_json["tags"], json!(["draft", "focus", "writing"]));
+        assert_eq!(knowledge_json["outgoingLinks"][0]["resolvedRelativePath"], "wiki/concepts/beta.md");
+        assert_eq!(knowledge_json["outgoingLinks"][0]["sourceKind"], "wiki");
+        assert_eq!(knowledge_json["unresolvedLinks"][0]["target"], "Missing Page");
+        assert_eq!(knowledge_json["backlinks"][0]["relativePath"], "wiki/concepts/beta.md");
+        assert_eq!(knowledge_json["relatedWikiPages"][0]["relativePath"], "wiki/concepts/beta.md");
 
         fs::remove_dir_all(root).expect("remove workspace");
     }

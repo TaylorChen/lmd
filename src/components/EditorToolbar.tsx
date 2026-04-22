@@ -14,10 +14,13 @@ type EditorToolbarProps = {
   search: string;
   matches: number;
   mode: EditorMode;
+  inspectorTab: "preview" | "knowledge";
+  canShowKnowledge: boolean;
   onPreviousWindow: () => void;
   onNextWindow: () => void;
   onSearchChange: (search: string) => void;
   onModeChange: (mode: EditorMode) => void;
+  onInspectorTabChange: (tab: "preview" | "knowledge") => void;
 };
 
 export function EditorToolbar({
@@ -33,10 +36,13 @@ export function EditorToolbar({
   search,
   matches,
   mode,
+  inspectorTab,
+  canShowKnowledge,
   onPreviousWindow,
   onNextWindow,
   onSearchChange,
   onModeChange,
+  onInspectorTabChange,
 }: EditorToolbarProps) {
   return (
     <header className="toolbar">
@@ -74,6 +80,25 @@ export function EditorToolbar({
           </button>
         ))}
       </div>
+
+      {canShowKnowledge && mode !== "edit" && (
+        <div className="mode-switch" aria-label="Inspector tab">
+          <button
+            type="button"
+            className={inspectorTab === "preview" ? "active" : ""}
+            onClick={() => onInspectorTabChange("preview")}
+          >
+            Preview
+          </button>
+          <button
+            type="button"
+            className={inspectorTab === "knowledge" ? "active" : ""}
+            onClick={() => onInspectorTabChange("knowledge")}
+          >
+            Knowledge
+          </button>
+        </div>
+      )}
 
       <label className="search-box">
         <span>{isLarge ? "Search window" : "Search"}</span>
