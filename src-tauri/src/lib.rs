@@ -409,6 +409,7 @@ mod tests {
         let index_cache = fs::read_to_string(root.join(".lmd/knowledge/index.json"))
             .expect("read index cache");
         assert!(index_cache.contains("\"documentCount\""));
+        assert!(index_cache.contains("\"links\""));
 
         let loaded = load_workspace(&root).expect("reload initialized workspace");
         assert!(loaded.knowledge.is_initialized);

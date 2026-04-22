@@ -335,6 +335,7 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
     rootPath: "/workspace",
     currentPath: "/workspace/alpha.md",
   });
+  expect(knowledgeCall?.args?.currentContent).toBeUndefined();
 
   const lintCall = await page.evaluate(() =>
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "knowledge_lint_report"),

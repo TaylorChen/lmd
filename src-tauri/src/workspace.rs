@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{json, Value};
 
 const MAX_WORKSPACE_FILES: usize = 5000;
@@ -98,7 +98,7 @@ pub(crate) struct WorkspaceKnowledge {
     pub(crate) manifest_path: String,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FrontmatterField {
     pub(crate) key: String,
@@ -156,7 +156,7 @@ pub(crate) struct KnowledgeLintReport {
     pub(crate) issues: Vec<KnowledgeLintIssue>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct IndexedDocument {
     path: String,
     relative_path: String,
@@ -167,28 +167,15 @@ struct IndexedDocument {
     links: Vec<ResolvedLink>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct KnowledgeIndexSnapshot {
     generated_at: String,
     document_count: usize,
-    documents: Vec<KnowledgeIndexDocument>,
+    documents: Vec<IndexedDocument>,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct KnowledgeIndexDocument {
-    path: String,
-    relative_path: String,
-    name: String,
-    source_kind: String,
-    tags: Vec<String>,
-    frontmatter: Vec<FrontmatterField>,
-    resolved_link_count: usize,
-    unresolved_link_count: usize,
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct ResolvedLink {
     target: String,
     label: String,
@@ -324,7 +311,11 @@ pub(crate) fn document_knowledge(
     current_content: Option<&str>,
 ) -> Result<DocumentKnowledge, String> {
     let files = scan_workspace(root)?;
-    let indexed = index_workspace_documents(&files, current_path, current_content)?;
+    let indexed = if current_content.is_some() {
+        index_workspace_documents(&files, current_path, current_content)?
+    } else {
+        load_or_build_index_cache(root, &files)?
+    };
     let current_key = current_path.to_string_lossy().to_string();
 
     let current = indexed
@@ -387,7 +378,7 @@ pub(crate) fn document_knowledge(
 
 pub(crate) fn knowledge_lint_report(root: &Path) -> Result<KnowledgeLintReport, String> {
     let files = scan_workspace(root)?;
-    let indexed = index_workspace_documents(&files, &root.join("__lmd_none__.md"), None)?;
+    let indexed = load_or_build_index_cache(root, &files)?;
     let index_path = root.join("wiki/index.md").to_string_lossy().to_string();
     let linked_from_index = indexed
         .iter()
@@ -583,37 +574,53 @@ fn default_manifest(root: &Path, schema_path: &Path) -> Value {
 
 fn write_knowledge_index_cache(root: &Path, files: &[WorkspaceFile]) -> Result<(), String> {
     let indexed = index_workspace_documents(files, &root.join("__lmd_none__.md"), None)?;
-    let snapshot = KnowledgeIndexSnapshot {
-        generated_at: format!("{:?}", std::time::SystemTime::now()),
-        document_count: indexed.len(),
-        documents: indexed
-            .into_iter()
-            .map(|document| {
-                let resolved_link_count = document
-                    .links
-                    .iter()
-                    .filter(|link| link.resolved_path.is_some())
-                    .count();
-                let unresolved_link_count = document.links.len().saturating_sub(resolved_link_count);
+    write_index_snapshot(root, indexed)
+}
 
-                KnowledgeIndexDocument {
-                    path: document.path,
-                    relative_path: document.relative_path,
-                    name: document.name,
-                    source_kind: document.source_kind,
-                    tags: document.tags,
-                    frontmatter: document.frontmatter,
-                    resolved_link_count,
-                    unresolved_link_count,
-                }
-            })
-            .collect(),
+fn write_index_snapshot(root: &Path, indexed: Vec<IndexedDocument>) -> Result<(), String> {
+    let snapshot = KnowledgeIndexSnapshot {
+        generated_at: format!(
+            "{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        ),
+        document_count: indexed.len(),
+        documents: indexed,
     };
     let cache_path = root.join(".lmd/knowledge/index.json");
+    if let Some(parent) = cache_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Could not create {}: {error}", parent.display()))?;
+    }
     let json = serde_json::to_string_pretty(&snapshot)
         .map_err(|error| format!("Could not encode {}: {error}", cache_path.display()))?;
     fs::write(&cache_path, format!("{json}\n"))
         .map_err(|error| format!("Could not write {}: {error}", cache_path.display()))
+}
+
+fn load_or_build_index_cache(root: &Path, files: &[WorkspaceFile]) -> Result<Vec<IndexedDocument>, String> {
+    if let Some(indexed) = load_knowledge_index_cache(root)? {
+        return Ok(indexed);
+    }
+
+    let indexed = index_workspace_documents(files, &root.join("__lmd_none__.md"), None)?;
+    write_index_snapshot(root, indexed.clone())?;
+    Ok(indexed)
+}
+
+fn load_knowledge_index_cache(root: &Path) -> Result<Option<Vec<IndexedDocument>>, String> {
+    let cache_path = root.join(".lmd/knowledge/index.json");
+    if !cache_path.is_file() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&cache_path)
+        .map_err(|error| format!("Could not read {}: {error}", cache_path.display()))?;
+    let snapshot = serde_json::from_str::<KnowledgeIndexSnapshot>(&raw)
+        .map_err(|error| format!("Could not decode {}: {error}", cache_path.display()))?;
+    Ok(Some(snapshot.documents))
 }
 
 fn index_workspace_documents(

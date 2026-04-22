@@ -453,7 +453,7 @@ export default function App() {
           invokeCommand<DocumentKnowledge>("document_knowledge", {
             rootPath: workspace.rootPath,
             currentPath: path,
-            currentContent: content,
+            currentContent: isDirty ? content : undefined,
           }),
           invokeCommand<KnowledgeLintReport>("knowledge_lint_report", {
             rootPath: workspace.rootPath,
@@ -472,7 +472,7 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [workspace, path, content]);
+  }, [workspace, path, content, isDirty]);
 
   useEffect(() => {
     let cancelled = false;
