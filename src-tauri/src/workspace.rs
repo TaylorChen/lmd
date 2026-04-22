@@ -539,40 +539,6 @@ pub(crate) fn query_context(
     })
 }
 
-pub(crate) fn summarize_query_context_with_provider(
-    context: &QueryContext,
-    provider: &str,
-    model: &str,
-) -> AssistantDraft {
-    let mut content = String::new();
-    content.push_str("# ");
-    content.push_str(&suggest_wiki_title(context));
-    content.push_str("\n\n");
-    content.push_str(&format!("_Provider: {provider} / {model}_\n\n"));
-    content.push_str("## Summary\n\n");
-    content.push_str(&format!(
-        "This draft was assembled from {} context items around `{}`.\n\n",
-        context.items.len(),
-        context.current_relative_path
-    ));
-
-    for item in &context.items {
-        content.push_str(&format!(
-            "- **{}** (`{}` / `{}`): {}\n",
-            item.name, item.source_kind, item.reason, item.excerpt
-        ));
-    }
-
-    content.push_str("\n## Notes\n\n");
-    content.push_str("- Expand the strongest threads into durable wiki pages.\n");
-    content.push_str("- Replace placeholder synthesis with reviewed prose before publishing.\n");
-
-    AssistantDraft {
-        title: suggest_wiki_title(context),
-        content,
-    }
-}
-
 pub(crate) fn save_wiki_draft(
     root: &Path,
     title: &str,
@@ -841,15 +807,6 @@ fn excerpt_for_content(content: &str) -> String {
         .chars()
         .take(280)
         .collect()
-}
-
-fn suggest_wiki_title(context: &QueryContext) -> String {
-    let base = Path::new(&context.current_relative_path)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("context")
-        .replace(['-', '_'], " ");
-    format!("{base} summary")
 }
 
 fn slugify_title(title: &str) -> String {

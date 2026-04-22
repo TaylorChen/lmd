@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+mod assistant;
 mod document;
 mod export;
 mod workspace;
@@ -118,10 +119,12 @@ fn summarize_query_context(
         &PathBuf::from(current_path),
         current_content.as_deref(),
     )?;
-    Ok(workspace::summarize_query_context_with_provider(
-        &context,
-        provider.as_deref().unwrap_or("builtin"),
-        model.as_deref().unwrap_or("local-summary-v1"),
+    Ok(assistant::summarize_query_context(
+        assistant::AssistantRequest {
+            provider: provider.as_deref().unwrap_or(assistant::DEFAULT_PROVIDER),
+            model: model.as_deref().unwrap_or(assistant::DEFAULT_MODEL),
+            context: &context,
+        },
     ))
 }
 
@@ -242,11 +245,14 @@ mod tests {
         build_index, file_metadata, open_markdown_path, read_line_range, save_markdown_file,
         DocumentCache,
     };
+    use super::assistant::{
+        summarize_query_context as summarize_assistant_query_context, AssistantRequest,
+    };
     use super::export::{export_html_document, export_pdf, pdf_document};
     use super::workspace::{
         document_knowledge, initialize_knowledge_workspace, knowledge_lint_report, load_workspace,
-        query_context, save_wiki_draft, scan_workspace, search_workspace_files,
-        summarize_query_context_with_provider,
+        query_context, save_wiki_draft, scan_workspace, search_workspace_files, QueryContext,
+        QueryContextItem,
     };
     use serde_json::{json, to_value};
     use std::{
@@ -560,8 +566,11 @@ mod tests {
         fs::write(root.join("notes/topic.md"), "# Topic\n\nBody").expect("write topic");
 
         let context = query_context(&root, &root.join("notes/topic.md"), None).expect("query context");
-        let draft =
-            summarize_query_context_with_provider(&context, "builtin", "local-summary-v1");
+        let draft = summarize_assistant_query_context(AssistantRequest {
+            provider: "builtin",
+            model: "local-summary-v1",
+            context: &context,
+        });
         assert!(draft.title.contains("topic"));
         assert!(draft.content.contains("Summary"));
 
@@ -578,6 +587,31 @@ mod tests {
         assert!(index_content.contains("topic-summary.md"));
 
         fs::remove_dir_all(root).expect("remove workspace");
+    }
+
+    #[test]
+    fn selects_mock_provider_adapter_for_assistant_summary() {
+        let context = QueryContext {
+            current_path: "/tmp/topic.md".to_string(),
+            current_relative_path: "notes/topic.md".to_string(),
+            items: vec![QueryContextItem {
+                path: "/tmp/topic.md".to_string(),
+                relative_path: "notes/topic.md".to_string(),
+                name: "topic.md".to_string(),
+                source_kind: "note".to_string(),
+                reason: "current_document".to_string(),
+                excerpt: "Topic excerpt".to_string(),
+            }],
+        };
+
+        let draft = summarize_assistant_query_context(AssistantRequest {
+            provider: "mock_openai",
+            model: "gpt-mock",
+            context: &context,
+        });
+
+        assert!(draft.content.contains("_Provider: mock_openai / gpt-mock_"));
+        assert!(draft.content.contains("mock_openai adapter active"));
     }
 
     #[test]
