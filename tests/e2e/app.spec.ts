@@ -125,6 +125,31 @@ async function installTauriMock(page: Page) {
           };
         }
 
+        if (command === "query_context") {
+          return {
+            currentPath: String(args?.currentPath ?? "/workspace/alpha.md"),
+            currentRelativePath: "alpha.md",
+            items: [
+              {
+                path: "/workspace/alpha.md",
+                relativePath: "alpha.md",
+                name: "alpha.md",
+                sourceKind: "note",
+                reason: "current_document",
+                excerpt: "Opened from workspace.",
+              },
+              {
+                path: "/workspace/wiki/overview.md",
+                relativePath: "wiki/overview.md",
+                name: "overview.md",
+                sourceKind: "wiki",
+                reason: "linked_wiki",
+                excerpt: "Overview context excerpt.",
+              },
+            ],
+          };
+        }
+
         if (command === "initialize_knowledge_workspace") {
           return {
             rootPath: "/workspace",
@@ -327,6 +352,7 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
   await expect(page.getByRole("button", { name: "Open index.md" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open log.md" })).toBeVisible();
   await expect(page.getByText("Unresolved link: Missing Topic")).toBeVisible();
+  await expect(page.getByText("Overview context excerpt.")).toBeVisible();
 
   const knowledgeCall = await page.evaluate(() =>
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "document_knowledge"),
@@ -341,4 +367,12 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "knowledge_lint_report"),
   );
   expect(lintCall?.args).toMatchObject({ rootPath: "/workspace" });
+
+  const contextCall = await page.evaluate(() =>
+    window.__LMD_TEST_CALLS__?.find((call) => call.command === "query_context"),
+  );
+  expect(contextCall?.args).toMatchObject({
+    rootPath: "/workspace",
+    currentPath: "/workspace/alpha.md",
+  });
 });

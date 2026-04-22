@@ -93,6 +93,19 @@ fn knowledge_lint_report(root_path: String) -> Result<workspace::KnowledgeLintRe
 }
 
 #[tauri::command]
+fn query_context(
+    root_path: String,
+    current_path: String,
+    current_content: Option<String>,
+) -> Result<workspace::QueryContext, String> {
+    workspace::query_context(
+        &PathBuf::from(root_path),
+        &PathBuf::from(current_path),
+        current_content.as_deref(),
+    )
+}
+
+#[tauri::command]
 fn load_markdown_range(
     state: tauri::State<'_, AppState>,
     path: String,
@@ -187,6 +200,7 @@ pub fn run() {
             open_markdown_file,
             open_markdown_path,
             open_workspace,
+            query_context,
             refresh_workspace,
             search_workspace,
             save_markdown_file
@@ -204,7 +218,7 @@ mod tests {
     use super::export::{export_html_document, export_pdf, pdf_document};
     use super::workspace::{
         document_knowledge, initialize_knowledge_workspace, knowledge_lint_report, load_workspace,
-        scan_workspace, search_workspace_files,
+        query_context, scan_workspace, search_workspace_files,
     };
     use serde_json::{json, to_value};
     use std::{
@@ -477,6 +491,33 @@ mod tests {
         assert!(issues
             .iter()
             .any(|issue| issue["kind"] == "not_in_index" && issue["relativePath"] == "wiki/orphan.md"));
+
+        fs::remove_dir_all(root).expect("remove workspace");
+    }
+
+    #[test]
+    fn builds_query_context_from_current_and_related_documents() {
+        let root = temp_workspace_path("query-context");
+        fs::create_dir_all(root.join("notes")).expect("create notes");
+        fs::create_dir_all(root.join("wiki")).expect("create wiki");
+        fs::create_dir_all(root.join("sources")).expect("create sources");
+        fs::write(root.join("wiki/index.md"), "# Index\n\n[[overview]]").expect("write index");
+        fs::write(
+            root.join("notes/topic.md"),
+            "# Topic\n\n[[overview]]\n[[source material]]",
+        )
+        .expect("write topic");
+        fs::write(root.join("wiki/overview.md"), "# Overview\n\nBacklink [[topic]]").expect("write overview");
+        fs::write(root.join("sources/source material.md"), "# Source Material\n\nFacts").expect("write source");
+
+        let context = query_context(&root, &root.join("notes/topic.md"), None).expect("query context");
+        let context_json = to_value(context).expect("serialize query context");
+        let items = context_json["items"].as_array().expect("items");
+
+        assert!(items.iter().any(|item| item["reason"] == "current_document"));
+        assert!(items.iter().any(|item| item["reason"] == "linked_wiki"));
+        assert!(items.iter().any(|item| item["reason"] == "source_reference"));
+        assert!(items.iter().any(|item| item["reason"] == "index_hint"));
 
         fs::remove_dir_all(root).expect("remove workspace");
     }

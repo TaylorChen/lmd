@@ -1,8 +1,9 @@
-import type { Backlink, DocumentKnowledge, KnowledgeLintReport } from "../types";
+import type { Backlink, DocumentKnowledge, KnowledgeLintReport, QueryContext } from "../types";
 
 type KnowledgePanelProps = {
   knowledge: DocumentKnowledge | null;
   lint: KnowledgeLintReport | null;
+  queryContext: QueryContext | null;
   workspaceIndexPath: string | null;
   workspaceLogPath: string | null;
   busy: boolean;
@@ -19,6 +20,7 @@ function sourceKindLabel(value: Backlink["sourceKind"] | "unknown" | null) {
 export function KnowledgePanel({
   knowledge,
   lint,
+  queryContext,
   workspaceIndexPath,
   workspaceLogPath,
   busy,
@@ -62,6 +64,34 @@ export function KnowledgePanel({
               </button>
             )}
           </div>
+        )}
+      </section>
+
+      <section className="knowledge-section">
+        <div className="knowledge-header">
+          <span className="label">Query Context</span>
+          <small>{queryContext?.items.length.toLocaleString() ?? "0"}</small>
+        </div>
+        {queryContext && queryContext.items.length > 0 ? (
+          <div className="knowledge-link-list">
+            {queryContext.items.map((item, index) => (
+              <button
+                type="button"
+                key={`${item.path}:${item.reason}:${index}`}
+                className="knowledge-link-item"
+                onClick={() => onOpenPath(item.path, item.name)}
+                disabled={busy}
+                title={item.relativePath}
+              >
+                <strong>{item.name}</strong>
+                <span>{item.relativePath}</span>
+                <small>{item.reason}</small>
+                <em>{item.excerpt || "No excerpt available."}</em>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="knowledge-empty">No query context assembled yet.</p>
         )}
       </section>
 

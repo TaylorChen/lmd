@@ -156,6 +156,25 @@ pub(crate) struct KnowledgeLintReport {
     pub(crate) issues: Vec<KnowledgeLintIssue>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct QueryContextItem {
+    pub(crate) path: String,
+    pub(crate) relative_path: String,
+    pub(crate) name: String,
+    pub(crate) source_kind: String,
+    pub(crate) reason: String,
+    pub(crate) excerpt: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct QueryContext {
+    pub(crate) current_path: String,
+    pub(crate) current_relative_path: String,
+    pub(crate) items: Vec<QueryContextItem>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct IndexedDocument {
     path: String,
@@ -456,6 +475,63 @@ pub(crate) fn knowledge_lint_report(root: &Path) -> Result<KnowledgeLintReport, 
     Ok(KnowledgeLintReport { issues })
 }
 
+pub(crate) fn query_context(
+    root: &Path,
+    current_path: &Path,
+    current_content: Option<&str>,
+) -> Result<QueryContext, String> {
+    let files = scan_workspace(root)?;
+    let indexed = if current_content.is_some() {
+        index_workspace_documents(&files, current_path, current_content)?
+    } else {
+        load_or_build_index_cache(root, &files)?
+    };
+    let current_key = current_path.to_string_lossy().to_string();
+    let current = indexed
+        .iter()
+        .find(|document| document.path == current_key)
+        .ok_or_else(|| format!("Current document is not inside workspace: {}", current_path.display()))?;
+    let current_text = match current_content {
+        Some(content) => content.to_string(),
+        None => fs::read_to_string(current_path)
+            .map_err(|error| format!("Could not read {}: {error}", current_path.display()))?,
+    };
+
+    let mut items = vec![QueryContextItem {
+        path: current.path.clone(),
+        relative_path: current.relative_path.clone(),
+        name: current.name.clone(),
+        source_kind: current.source_kind.clone(),
+        reason: "current_document".to_string(),
+        excerpt: excerpt_for_content(&current_text),
+    }];
+
+    let mut seen = HashSet::from([current.path.clone()]);
+    for (reason, allowed_kind) in [
+        ("linked_wiki", Some("wiki")),
+        ("source_reference", Some("source")),
+        ("backlink", None),
+        ("index_hint", Some("wiki")),
+    ] {
+        for item in collect_context_candidates(
+            root,
+            &indexed,
+            current,
+            reason,
+            allowed_kind,
+            &mut seen,
+        )? {
+            items.push(item);
+        }
+    }
+
+    Ok(QueryContext {
+        current_path: current.path.clone(),
+        current_relative_path: current.relative_path.clone(),
+        items,
+    })
+}
+
 pub(crate) fn inspect_workspace(root: &Path) -> WorkspaceKnowledge {
     let notes_path = root.join("notes");
     let sources_path = root.join("sources");
@@ -621,6 +697,94 @@ fn load_knowledge_index_cache(root: &Path) -> Result<Option<Vec<IndexedDocument>
     let snapshot = serde_json::from_str::<KnowledgeIndexSnapshot>(&raw)
         .map_err(|error| format!("Could not decode {}: {error}", cache_path.display()))?;
     Ok(Some(snapshot.documents))
+}
+
+fn collect_context_candidates(
+    root: &Path,
+    indexed: &[IndexedDocument],
+    current: &IndexedDocument,
+    reason: &str,
+    allowed_kind: Option<&str>,
+    seen: &mut HashSet<String>,
+) -> Result<Vec<QueryContextItem>, String> {
+    let current_backlinks = collect_backlinks(indexed, &current.path);
+    let mut candidates = Vec::new();
+
+    match reason {
+        "linked_wiki" | "source_reference" => {
+            for link in &current.links {
+                let Some(path) = &link.resolved_path else {
+                    continue;
+                };
+                if seen.contains(path) {
+                    continue;
+                }
+                if let Some(kind) = allowed_kind {
+                    if link.source_kind.as_deref() != Some(kind) {
+                        continue;
+                    }
+                }
+                if let Some(document) = indexed.iter().find(|document| document.path == *path) {
+                    candidates.push(build_query_context_item(root, document, reason)?);
+                    seen.insert(path.clone());
+                }
+            }
+        }
+        "backlink" => {
+            for backlink in current_backlinks {
+                if seen.contains(&backlink.path) {
+                    continue;
+                }
+                if let Some(document) = indexed.iter().find(|document| document.path == backlink.path) {
+                    candidates.push(build_query_context_item(root, document, reason)?);
+                    seen.insert(backlink.path);
+                }
+            }
+        }
+        "index_hint" => {
+            let index_path = root.join("wiki/index.md").to_string_lossy().to_string();
+            if !seen.contains(&index_path) {
+                if let Some(document) = indexed.iter().find(|document| document.path == index_path) {
+                    candidates.push(build_query_context_item(root, document, reason)?);
+                    seen.insert(index_path);
+                }
+            }
+        }
+        _ => {}
+    }
+
+    Ok(candidates)
+}
+
+fn build_query_context_item(
+    _root: &Path,
+    document: &IndexedDocument,
+    reason: &str,
+) -> Result<QueryContextItem, String> {
+    let content = fs::read_to_string(&document.path)
+        .map_err(|error| format!("Could not read {}: {error}", document.path))?;
+    Ok(QueryContextItem {
+        path: document.path.clone(),
+        relative_path: document.relative_path.clone(),
+        name: document.name.clone(),
+        source_kind: document.source_kind.clone(),
+        reason: reason.to_string(),
+        excerpt: excerpt_for_content(&content),
+    })
+}
+
+fn excerpt_for_content(content: &str) -> String {
+    content
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .take(4)
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(280)
+        .collect()
 }
 
 fn index_workspace_documents(

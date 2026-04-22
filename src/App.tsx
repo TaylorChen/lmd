@@ -23,6 +23,7 @@ import type {
   RecentFile,
   SaveResult,
   SearchMatch,
+  QueryContext,
   Workspace,
   WorkspaceFile,
 } from "./types";
@@ -56,6 +57,7 @@ export default function App() {
   const [inspectorTab, setInspectorTab] = useState<"preview" | "knowledge">("preview");
   const [documentKnowledge, setDocumentKnowledge] = useState<DocumentKnowledge | null>(null);
   const [knowledgeLint, setKnowledgeLint] = useState<KnowledgeLintReport | null>(null);
+  const [queryContext, setQueryContext] = useState<QueryContext | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -86,6 +88,7 @@ export default function App() {
   function clearKnowledge() {
     setDocumentKnowledge(null);
     setKnowledgeLint(null);
+    setQueryContext(null);
   }
 
   function rememberDocument(documentPath: string) {
@@ -449,7 +452,7 @@ export default function App() {
       }
 
       try {
-        const [knowledge, lint] = await Promise.all([
+        const [knowledge, lint, context] = await Promise.all([
           invokeCommand<DocumentKnowledge>("document_knowledge", {
             rootPath: workspace.rootPath,
             currentPath: path,
@@ -458,10 +461,16 @@ export default function App() {
           invokeCommand<KnowledgeLintReport>("knowledge_lint_report", {
             rootPath: workspace.rootPath,
           }),
+          invokeCommand<QueryContext>("query_context", {
+            rootPath: workspace.rootPath,
+            currentPath: path,
+            currentContent: isDirty ? content : undefined,
+          }),
         ]);
         if (!cancelled) {
           setDocumentKnowledge(knowledge);
           setKnowledgeLint(lint);
+          setQueryContext(context);
         }
       } catch {
         if (!cancelled) clearKnowledge();
@@ -635,6 +644,7 @@ export default function App() {
               <KnowledgePanel
                 knowledge={documentKnowledge}
                 lint={knowledgeLint}
+                queryContext={queryContext}
                 workspaceIndexPath={workspace ? `${workspace.knowledge.wikiPath}/index.md` : null}
                 workspaceLogPath={workspace ? `${workspace.knowledge.wikiPath}/log.md` : null}
                 busy={busy}

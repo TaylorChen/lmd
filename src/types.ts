@@ -102,6 +102,21 @@ export type KnowledgeLintReport = {
   issues: KnowledgeLintIssue[];
 };
 
+export type QueryContextItem = {
+  path: string;
+  relativePath: string;
+  name: string;
+  sourceKind: "note" | "source" | "wiki";
+  reason: "current_document" | "linked_wiki" | "source_reference" | "backlink" | "index_hint";
+  excerpt: string;
+};
+
+export type QueryContext = {
+  currentPath: string;
+  currentRelativePath: string;
+  items: QueryContextItem[];
+};
+
 export type SearchMatch = {
   path: string;
   relativePath: string;
