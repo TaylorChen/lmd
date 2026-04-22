@@ -137,6 +137,7 @@ pub(crate) struct DocumentKnowledge {
     pub(crate) backlinks: Vec<Backlink>,
     pub(crate) unresolved_links: Vec<KnowledgeLink>,
     pub(crate) related_wiki_pages: Vec<Backlink>,
+    pub(crate) source_references: Vec<Backlink>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -164,6 +165,27 @@ struct IndexedDocument {
     frontmatter: Vec<FrontmatterField>,
     tags: Vec<String>,
     links: Vec<ResolvedLink>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KnowledgeIndexSnapshot {
+    generated_at: String,
+    document_count: usize,
+    documents: Vec<KnowledgeIndexDocument>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KnowledgeIndexDocument {
+    path: String,
+    relative_path: String,
+    name: String,
+    source_kind: String,
+    tags: Vec<String>,
+    frontmatter: Vec<FrontmatterField>,
+    resolved_link_count: usize,
+    unresolved_link_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -323,6 +345,32 @@ pub(crate) fn document_knowledge(
         .filter(|link| link.source_kind == "wiki")
         .cloned()
         .collect::<Vec<_>>();
+    let mut source_references = current
+        .links
+        .iter()
+        .filter(|link| link.source_kind.as_deref() == Some("source"))
+        .filter_map(|link| {
+            Some(Backlink {
+                path: link.resolved_path.clone()?,
+                relative_path: link.resolved_relative_path.clone()?,
+                name: link.resolved_name.clone().unwrap_or_else(|| link.label.clone()),
+                source_kind: "source".to_string(),
+                label: link.label.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+    source_references.extend(
+        backlinks
+            .iter()
+            .filter(|link| link.source_kind == "source")
+            .cloned(),
+    );
+    source_references.sort_by(|left, right| {
+        left.relative_path
+            .to_ascii_lowercase()
+            .cmp(&right.relative_path.to_ascii_lowercase())
+    });
+    source_references.dedup_by(|left, right| left.path == right.path);
 
     Ok(DocumentKnowledge {
         current_path: current.path.clone(),
@@ -333,6 +381,7 @@ pub(crate) fn document_knowledge(
         backlinks,
         unresolved_links,
         related_wiki_pages,
+        source_references,
     })
 }
 
@@ -445,11 +494,16 @@ pub(crate) fn inspect_workspace(root: &Path) -> WorkspaceKnowledge {
 
 pub(crate) fn load_workspace(root: &Path) -> Result<Workspace, String> {
     let files = scan_workspace(root)?;
+    let knowledge = inspect_workspace(root);
+
+    if knowledge.is_initialized {
+        write_knowledge_index_cache(root, &files)?;
+    }
 
     Ok(Workspace {
         root_path: root.to_string_lossy().to_string(),
         files,
-        knowledge: inspect_workspace(root),
+        knowledge,
     })
 }
 
@@ -525,6 +579,41 @@ fn default_manifest(root: &Path, schema_path: &Path) -> Value {
         "integrationMode": "external_command",
         "indexVersion": 1
     })
+}
+
+fn write_knowledge_index_cache(root: &Path, files: &[WorkspaceFile]) -> Result<(), String> {
+    let indexed = index_workspace_documents(files, &root.join("__lmd_none__.md"), None)?;
+    let snapshot = KnowledgeIndexSnapshot {
+        generated_at: format!("{:?}", std::time::SystemTime::now()),
+        document_count: indexed.len(),
+        documents: indexed
+            .into_iter()
+            .map(|document| {
+                let resolved_link_count = document
+                    .links
+                    .iter()
+                    .filter(|link| link.resolved_path.is_some())
+                    .count();
+                let unresolved_link_count = document.links.len().saturating_sub(resolved_link_count);
+
+                KnowledgeIndexDocument {
+                    path: document.path,
+                    relative_path: document.relative_path,
+                    name: document.name,
+                    source_kind: document.source_kind,
+                    tags: document.tags,
+                    frontmatter: document.frontmatter,
+                    resolved_link_count,
+                    unresolved_link_count,
+                }
+            })
+            .collect(),
+    };
+    let cache_path = root.join(".lmd/knowledge/index.json");
+    let json = serde_json::to_string_pretty(&snapshot)
+        .map_err(|error| format!("Could not encode {}: {error}", cache_path.display()))?;
+    fs::write(&cache_path, format!("{json}\n"))
+        .map_err(|error| format!("Could not write {}: {error}", cache_path.display()))
 }
 
 fn index_workspace_documents(

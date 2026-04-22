@@ -87,6 +87,7 @@ export type DocumentKnowledge = {
   backlinks: Backlink[];
   unresolvedLinks: KnowledgeLink[];
   relatedWikiPages: Backlink[];
+  sourceReferences: Backlink[];
 };
 
 export type KnowledgeLintIssue = {

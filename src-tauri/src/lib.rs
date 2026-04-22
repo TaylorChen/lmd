@@ -400,11 +400,15 @@ mod tests {
         assert!(root.join("wiki/sources").is_dir());
         assert!(root.join("AGENTS.md").is_file());
         assert!(root.join(".lmd/knowledge/manifest.json").is_file());
+        assert!(root.join(".lmd/knowledge/index.json").is_file());
 
         let manifest = fs::read_to_string(root.join(".lmd/knowledge/manifest.json"))
             .expect("read manifest");
         assert!(manifest.contains("\"indexVersion\": 1"));
         assert!(manifest.contains("\"lastCompileStatus\": \"idle\""));
+        let index_cache = fs::read_to_string(root.join(".lmd/knowledge/index.json"))
+            .expect("read index cache");
+        assert!(index_cache.contains("\"documentCount\""));
 
         let loaded = load_workspace(&root).expect("reload initialized workspace");
         assert!(loaded.knowledge.is_initialized);
@@ -417,9 +421,10 @@ mod tests {
         let root = temp_workspace_path("document-knowledge");
         fs::create_dir_all(root.join("notes")).expect("create notes");
         fs::create_dir_all(root.join("wiki/concepts")).expect("create wiki");
+        fs::create_dir_all(root.join("sources")).expect("create sources");
         fs::write(
             root.join("notes/alpha.md"),
-            "---\ntags:\n- focus\n- draft\n---\n# Alpha\n\nLink to [[Beta]] and [[Missing Page]].\n\n#writing",
+            "---\ntags:\n- focus\n- draft\n---\n# Alpha\n\nLink to [[Beta]] and [[Source Doc]].\n\n[[Missing Page]].\n\n#writing",
         )
         .expect("write alpha");
         fs::write(
@@ -427,6 +432,7 @@ mod tests {
             "# Beta\n\nBacklink to [[alpha]].",
         )
         .expect("write beta");
+        fs::write(root.join("sources/source doc.md"), "# Source Doc").expect("write source");
 
         let knowledge = document_knowledge(
             &root,
@@ -440,6 +446,11 @@ mod tests {
         assert_eq!(knowledge_json["tags"], json!(["draft", "focus", "writing"]));
         assert_eq!(knowledge_json["outgoingLinks"][0]["resolvedRelativePath"], "wiki/concepts/beta.md");
         assert_eq!(knowledge_json["outgoingLinks"][0]["sourceKind"], "wiki");
+        assert!(knowledge_json["sourceReferences"]
+            .as_array()
+            .expect("source refs")
+            .iter()
+            .any(|item| item["relativePath"] == "sources/source doc.md"));
         assert_eq!(knowledge_json["unresolvedLinks"][0]["target"], "Missing Page");
         assert_eq!(knowledge_json["backlinks"][0]["relativePath"], "wiki/concepts/beta.md");
         assert_eq!(knowledge_json["relatedWikiPages"][0]["relativePath"], "wiki/concepts/beta.md");

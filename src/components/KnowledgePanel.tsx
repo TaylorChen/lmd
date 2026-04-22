@@ -191,6 +191,33 @@ export function KnowledgePanel({
         )}
       </section>
 
+      <section className="knowledge-section">
+        <div className="knowledge-header">
+          <span className="label">Source References</span>
+          <small>{knowledge.sourceReferences.length.toLocaleString()}</small>
+        </div>
+        {knowledge.sourceReferences.length > 0 ? (
+          <div className="knowledge-link-list">
+            {knowledge.sourceReferences.map((link) => (
+              <button
+                type="button"
+                key={`source:${link.path}`}
+                className="knowledge-link-item"
+                onClick={() => onOpenPath(link.path, link.name)}
+                disabled={busy}
+                title={link.relativePath}
+              >
+                <strong>{link.name}</strong>
+                <span>{link.relativePath}</span>
+                <small>{sourceKindLabel(link.sourceKind)}</small>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="knowledge-empty">No source references yet.</p>
+        )}
+      </section>
+
       {knowledge.unresolvedLinks.length > 0 && (
         <section className="knowledge-section">
           <div className="knowledge-header">

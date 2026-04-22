@@ -92,6 +92,15 @@ async function installTauriMock(page: Page) {
                 label: "Alpha",
               },
             ],
+            sourceReferences: [
+              {
+                path: "/workspace/sources/source-doc.md",
+                relativePath: "sources/source-doc.md",
+                name: "source-doc.md",
+                sourceKind: "source",
+                label: "Source Doc",
+              },
+            ],
           };
         }
 
@@ -314,6 +323,7 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
   await expect(page.locator(".knowledge-link-item span").filter({ hasText: "wiki/overview.md" }).first()).toBeVisible();
   await expect(page.getByText("#writing")).toBeVisible();
   await expect(page.locator(".knowledge-link-item.unresolved strong").first()).toHaveText("Missing Topic");
+  await expect(page.getByText("sources/source-doc.md")).toBeVisible();
   await expect(page.getByRole("button", { name: "Open index.md" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open log.md" })).toBeVisible();
   await expect(page.getByText("Unresolved link: Missing Topic")).toBeVisible();
