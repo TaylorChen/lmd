@@ -281,6 +281,8 @@ test("persists settings across reload", async ({ page }) => {
   await page.getByLabel("Default view").selectOption("preview");
   await page.getByLabel("Search results").selectOption("120");
   await page.getByLabel("File check").selectOption("10");
+  await page.getByLabel("Assistant provider").selectOption("mock_openai");
+  await page.getByLabel("Assistant model").selectOption("gpt-mock-2");
 
   await page.reload();
 
@@ -288,6 +290,8 @@ test("persists settings across reload", async ({ page }) => {
   await expect(page.getByLabel("Default view")).toHaveValue("preview");
   await expect(page.getByLabel("Search results")).toHaveValue("120");
   await expect(page.getByLabel("File check")).toHaveValue("10");
+  await expect(page.getByLabel("Assistant provider")).toHaveValue("mock_openai");
+  await expect(page.getByLabel("Assistant model")).toHaveValue("gpt-mock-2");
 });
 
 test("saves and exports the current document", async ({ page }) => {
@@ -409,6 +413,8 @@ test("builds and saves an assistant draft", async ({ page }) => {
   expect(summarizeCall?.args).toMatchObject({
     rootPath: "/workspace",
     currentPath: "/workspace/alpha.md",
+    provider: "builtin",
+    model: "local-summary-v1",
   });
 
   const saveDraftCall = await page.evaluate(() =>

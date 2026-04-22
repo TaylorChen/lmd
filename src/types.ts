@@ -122,6 +122,8 @@ export type AssistantDraft = {
   content: string;
 };
 
+export type AssistantProvider = "builtin" | "mock_openai";
+
 export type SearchMatch = {
   path: string;
   relativePath: string;
@@ -157,4 +159,6 @@ export type AppSettings = {
   defaultEditorMode: EditorMode;
   searchResultLimit: number;
   externalCheckSeconds: number;
+  assistantProvider: AssistantProvider;
+  assistantModel: string;
 };

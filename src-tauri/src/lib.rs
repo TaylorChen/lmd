@@ -110,13 +110,19 @@ fn summarize_query_context(
     root_path: String,
     current_path: String,
     current_content: Option<String>,
+    provider: Option<String>,
+    model: Option<String>,
 ) -> Result<workspace::AssistantDraft, String> {
     let context = workspace::query_context(
         &PathBuf::from(root_path),
         &PathBuf::from(current_path),
         current_content.as_deref(),
     )?;
-    Ok(workspace::summarize_query_context(&context))
+    Ok(workspace::summarize_query_context_with_provider(
+        &context,
+        provider.as_deref().unwrap_or("builtin"),
+        model.as_deref().unwrap_or("local-summary-v1"),
+    ))
 }
 
 #[tauri::command]
@@ -240,7 +246,7 @@ mod tests {
     use super::workspace::{
         document_knowledge, initialize_knowledge_workspace, knowledge_lint_report, load_workspace,
         query_context, save_wiki_draft, scan_workspace, search_workspace_files,
-        summarize_query_context,
+        summarize_query_context_with_provider,
     };
     use serde_json::{json, to_value};
     use std::{
@@ -554,7 +560,8 @@ mod tests {
         fs::write(root.join("notes/topic.md"), "# Topic\n\nBody").expect("write topic");
 
         let context = query_context(&root, &root.join("notes/topic.md"), None).expect("query context");
-        let draft = summarize_query_context(&context);
+        let draft =
+            summarize_query_context_with_provider(&context, "builtin", "local-summary-v1");
         assert!(draft.title.contains("topic"));
         assert!(draft.content.contains("Summary"));
 

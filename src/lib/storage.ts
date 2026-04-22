@@ -1,10 +1,12 @@
-import type { AppSettings, EditorMode, RecentFile } from "../types";
+import type { AppSettings, AssistantProvider, EditorMode, RecentFile } from "../types";
 
 export const recentFileLimit = 8;
 export const defaultSettings: AppSettings = {
   defaultEditorMode: "edit",
   searchResultLimit: 80,
   externalCheckSeconds: 5,
+  assistantProvider: "builtin",
+  assistantModel: "local-summary-v1",
 };
 
 export const storageKeys = {
@@ -16,6 +18,10 @@ export const storageKeys = {
 
 function isEditorMode(value: unknown): value is EditorMode {
   return value === "edit" || value === "split" || value === "preview";
+}
+
+function isAssistantProvider(value: unknown): value is AssistantProvider {
+  return value === "builtin" || value === "mock_openai";
 }
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -68,6 +74,13 @@ export function readSettings(): AppSettings {
         2,
         30,
       ),
+      assistantProvider: isAssistantProvider(parsedValue?.assistantProvider)
+        ? parsedValue.assistantProvider
+        : defaultSettings.assistantProvider,
+      assistantModel:
+        typeof parsedValue?.assistantModel === "string" && parsedValue.assistantModel.trim()
+          ? parsedValue.assistantModel.trim()
+          : defaultSettings.assistantModel,
     };
   } catch {
     return defaultSettings;

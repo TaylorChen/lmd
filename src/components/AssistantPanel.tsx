@@ -1,9 +1,10 @@
-import type { AssistantDraft, QueryContext } from "../types";
+import type { AppSettings, AssistantDraft, QueryContext } from "../types";
 
 type AssistantPanelProps = {
   busy: boolean;
   queryContext: QueryContext | null;
   draft: AssistantDraft | null;
+  settings: AppSettings;
   onSummarize: () => void;
   onSaveDraft: () => void;
 };
@@ -12,6 +13,7 @@ export function AssistantPanel({
   busy,
   queryContext,
   draft,
+  settings,
   onSummarize,
   onSaveDraft,
 }: AssistantPanelProps) {
@@ -20,8 +22,11 @@ export function AssistantPanel({
       <section className="knowledge-section">
         <div className="knowledge-header">
           <span className="label">Assistant</span>
-          <small>{queryContext?.items.length.toLocaleString() ?? "0"} context items</small>
+          <small>
+            {settings.assistantProvider} / {settings.assistantModel}
+          </small>
         </div>
+        <p className="knowledge-empty">{queryContext?.items.length.toLocaleString() ?? "0"} context items available.</p>
         <div className="knowledge-actions">
           <button
             type="button"

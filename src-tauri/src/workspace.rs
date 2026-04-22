@@ -539,11 +539,16 @@ pub(crate) fn query_context(
     })
 }
 
-pub(crate) fn summarize_query_context(context: &QueryContext) -> AssistantDraft {
+pub(crate) fn summarize_query_context_with_provider(
+    context: &QueryContext,
+    provider: &str,
+    model: &str,
+) -> AssistantDraft {
     let mut content = String::new();
     content.push_str("# ");
     content.push_str(&suggest_wiki_title(context));
     content.push_str("\n\n");
+    content.push_str(&format!("_Provider: {provider} / {model}_\n\n"));
     content.push_str("## Summary\n\n");
     content.push_str(&format!(
         "This draft was assembled from {} context items around `{}`.\n\n",

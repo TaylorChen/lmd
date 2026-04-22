@@ -387,6 +387,8 @@ export default function App() {
         rootPath: workspace.rootPath,
         currentPath: path,
         currentContent: isDirty ? content : undefined,
+        provider: settings.assistantProvider,
+        model: settings.assistantModel,
       });
       setAssistantDraft(draft);
       setNotice({ tone: "info", message: "Assistant draft generated." });
@@ -694,6 +696,7 @@ export default function App() {
                 busy={busy}
                 queryContext={queryContext}
                 draft={assistantDraft}
+                settings={settings}
                 onSummarize={() => void handleSummarizeContext()}
                 onSaveDraft={() => void handleSaveAssistantDraft()}
               />

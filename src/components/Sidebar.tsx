@@ -248,6 +248,45 @@ export function Sidebar({
             <option value={30}>30 sec</option>
           </select>
         </label>
+
+        <label>
+          <span>Assistant</span>
+          <select
+            aria-label="Assistant provider"
+            value={settings.assistantProvider}
+            onChange={(event) =>
+              updateSetting({
+                assistantProvider: event.target.value as AppSettings["assistantProvider"],
+                assistantModel:
+                  event.target.value === "mock_openai" ? "gpt-mock-1" : "local-summary-v1",
+              })
+            }
+          >
+            <option value="builtin">Builtin</option>
+            <option value="mock_openai">Mock OpenAI</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Assistant model</span>
+          <select
+            aria-label="Assistant model"
+            value={settings.assistantModel}
+            onChange={(event) => updateSetting({ assistantModel: event.target.value })}
+          >
+            {settings.assistantProvider === "mock_openai" ? (
+              <>
+                <option value="gpt-mock-1">gpt-mock-1</option>
+                <option value="gpt-mock-2">gpt-mock-2</option>
+              </>
+            ) : (
+              <>
+                <option value="local-summary-v1">local-summary-v1</option>
+                <option value="local-summary-v2">local-summary-v2</option>
+              </>
+            )}
+          </select>
+        </label>
       </div>
 
       <div className="document-card">
