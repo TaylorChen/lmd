@@ -16,7 +16,7 @@ export function NoticeStack({
   onReloadCurrentFile,
 }: NoticeStackProps) {
   return (
-    <>
+    <div className="notice-stack">
       {notice && (
         <div className={`notice ${notice.tone}`}>
           <span>{notice.message}</span>
@@ -40,6 +40,6 @@ export function NoticeStack({
           )}
         </div>
       )}
-    </>
+    </div>
   );
 }
