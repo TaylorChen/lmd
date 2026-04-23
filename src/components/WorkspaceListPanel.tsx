@@ -9,7 +9,7 @@ import type {
   WorkspaceFile,
 } from "../types";
 
-type SidebarProps = {
+type WorkspaceListPanelProps = {
   busy: boolean;
   workspace: Workspace | null;
   workspaceQuery: string;
@@ -18,21 +18,12 @@ type SidebarProps = {
   recentFiles: RecentFile[];
   path: string | null;
   isLarge: boolean;
-  isDirty: boolean;
   byteSize: number;
   lineCount: number;
   visibleStartLine: number;
   visibleEndLine: number;
   settings: AppSettings;
   assistantCatalog: AssistantCatalog;
-  onNew: () => void;
-  onOpen: () => void;
-  onOpenWorkspace: () => void;
-  onInitializeKnowledgeWorkspace: () => void;
-  onRefreshWorkspace: () => void;
-  onSave: () => void;
-  onExportHtml: () => void;
-  onExportPdf: () => void;
   onWorkspaceQueryChange: (query: string) => void;
   onWorkspaceSearch: () => void;
   onOpenWorkspaceFile: (file: WorkspaceFile) => void;
@@ -41,7 +32,7 @@ type SidebarProps = {
   onSettingsChange: (settings: AppSettings) => void;
 };
 
-export function Sidebar({
+export function WorkspaceListPanel({
   busy,
   workspace,
   workspaceQuery,
@@ -50,28 +41,19 @@ export function Sidebar({
   recentFiles,
   path,
   isLarge,
-  isDirty,
   byteSize,
   lineCount,
   visibleStartLine,
   visibleEndLine,
   settings,
   assistantCatalog,
-  onNew,
-  onOpen,
-  onOpenWorkspace,
-  onInitializeKnowledgeWorkspace,
-  onRefreshWorkspace,
-  onSave,
-  onExportHtml,
-  onExportPdf,
   onWorkspaceQueryChange,
   onWorkspaceSearch,
   onOpenWorkspaceFile,
   onOpenSearchMatch,
   onOpenRecentFile,
   onSettingsChange,
-}: SidebarProps) {
+}: WorkspaceListPanelProps) {
   function updateSetting(nextSettings: Partial<AppSettings>) {
     onSettingsChange({ ...settings, ...nextSettings });
   }
@@ -81,43 +63,7 @@ export function Sidebar({
     assistantCatalog.providers[0];
 
   return (
-    <aside className="sidebar">
-      <div>
-        <div className="app-mark">LMD</div>
-        <p className="sidebar-copy">Light Markdown</p>
-      </div>
-
-      <div className="sidebar-actions">
-        <button type="button" onClick={onNew} disabled={busy}>
-          New
-        </button>
-        <button type="button" onClick={onOpen} disabled={busy}>
-          Open
-        </button>
-        <button type="button" onClick={onOpenWorkspace} disabled={busy}>
-          Workspace
-        </button>
-        <button
-          type="button"
-          onClick={onInitializeKnowledgeWorkspace}
-          disabled={busy || !workspace || workspace.knowledge.isInitialized}
-        >
-          Init Knowledge
-        </button>
-        <button type="button" onClick={onRefreshWorkspace} disabled={busy || !workspace}>
-          Refresh
-        </button>
-        <button type="button" className="primary-action" onClick={onSave} disabled={busy || !isDirty}>
-          Save
-        </button>
-        <button type="button" onClick={onExportHtml} disabled={busy}>
-          Export HTML
-        </button>
-        <button type="button" onClick={onExportPdf} disabled={busy}>
-          Export PDF
-        </button>
-      </div>
-
+    <aside className="workspace-list-panel" aria-label="Workspace notes">
       <div className="workspace-panel">
         <div className="workspace-header">
           <span className="label">Workspace</span>

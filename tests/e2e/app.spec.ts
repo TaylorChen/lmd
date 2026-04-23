@@ -278,6 +278,9 @@ test.beforeEach(async ({ page }) => {
 
 test("edits markdown and renders preview modes", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Untitled" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Library sections" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "All Notes" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Workspace notes" })).toBeVisible();
 
   await page.locator(".cm-content").click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");

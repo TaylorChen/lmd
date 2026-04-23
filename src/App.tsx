@@ -3,9 +3,10 @@ import CodeMirror from "@uiw/react-codemirror";
 import { AssistantPanel } from "./components/AssistantPanel";
 import { EditorToolbar } from "./components/EditorToolbar";
 import { KnowledgePanel } from "./components/KnowledgePanel";
+import { LibraryRail } from "./components/LibraryRail";
 import { MarkdownPreview } from "./components/MarkdownPreview";
 import { NoticeStack } from "./components/NoticeStack";
-import { Sidebar } from "./components/Sidebar";
+import { WorkspaceListPanel } from "./components/WorkspaceListPanel";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { useEditorExtensions } from "./hooks/useEditorExtensions";
 import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
@@ -662,22 +663,10 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <Sidebar
+      <LibraryRail
         busy={busy}
         workspace={workspace}
-        workspaceQuery={workspaceQuery}
-        workspaceMatches={workspaceMatches}
-        workspaceSearchActive={workspaceSearchActive}
-        recentFiles={recentFiles}
-        path={path}
-        isLarge={isLarge}
         isDirty={isDirty}
-        byteSize={byteSize}
-        lineCount={lineCount}
-        visibleStartLine={visibleStartLine}
-        visibleEndLine={visibleEndLine}
-        settings={settings}
-        assistantCatalog={assistantCatalog}
         onNew={() => void handleNew()}
         onOpen={() => void handleOpen()}
         onOpenWorkspace={() => void handleOpenWorkspace()}
@@ -686,6 +675,23 @@ export default function App() {
         onSave={() => void handleSave()}
         onExportHtml={() => void handleExportHtml()}
         onExportPdf={() => void handleExportPdf()}
+      />
+
+      <WorkspaceListPanel
+        busy={busy}
+        workspace={workspace}
+        workspaceQuery={workspaceQuery}
+        workspaceMatches={workspaceMatches}
+        workspaceSearchActive={workspaceSearchActive}
+        recentFiles={recentFiles}
+        path={path}
+        isLarge={isLarge}
+        byteSize={byteSize}
+        lineCount={lineCount}
+        visibleStartLine={visibleStartLine}
+        visibleEndLine={visibleEndLine}
+        settings={settings}
+        assistantCatalog={assistantCatalog}
         onWorkspaceQueryChange={(query) => {
           setWorkspaceQuery(query);
           setWorkspaceSearchActive(false);
