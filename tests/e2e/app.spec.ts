@@ -391,11 +391,13 @@ test("filters workspace files from the library rail", async ({ page }) => {
 
   await libraryNav.getByRole("button", { name: "Notes", exact: true }).click();
   await expect(page.getByRole("button", { name: /notes\/topic\.md/ })).toBeVisible();
+  await expect(page.locator(".file-kind").filter({ hasText: "note" })).toBeVisible();
   await expect(page.getByRole("button", { name: /wiki\/overview\.md/ })).toHaveCount(0);
 
   await libraryNav.getByRole("button", { name: "Wiki", exact: true }).click();
   await expect(page.getByRole("button", { name: /wiki\/overview\.md/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /wiki\/inbox\/draft\.md/ })).toBeVisible();
+  await expect(page.locator(".file-kind").filter({ hasText: "wiki" })).toBeVisible();
   await expect(page.getByRole("button", { name: /notes\/topic\.md/ })).toHaveCount(0);
 
   await libraryNav.getByRole("button", { name: "Inbox", exact: true }).click();
@@ -405,6 +407,7 @@ test("filters workspace files from the library rail", async ({ page }) => {
   await libraryNav.getByRole("button", { name: "All Notes", exact: true }).click();
   await expect(page.getByRole("button", { name: /alpha\.md/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /sources\/source-doc\.md/ })).toBeVisible();
+  await expect(page.locator(".file-kind").filter({ hasText: "source" })).toBeVisible();
 });
 
 test("initializes a knowledge workspace", async ({ page }) => {

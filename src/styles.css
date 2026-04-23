@@ -253,6 +253,10 @@ button:disabled {
   grid-template-rows: auto auto;
 }
 
+.file-item:not(.search-result) {
+  grid-template-rows: auto auto;
+}
+
 .file-item.active {
   border-color: rgba(23, 155, 103, 0.46);
   background: var(--accent-soft);
@@ -267,13 +271,32 @@ button:disabled {
 }
 
 .file-item em {
-  grid-column: 1 / -1;
+  grid-column: 1 / 2;
   color: var(--muted);
   font-size: 0.78rem;
   font-style: normal;
 }
 
-.file-item small {
+.file-kind {
+  align-self: start;
+  height: 22px;
+  padding: 2px 7px;
+  border: 1px solid var(--soft-line);
+  border-radius: 8px;
+  background: var(--panel-muted);
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
+  text-transform: lowercase;
+}
+
+.file-meta {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-align: right;
+}
+
+.file-item small:not(.file-kind):not(.file-meta) {
   color: var(--muted);
   font-size: 0.76rem;
 }

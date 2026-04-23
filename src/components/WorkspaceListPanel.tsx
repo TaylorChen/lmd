@@ -35,6 +35,14 @@ type WorkspaceListPanelProps = {
   onSettingsChange: (settings: AppSettings) => void;
 };
 
+function sourceKindForPath(relativePath: string) {
+  if (relativePath.startsWith("wiki/inbox/")) return "inbox";
+  if (relativePath.startsWith("wiki/")) return "wiki";
+  if (relativePath.startsWith("sources/")) return "source";
+  if (relativePath.startsWith("notes/")) return "note";
+  return "file";
+}
+
 export function WorkspaceListPanel({
   busy,
   workspace,
@@ -102,7 +110,8 @@ export function WorkspaceListPanel({
                   title={file.path}
                 >
                   <span>{file.name}</span>
-                  <small>Recent</small>
+                  <small className="file-kind">recent</small>
+                  <em>{file.path}</em>
                 </button>
               ))}
             </div>
@@ -146,7 +155,7 @@ export function WorkspaceListPanel({
                       title={`${match.relativePath}:${match.lineNumber}`}
                     >
                       <span>{match.relativePath}</span>
-                      <small>Line {match.lineNumber.toLocaleString()}</small>
+                      <small className="file-kind">Line {match.lineNumber.toLocaleString()}</small>
                       <em>{match.lineText}</em>
                     </button>
                   ))
@@ -163,8 +172,10 @@ export function WorkspaceListPanel({
                     disabled={busy}
                     title={file.relativePath}
                   >
-                    <span>{file.relativePath}</span>
-                    <small>{formatBytes(file.byteSize)}</small>
+                    <span>{fileName(file.relativePath)}</span>
+                    <small className="file-kind">{sourceKindForPath(file.relativePath)}</small>
+                    <em>{file.relativePath}</em>
+                    <small className="file-meta">{formatBytes(file.byteSize)}</small>
                   </button>
                 ))
               ) : (
