@@ -21,7 +21,7 @@ function isEditorMode(value: unknown): value is EditorMode {
 }
 
 function isAssistantProvider(value: unknown): value is AssistantProvider {
-  return value === "builtin" || value === "mock_openai";
+  return value === "builtin" || value === "mock_openai" || value === "external_command";
 }
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {

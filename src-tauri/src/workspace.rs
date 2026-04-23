@@ -156,7 +156,7 @@ pub(crate) struct KnowledgeLintReport {
     pub(crate) issues: Vec<KnowledgeLintIssue>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct QueryContextItem {
     pub(crate) path: String,
@@ -167,7 +167,7 @@ pub(crate) struct QueryContextItem {
     pub(crate) excerpt: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct QueryContext {
     pub(crate) current_path: String,
@@ -175,7 +175,7 @@ pub(crate) struct QueryContext {
     pub(crate) items: Vec<QueryContextItem>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AssistantDraft {
     pub(crate) title: String,

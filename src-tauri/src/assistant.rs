@@ -1,5 +1,10 @@
 use crate::workspace::{AssistantDraft, QueryContext};
 use serde::Serialize;
+use std::{
+    env,
+    io::Write,
+    process::{Command, Stdio},
+};
 
 pub(crate) const DEFAULT_PROVIDER: &str = "builtin";
 pub(crate) const DEFAULT_MODEL: &str = "local-summary-v1";
@@ -39,6 +44,11 @@ pub(crate) fn catalog() -> AssistantCatalog {
                 label: "Mock OpenAI".to_string(),
                 models: vec!["gpt-mock-1".to_string(), "gpt-mock-2".to_string()],
             },
+            AssistantProviderInfo {
+                id: "external_command".to_string(),
+                label: "External Command".to_string(),
+                models: vec!["command-json-v1".to_string()],
+            },
         ],
     }
 }
@@ -49,6 +59,7 @@ pub(crate) fn summarize_query_context(request: AssistantRequest<'_>) -> Result<A
     match request.provider {
         "builtin" => Ok(builtin_summary(request.context, request.provider, request.model)),
         "mock_openai" => Ok(mock_openai_summary(request.context, request.provider, request.model)),
+        "external_command" => external_command_summary(request),
         _ => Err(format!("Unsupported assistant provider: {}", request.provider)),
     }
 }
@@ -109,6 +120,60 @@ fn mock_openai_summary(context: &QueryContext, provider: &str, model: &str) -> A
     draft.content.push_str("- mock_openai adapter active.\n");
     draft.content.push_str("- Replace this stub with a real API client before production use.\n");
     draft
+}
+
+fn external_command_summary(request: AssistantRequest<'_>) -> Result<AssistantDraft, String> {
+    let command_path = env::var("LMD_ASSISTANT_COMMAND")
+        .map_err(|_| "LMD_ASSISTANT_COMMAND is not configured".to_string())?;
+    if command_path.trim().is_empty() {
+        return Err("LMD_ASSISTANT_COMMAND is empty".to_string());
+    }
+
+    let input = serde_json::to_vec(&ExternalCommandInput {
+        provider: request.provider,
+        model: request.model,
+        context: request.context,
+    })
+    .map_err(|error| format!("Could not encode assistant command input: {error}"))?;
+
+    let mut child = Command::new(command_path.trim())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("Could not start assistant command: {error}"))?;
+
+    {
+        let Some(stdin) = child.stdin.as_mut() else {
+            return Err("Assistant command stdin is unavailable".to_string());
+        };
+        stdin
+            .write_all(&input)
+            .map_err(|error| format!("Could not write assistant command input: {error}"))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("Could not read assistant command output: {error}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!("Assistant command failed with status {}", output.status)
+        } else {
+            format!("Assistant command failed: {stderr}")
+        });
+    }
+
+    serde_json::from_slice::<AssistantDraft>(&output.stdout)
+        .map_err(|error| format!("Assistant command must return JSON draft: {error}"))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExternalCommandInput<'a> {
+    provider: &'a str,
+    model: &'a str,
+    context: &'a QueryContext,
 }
 
 fn suggest_wiki_title(context: &QueryContext) -> String {

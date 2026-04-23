@@ -171,6 +171,11 @@ async function installTauriMock(page: Page) {
                 label: "Mock OpenAI",
                 models: ["gpt-mock-1", "gpt-mock-2"],
               },
+              {
+                id: "external_command",
+                label: "External Command",
+                models: ["command-json-v1"],
+              },
             ],
           };
         }

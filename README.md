@@ -14,6 +14,8 @@ LMD currently focuses on a local-first desktop workflow:
 - Reopen recent files and restore the last session
 - Open large files in read-only paged mode
 - Detect external file changes and deletions
+- Initialize and inspect a local knowledge workspace
+- Build assistant drafts from explicit local context
 - Export HTML
 - Export PDF
 - Persist editor settings locally
@@ -26,6 +28,9 @@ LMD currently focuses on a local-first desktop workflow:
 - Workspace file listing and full-text search
 - Large-file mmap-backed paging for files over 5 MB
 - Real file metadata checks for external change detection
+- Knowledge workspace protocol with `notes/`, `sources/`, `wiki/`, and `.lmd/knowledge/`
+- Wiki links, backlinks, unresolved links, source references, and lint checks
+- Assistant panel with provider selection and save-to-wiki draft workflow
 - HTML export using the same renderer as Preview
 - Lightweight Markdown-aware PDF export with heading, list, quote, and code styling
 - Playwright browser E2E coverage for core UI flows
@@ -95,6 +100,44 @@ Browser E2E:
 
 ```bash
 npm run test:e2e
+```
+
+## Assistant Providers
+
+LMD ships with three assistant provider modes:
+
+- `builtin`: deterministic local summary assembly, no network or external process
+- `mock_openai`: test adapter for provider wiring
+- `external_command`: runs a local executable defined by `LMD_ASSISTANT_COMMAND`
+
+The external command provider is the integration point for local LLM tools such as an `llm-wiki` wrapper. LMD writes one JSON object to stdin:
+
+```json
+{
+  "provider": "external_command",
+  "model": "command-json-v1",
+  "context": {
+    "currentPath": "/absolute/path/to/current.md",
+    "currentRelativePath": "notes/current.md",
+    "items": []
+  }
+}
+```
+
+The command must write an assistant draft JSON object to stdout:
+
+```json
+{
+  "title": "topic summary",
+  "content": "# topic summary\n\n## Summary\n\nDraft text."
+}
+```
+
+Example:
+
+```bash
+export LMD_ASSISTANT_COMMAND=/absolute/path/to/lmd-assistant-command
+npm run tauri dev
 ```
 
 Desktop bundles:

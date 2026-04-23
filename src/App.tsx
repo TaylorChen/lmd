@@ -42,6 +42,7 @@ const defaultAssistantCatalog: AssistantCatalog = {
   providers: [
     { id: "builtin", label: "Builtin", models: ["local-summary-v1", "local-summary-v2"] },
     { id: "mock_openai", label: "Mock OpenAI", models: ["gpt-mock-1", "gpt-mock-2"] },
+    { id: "external_command", label: "External Command", models: ["command-json-v1"] },
   ],
 };
 

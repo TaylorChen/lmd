@@ -263,11 +263,15 @@ mod tests {
     };
     use serde_json::{json, to_value};
     use std::{
+        env,
         fs,
+        io::Write,
         path::PathBuf,
         thread,
         time::{SystemTime, UNIX_EPOCH},
     };
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
     fn temp_markdown_path(name: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -649,6 +653,54 @@ mod tests {
     }
 
     #[test]
+    fn runs_external_command_assistant_provider() {
+        let context = QueryContext {
+            current_path: "/tmp/topic.md".to_string(),
+            current_relative_path: "notes/topic.md".to_string(),
+            items: vec![QueryContextItem {
+                path: "/tmp/topic.md".to_string(),
+                relative_path: "notes/topic.md".to_string(),
+                name: "topic.md".to_string(),
+                source_kind: "note".to_string(),
+                reason: "current_document".to_string(),
+                excerpt: "Topic excerpt".to_string(),
+            }],
+        };
+        let script_path = temp_workspace_path("assistant-command").with_extension("sh");
+        let mut script = fs::File::create(&script_path).expect("create assistant command");
+        writeln!(
+            script,
+            "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{{\"title\":\"external summary\",\"content\":\"# external summary\\n\\n## Summary\\n\\nFrom command.\"}}'"
+        )
+        .expect("write assistant command");
+        #[cfg(unix)]
+        {
+            let mut permissions = fs::metadata(&script_path)
+                .expect("assistant command metadata")
+                .permissions();
+            permissions.set_mode(0o700);
+            fs::set_permissions(&script_path, permissions).expect("chmod assistant command");
+        }
+
+        let previous = env::var("LMD_ASSISTANT_COMMAND").ok();
+        env::set_var("LMD_ASSISTANT_COMMAND", &script_path);
+        let draft = summarize_assistant_query_context(AssistantRequest {
+            provider: "external_command",
+            model: "command-json-v1",
+            context: &context,
+        })
+        .expect("external command summary");
+        match previous {
+            Some(value) => env::set_var("LMD_ASSISTANT_COMMAND", value),
+            None => env::remove_var("LMD_ASSISTANT_COMMAND"),
+        }
+
+        assert_eq!(draft.title, "external summary");
+        assert!(draft.content.contains("From command."));
+        fs::remove_file(script_path).expect("remove assistant command");
+    }
+
+    #[test]
     fn exposes_assistant_catalog() {
         let catalog = assistant_catalog_state();
 
@@ -658,6 +710,10 @@ mod tests {
             .providers
             .iter()
             .any(|provider| provider.id == "mock_openai" && provider.models.iter().any(|model| model == "gpt-mock-1")));
+        assert!(catalog
+            .providers
+            .iter()
+            .any(|provider| provider.id == "external_command" && provider.models.iter().any(|model| model == "command-json-v1")));
     }
 
     #[test]

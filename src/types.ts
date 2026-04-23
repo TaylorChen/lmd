@@ -122,7 +122,7 @@ export type AssistantDraft = {
   content: string;
 };
 
-export type AssistantProvider = "builtin" | "mock_openai";
+export type AssistantProvider = "builtin" | "mock_openai" | "external_command";
 
 export type AssistantProviderInfo = {
   id: AssistantProvider;
