@@ -136,12 +136,14 @@ The command must write an assistant draft JSON object to stdout:
 Example:
 
 ```bash
-export LMD_ASSISTANT_COMMAND=/absolute/path/to/lmd-assistant-command
+export LMD_ASSISTANT_COMMAND=/absolute/path/to/lmd/scripts/lmd-assistant-command.example.mjs
 export LMD_ASSISTANT_TIMEOUT_SECONDS=60
 npm run tauri dev
 ```
 
 `LMD_ASSISTANT_TIMEOUT_SECONDS` is optional. It defaults to 60 seconds and is capped at 600 seconds.
+
+The repository includes [`scripts/lmd-assistant-command.example.mjs`](/Users/ahyk/nodejs/lmd/scripts/lmd-assistant-command.example.mjs) as a minimal protocol-compatible command. Replace it with a wrapper that calls your local model or `llm-wiki` workflow.
 
 Desktop bundles:
 
