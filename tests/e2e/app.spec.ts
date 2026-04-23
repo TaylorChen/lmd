@@ -301,7 +301,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("edits markdown and renders preview modes", async ({ page }) => {
-  await expect(page.getByRole("heading", { name: "Untitled" })).toBeVisible();
+  await expect(page.locator(".toolbar").getByRole("heading", { name: "Untitled" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Library sections" })).toBeVisible();
   await expect(page.getByRole("button", { name: "All Notes" })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Workspace notes" })).toBeVisible();
@@ -313,15 +313,15 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   );
 
   await page.getByRole("button", { name: "Split" }).click();
-  await expect(page.locator(".markdown-preview")).toBeVisible();
-  await expect(page.locator(".markdown-preview h1")).toHaveText("Preview title");
-  await expect(page.locator(".markdown-preview table")).toContainText("Alpha");
-  await expect(page.getByRole("checkbox", { name: "done item" })).toBeChecked();
-  await expect(page.getByRole("link", { name: "https://example.com" })).toBeVisible();
+  await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
+  await expect(page.locator(".document-main .markdown-preview h1")).toHaveText("Preview title");
+  await expect(page.locator(".document-main .markdown-preview table")).toContainText("Alpha");
+  await expect(page.locator(".document-main").getByRole("checkbox", { name: "done item" })).toBeChecked();
+  await expect(page.locator(".document-main").getByRole("link", { name: "https://example.com" })).toBeVisible();
 
   await page.getByRole("button", { name: "Preview" }).click();
   await expect(page.locator(".editor-frame")).toHaveCount(0);
-  await expect(page.locator(".markdown-preview")).toBeVisible();
+  await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
 
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.locator(".editor-frame")).toBeVisible();
@@ -472,8 +472,9 @@ test("builds and saves an assistant draft", async ({ page }) => {
   await page.getByRole("button", { name: "Init Knowledge" }).click();
   await page.locator(".file-list .file-item").first().focus();
   await page.keyboard.press("Enter");
-  await page.getByRole("button", { name: "Split" }).click();
+  await expect(page.getByRole("button", { name: "Edit" })).toHaveClass(/active/);
   await page.locator(".toolbar").getByRole("button", { name: "Assistant" }).click();
+  await expect(page.getByRole("complementary", { name: "Inspector" })).toBeVisible();
 
   await page.getByRole("button", { name: "Summarize Context" }).click();
   await expect(page.getByText("Assistant draft generated.")).toBeVisible();

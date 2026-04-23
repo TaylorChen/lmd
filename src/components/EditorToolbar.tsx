@@ -82,7 +82,7 @@ export function EditorToolbar({
           ))}
         </div>
 
-        {canShowKnowledge && mode !== "edit" && (
+        {canShowKnowledge && (
           <div className="mode-switch" aria-label="Inspector tab">
             <button
               type="button"

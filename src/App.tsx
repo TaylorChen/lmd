@@ -759,21 +759,25 @@ export default function App() {
         />
 
         <div className={`document-workspace ${editorMode}`}>
-          {editorMode !== "preview" && (
-            <div className="editor-frame">
-              <CodeMirror
-                value={content}
-                height="100%"
-                basicSetup={false}
-                extensions={extensions}
-                onChange={handleChange}
-                theme="light"
-              />
-            </div>
-          )}
+          <div className={`document-main ${editorMode}`}>
+            {editorMode !== "preview" && (
+              <div className="editor-frame">
+                <CodeMirror
+                  value={content}
+                  height="100%"
+                  basicSetup={false}
+                  extensions={extensions}
+                  onChange={handleChange}
+                  theme="light"
+                />
+              </div>
+            )}
 
-          {editorMode !== "edit" &&
-            (inspectorTab === "preview" || !workspace?.knowledge.isInitialized ? (
+            {editorMode !== "edit" && <MarkdownPreview content={content} />}
+          </div>
+
+          <aside className="inspector-rail" aria-label="Inspector">
+            {inspectorTab === "preview" || !workspace?.knowledge.isInitialized ? (
               <MarkdownPreview content={content} />
             ) : inspectorTab === "assistant" ? (
               <AssistantPanel
@@ -794,7 +798,8 @@ export default function App() {
                 busy={busy}
                 onOpenPath={(nextPath, name) => void openPath(nextPath, name)}
               />
-            ))}
+            )}
+          </aside>
         </div>
       </section>
     </main>
