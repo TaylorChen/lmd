@@ -421,15 +421,18 @@ button:disabled {
 }
 
 .toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: start;
+  gap: 18px;
   min-height: 64px;
 }
 
+.document-title {
+  min-width: 0;
+}
+
 .toolbar h1 {
-  max-width: min(54vw, 720px);
   margin: 0;
   overflow: hidden;
   font-size: 1.35rem;
@@ -442,6 +445,14 @@ button:disabled {
 .toolbar p {
   margin: 6px 0 0;
   color: var(--muted);
+}
+
+.toolbar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
 }
 
 .range-controls {
@@ -477,7 +488,7 @@ button:disabled {
 
 .search-box {
   display: grid;
-  grid-template-columns: auto minmax(220px, 320px) 42px;
+  grid-template-columns: auto minmax(180px, 320px) 42px;
   align-items: center;
   gap: 10px;
   flex: 0 0 auto;
@@ -554,6 +565,11 @@ button:disabled {
 
 .document-workspace.split {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 0.82fr);
+}
+
+.document-workspace.preview .markdown-preview {
+  width: min(100%, 940px);
+  justify-self: center;
 }
 
 .editor-frame,
@@ -895,7 +911,7 @@ button:disabled {
   }
 
   .search-box {
-    grid-template-columns: minmax(180px, 240px) 38px;
+    grid-template-columns: minmax(160px, 220px) 38px;
   }
 
   .search-box span {

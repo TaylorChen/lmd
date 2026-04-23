@@ -46,7 +46,7 @@ export function EditorToolbar({
 }: EditorToolbarProps) {
   return (
     <header className="toolbar">
-      <div>
+      <div className="document-title">
         <h1>{fileName(path)}</h1>
         <p>
           {readOnly
@@ -68,54 +68,56 @@ export function EditorToolbar({
         </div>
       )}
 
-      <div className="mode-switch" aria-label="Editor mode">
-        {(["edit", "split", "preview"] as const).map((nextMode) => (
-          <button
-            type="button"
-            key={nextMode}
-            className={mode === nextMode ? "active" : ""}
-            onClick={() => onModeChange(nextMode)}
-          >
-            {nextMode === "edit" ? "Edit" : nextMode === "split" ? "Split" : "Preview"}
-          </button>
-        ))}
-      </div>
-
-      {canShowKnowledge && mode !== "edit" && (
-        <div className="mode-switch" aria-label="Inspector tab">
-          <button
-            type="button"
-            className={inspectorTab === "preview" ? "active" : ""}
-            onClick={() => onInspectorTabChange("preview")}
-          >
-            Preview
-          </button>
-          <button
-            type="button"
-            className={inspectorTab === "knowledge" ? "active" : ""}
-            onClick={() => onInspectorTabChange("knowledge")}
-          >
-            Knowledge
-          </button>
-          <button
-            type="button"
-            className={inspectorTab === "assistant" ? "active" : ""}
-            onClick={() => onInspectorTabChange("assistant")}
-          >
-            Assistant
-          </button>
+      <div className="toolbar-controls">
+        <div className="mode-switch" aria-label="Editor mode">
+          {(["edit", "split", "preview"] as const).map((nextMode) => (
+            <button
+              type="button"
+              key={nextMode}
+              className={mode === nextMode ? "active" : ""}
+              onClick={() => onModeChange(nextMode)}
+            >
+              {nextMode === "edit" ? "Edit" : nextMode === "split" ? "Split" : "Preview"}
+            </button>
+          ))}
         </div>
-      )}
 
-      <label className="search-box">
-        <span>{isLarge ? "Search window" : "Search"}</span>
-        <input
-          value={search}
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Find in document"
-        />
-        <strong>{search.trim() ? matches : 0}</strong>
-      </label>
+        {canShowKnowledge && mode !== "edit" && (
+          <div className="mode-switch" aria-label="Inspector tab">
+            <button
+              type="button"
+              className={inspectorTab === "preview" ? "active" : ""}
+              onClick={() => onInspectorTabChange("preview")}
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              className={inspectorTab === "knowledge" ? "active" : ""}
+              onClick={() => onInspectorTabChange("knowledge")}
+            >
+              Knowledge
+            </button>
+            <button
+              type="button"
+              className={inspectorTab === "assistant" ? "active" : ""}
+              onClick={() => onInspectorTabChange("assistant")}
+            >
+              Assistant
+            </button>
+          </div>
+        )}
+
+        <label className="search-box">
+          <span>{isLarge ? "Search window" : "Search"}</span>
+          <input
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Find in document"
+          />
+          <strong>{search.trim() ? matches : 0}</strong>
+        </label>
+      </div>
     </header>
   );
 }
