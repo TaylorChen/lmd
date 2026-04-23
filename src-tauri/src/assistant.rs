@@ -4,10 +4,13 @@ use std::{
     env,
     io::Write,
     process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 pub(crate) const DEFAULT_PROVIDER: &str = "builtin";
 pub(crate) const DEFAULT_MODEL: &str = "local-summary-v1";
+const DEFAULT_EXTERNAL_COMMAND_TIMEOUT_SECONDS: u64 = 60;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -144,12 +147,30 @@ fn external_command_summary(request: AssistantRequest<'_>) -> Result<AssistantDr
         .map_err(|error| format!("Could not start assistant command: {error}"))?;
 
     {
-        let Some(stdin) = child.stdin.as_mut() else {
+        let Some(mut stdin) = child.stdin.take() else {
             return Err("Assistant command stdin is unavailable".to_string());
         };
         stdin
             .write_all(&input)
             .map_err(|error| format!("Could not write assistant command input: {error}"))?;
+    }
+
+    let timeout = external_command_timeout();
+    let started_at = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => break,
+            Ok(None) if started_at.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "Assistant command timed out after {} seconds",
+                    timeout.as_secs()
+                ));
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(25)),
+            Err(error) => return Err(format!("Could not wait for assistant command: {error}")),
+        }
     }
 
     let output = child
@@ -166,6 +187,15 @@ fn external_command_summary(request: AssistantRequest<'_>) -> Result<AssistantDr
 
     serde_json::from_slice::<AssistantDraft>(&output.stdout)
         .map_err(|error| format!("Assistant command must return JSON draft: {error}"))
+}
+
+fn external_command_timeout() -> Duration {
+    let seconds = env::var("LMD_ASSISTANT_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(DEFAULT_EXTERNAL_COMMAND_TIMEOUT_SECONDS);
+    Duration::from_secs(seconds.min(600))
 }
 
 #[derive(Serialize)]

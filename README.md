@@ -137,8 +137,11 @@ Example:
 
 ```bash
 export LMD_ASSISTANT_COMMAND=/absolute/path/to/lmd-assistant-command
+export LMD_ASSISTANT_TIMEOUT_SECONDS=60
 npm run tauri dev
 ```
+
+`LMD_ASSISTANT_TIMEOUT_SECONDS` is optional. It defaults to 60 seconds and is capped at 600 seconds.
 
 Desktop bundles:
 
