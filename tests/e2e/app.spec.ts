@@ -36,6 +36,30 @@ async function installTauriMock(page: Page) {
                 name: "alpha.md",
                 byteSize: 42,
               },
+              {
+                path: "/workspace/notes/topic.md",
+                relativePath: "notes/topic.md",
+                name: "topic.md",
+                byteSize: 84,
+              },
+              {
+                path: "/workspace/sources/source-doc.md",
+                relativePath: "sources/source-doc.md",
+                name: "source-doc.md",
+                byteSize: 64,
+              },
+              {
+                path: "/workspace/wiki/overview.md",
+                relativePath: "wiki/overview.md",
+                name: "overview.md",
+                byteSize: 96,
+              },
+              {
+                path: "/workspace/wiki/inbox/draft.md",
+                relativePath: "wiki/inbox/draft.md",
+                name: "draft.md",
+                byteSize: 32,
+              },
             ],
             knowledge: {
               isInitialized: false,
@@ -343,7 +367,7 @@ test("saves and exports the current document", async ({ page }) => {
 
 test("opens workspace, searches, and opens a match", async ({ page }) => {
   await page.getByRole("button", { name: "Workspace" }).click();
-  await expect(page.getByText("Opened workspace with 1 files.")).toBeVisible();
+  await expect(page.getByText("Opened workspace with 5 files.")).toBeVisible();
   await expect(page.getByRole("button", { name: /alpha\.md/ })).toBeVisible();
 
   await page.getByLabel("Search workspace").fill("needle");
@@ -359,6 +383,28 @@ test("opens workspace, searches, and opens a match", async ({ page }) => {
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "search_workspace"),
   );
   expect(searchCall?.args).toMatchObject({ rootPath: "/workspace", query: "needle", maxResults: 80 });
+});
+
+test("filters workspace files from the library rail", async ({ page }) => {
+  await page.getByRole("button", { name: "Workspace" }).click();
+  const libraryNav = page.getByRole("navigation", { name: "Library sections" });
+
+  await libraryNav.getByRole("button", { name: "Notes", exact: true }).click();
+  await expect(page.getByRole("button", { name: /notes\/topic\.md/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /wiki\/overview\.md/ })).toHaveCount(0);
+
+  await libraryNav.getByRole("button", { name: "Wiki", exact: true }).click();
+  await expect(page.getByRole("button", { name: /wiki\/overview\.md/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /wiki\/inbox\/draft\.md/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /notes\/topic\.md/ })).toHaveCount(0);
+
+  await libraryNav.getByRole("button", { name: "Inbox", exact: true }).click();
+  await expect(page.getByRole("button", { name: /wiki\/inbox\/draft\.md/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /wiki\/overview\.md/ })).toHaveCount(0);
+
+  await libraryNav.getByRole("button", { name: "All Notes", exact: true }).click();
+  await expect(page.getByRole("button", { name: /alpha\.md/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /sources\/source-doc\.md/ })).toBeVisible();
 });
 
 test("initializes a knowledge workspace", async ({ page }) => {

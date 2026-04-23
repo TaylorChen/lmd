@@ -41,6 +41,8 @@ export type WorkspaceFile = {
   byteSize: number;
 };
 
+export type LibrarySection = "inbox" | "all-notes" | "notes" | "sources" | "wiki" | "recent";
+
 export type Workspace = {
   rootPath: string;
   files: WorkspaceFile[];

@@ -21,6 +21,7 @@ import type {
   DocumentKnowledge,
   EditorMode,
   KnowledgeLintReport,
+  LibrarySection,
   LineRange,
   MarkdownDocument,
   Notice,
@@ -61,6 +62,7 @@ export default function App() {
   const [workspaceQuery, setWorkspaceQuery] = useState("");
   const [workspaceMatches, setWorkspaceMatches] = useState<SearchMatch[]>([]);
   const [workspaceSearchActive, setWorkspaceSearchActive] = useState(false);
+  const [librarySection, setLibrarySection] = useState<LibrarySection>("all-notes");
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => readRecentFiles());
   const [settings, setSettings] = useState(() => readSettings());
   const [assistantCatalog, setAssistantCatalog] = useState<AssistantCatalog>(defaultAssistantCatalog);
@@ -84,6 +86,17 @@ export default function App() {
   const canPageForward = isLarge && visibleEndLine < lineCount;
 
   const extensions = useEditorExtensions(isLarge, readOnly, visibleStartLine);
+  const workspaceFiles = useMemo(() => {
+    if (!workspace) return [];
+
+    return workspace.files.filter((file) => {
+      if (librarySection === "notes") return file.relativePath.startsWith("notes/");
+      if (librarySection === "sources") return file.relativePath.startsWith("sources/");
+      if (librarySection === "wiki") return file.relativePath.startsWith("wiki/");
+      if (librarySection === "inbox") return file.relativePath.startsWith("wiki/inbox/");
+      return true;
+    });
+  }, [librarySection, workspace]);
 
   useEffect(() => {
     let cancelled = false;
@@ -667,6 +680,12 @@ export default function App() {
         busy={busy}
         workspace={workspace}
         isDirty={isDirty}
+        activeSection={librarySection}
+        onSectionChange={(section) => {
+          setLibrarySection(section);
+          setWorkspaceSearchActive(false);
+          setWorkspaceMatches([]);
+        }}
         onNew={() => void handleNew()}
         onOpen={() => void handleOpen()}
         onOpenWorkspace={() => void handleOpenWorkspace()}
@@ -680,6 +699,8 @@ export default function App() {
       <WorkspaceListPanel
         busy={busy}
         workspace={workspace}
+        librarySection={librarySection}
+        workspaceFiles={workspaceFiles}
         workspaceQuery={workspaceQuery}
         workspaceMatches={workspaceMatches}
         workspaceSearchActive={workspaceSearchActive}

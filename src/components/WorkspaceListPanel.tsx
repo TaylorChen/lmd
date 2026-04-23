@@ -3,6 +3,7 @@ import type {
   AppSettings,
   AssistantCatalog,
   EditorMode,
+  LibrarySection,
   RecentFile,
   SearchMatch,
   Workspace,
@@ -12,6 +13,8 @@ import type {
 type WorkspaceListPanelProps = {
   busy: boolean;
   workspace: Workspace | null;
+  librarySection: LibrarySection;
+  workspaceFiles: WorkspaceFile[];
   workspaceQuery: string;
   workspaceMatches: SearchMatch[];
   workspaceSearchActive: boolean;
@@ -35,6 +38,8 @@ type WorkspaceListPanelProps = {
 export function WorkspaceListPanel({
   busy,
   workspace,
+  librarySection,
+  workspaceFiles,
   workspaceQuery,
   workspaceMatches,
   workspaceSearchActive,
@@ -61,16 +66,50 @@ export function WorkspaceListPanel({
   const selectedProvider =
     assistantCatalog.providers.find((provider) => provider.id === settings.assistantProvider) ??
     assistantCatalog.providers[0];
+  const sectionLabel = {
+    inbox: "Inbox",
+    "all-notes": "Workspace",
+    notes: "Notes",
+    sources: "Sources",
+    wiki: "Wiki",
+    recent: "Recent",
+  }[librarySection];
 
   return (
     <aside className="workspace-list-panel" aria-label="Workspace notes">
       <div className="workspace-panel">
         <div className="workspace-header">
-          <span className="label">Workspace</span>
-          <small>{workspace ? `${workspace.files.length.toLocaleString()} files` : "None"}</small>
+          <span className="label">{sectionLabel}</span>
+          <small>
+            {librarySection === "recent"
+              ? `${recentFiles.length.toLocaleString()} files`
+              : workspace
+                ? `${workspaceFiles.length.toLocaleString()} files`
+                : "None"}
+          </small>
         </div>
 
-        {workspace ? (
+        {librarySection === "recent" ? (
+          recentFiles.length > 0 ? (
+            <div className="file-list" aria-label="Workspace files">
+              {recentFiles.map((file) => (
+                <button
+                  type="button"
+                  key={file.path}
+                  className={`file-item ${file.path === path ? "active" : ""}`}
+                  onClick={() => onOpenRecentFile(file.path, file.name)}
+                  disabled={busy}
+                  title={file.path}
+                >
+                  <span>{file.name}</span>
+                  <small>Recent</small>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-workspace">No recent files yet.</p>
+          )
+        ) : workspace ? (
           <>
             <strong title={workspace.rootPath}>{fileName(workspace.rootPath)}</strong>
             <small className={`workspace-mode ${workspace.knowledge.isInitialized ? "ready" : "pending"}`}>
@@ -114,8 +153,8 @@ export function WorkspaceListPanel({
                 ) : (
                   <p className="empty-workspace">No matches found.</p>
                 )
-              ) : workspace.files.length > 0 ? (
-                workspace.files.map((file) => (
+              ) : workspaceFiles.length > 0 ? (
+                workspaceFiles.map((file) => (
                   <button
                     type="button"
                     key={file.path}
@@ -129,7 +168,7 @@ export function WorkspaceListPanel({
                   </button>
                 ))
               ) : (
-                <p className="empty-workspace">No Markdown files found.</p>
+                <p className="empty-workspace">No Markdown files found in {sectionLabel}.</p>
               )}
             </div>
           </>
