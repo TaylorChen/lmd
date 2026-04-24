@@ -17,6 +17,24 @@ function sourceKindLabel(value: Backlink["sourceKind"] | "unknown" | null) {
   return "Unknown";
 }
 
+function reasonLabel(value: QueryContext["items"][number]["reason"]) {
+  if (value === "current_document") return "Current note";
+  if (value === "linked_wiki") return "Linked wiki";
+  if (value === "source_reference") return "Source reference";
+  if (value === "backlink") return "Backlink";
+  if (value === "index_hint") return "Index hint";
+  return value;
+}
+
+function StatChip({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="knowledge-stat">
+      <strong>{value.toLocaleString()}</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
 export function KnowledgePanel({
   knowledge,
   lint,
@@ -29,10 +47,25 @@ export function KnowledgePanel({
   if (!knowledge) {
     return (
       <aside className="knowledge-panel" aria-label="Knowledge panel">
-        <p className="knowledge-empty">Open a saved file inside a knowledge workspace to inspect links and metadata.</p>
+        <section className="knowledge-section">
+          <div className="knowledge-header">
+            <span className="label">Knowledge</span>
+            <small>Ready</small>
+          </div>
+          <p className="knowledge-empty">Open a saved note in this workspace to inspect links, tags, and source context.</p>
+        </section>
       </aside>
     );
   }
+
+  const hasMetadata = knowledge.frontmatter.length > 0 || knowledge.tags.length > 0;
+  const hasGraphDetails =
+    knowledge.outgoingLinks.length > 0 ||
+    knowledge.backlinks.length > 0 ||
+    knowledge.relatedWikiPages.length > 0 ||
+    knowledge.sourceReferences.length > 0 ||
+    knowledge.unresolvedLinks.length > 0 ||
+    Boolean(lint && lint.issues.length > 0);
 
   return (
     <aside className="knowledge-panel" aria-label="Knowledge panel">
@@ -40,6 +73,12 @@ export function KnowledgePanel({
         <div className="knowledge-header">
           <span className="label">Knowledge</span>
           <small>{knowledge.currentRelativePath}</small>
+        </div>
+        <div className="knowledge-stats" aria-label="Knowledge summary">
+          <StatChip label="Tags" value={knowledge.tags.length} />
+          <StatChip label="Links" value={knowledge.outgoingLinks.length} />
+          <StatChip label="Backlinks" value={knowledge.backlinks.length} />
+          <StatChip label="Issues" value={lint?.issues.length ?? 0} />
         </div>
         {(workspaceIndexPath || workspaceLogPath) && (
           <div className="knowledge-actions">
@@ -85,59 +124,50 @@ export function KnowledgePanel({
               >
                 <strong>{item.name}</strong>
                 <span>{item.relativePath}</span>
-                <small>{item.reason}</small>
+                <small>{reasonLabel(item.reason)}</small>
                 <em>{item.excerpt || "No excerpt available."}</em>
               </button>
             ))}
           </div>
         ) : (
-          <p className="knowledge-empty">No query context assembled yet.</p>
+          <p className="knowledge-empty">Context will appear here after this note is indexed.</p>
         )}
       </section>
 
-      <section className="knowledge-section">
-        <div className="knowledge-header">
-          <span className="label">Frontmatter</span>
-          <small>{knowledge.frontmatter.length.toLocaleString()}</small>
-        </div>
-        {knowledge.frontmatter.length > 0 ? (
-          <div className="knowledge-kv-list">
-            {knowledge.frontmatter.map((field) => (
-              <div key={field.key} className="knowledge-kv-item">
-                <strong>{field.key}</strong>
-                <span>{field.value}</span>
-              </div>
-            ))}
+      {hasMetadata && (
+        <section className="knowledge-section">
+          <div className="knowledge-header">
+            <span className="label">Metadata</span>
+            <small>{(knowledge.frontmatter.length + knowledge.tags.length).toLocaleString()}</small>
           </div>
-        ) : (
-          <p className="knowledge-empty">No frontmatter fields.</p>
-        )}
-      </section>
+          {knowledge.tags.length > 0 && (
+            <div className="knowledge-tag-list">
+              {knowledge.tags.map((tag) => (
+                <span key={tag} className="knowledge-tag">
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
+          {knowledge.frontmatter.length > 0 && (
+            <div className="knowledge-kv-list">
+              {knowledge.frontmatter.map((field) => (
+                <div key={field.key} className="knowledge-kv-item">
+                  <strong>{field.key}</strong>
+                  <span>{field.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
-      <section className="knowledge-section">
-        <div className="knowledge-header">
-          <span className="label">Tags</span>
-          <small>{knowledge.tags.length.toLocaleString()}</small>
-        </div>
-        {knowledge.tags.length > 0 ? (
-          <div className="knowledge-tag-list">
-            {knowledge.tags.map((tag) => (
-              <span key={tag} className="knowledge-tag">
-                #{tag}
-              </span>
-            ))}
+      {knowledge.outgoingLinks.length > 0 && (
+        <section className="knowledge-section">
+          <div className="knowledge-header">
+            <span className="label">Outgoing</span>
+            <small>{knowledge.outgoingLinks.length.toLocaleString()}</small>
           </div>
-        ) : (
-          <p className="knowledge-empty">No tags found.</p>
-        )}
-      </section>
-
-      <section className="knowledge-section">
-        <div className="knowledge-header">
-          <span className="label">Outgoing</span>
-          <small>{knowledge.outgoingLinks.length.toLocaleString()}</small>
-        </div>
-        {knowledge.outgoingLinks.length > 0 ? (
           <div className="knowledge-link-list">
             {knowledge.outgoingLinks.map((link, index) =>
               link.resolvedPath ? (
@@ -162,17 +192,15 @@ export function KnowledgePanel({
               ),
             )}
           </div>
-        ) : (
-          <p className="knowledge-empty">No wikilinks found.</p>
-        )}
-      </section>
+        </section>
+      )}
 
-      <section className="knowledge-section">
-        <div className="knowledge-header">
-          <span className="label">Backlinks</span>
-          <small>{knowledge.backlinks.length.toLocaleString()}</small>
-        </div>
-        {knowledge.backlinks.length > 0 ? (
+      {knowledge.backlinks.length > 0 && (
+        <section className="knowledge-section">
+          <div className="knowledge-header">
+            <span className="label">Backlinks</span>
+            <small>{knowledge.backlinks.length.toLocaleString()}</small>
+          </div>
           <div className="knowledge-link-list">
             {knowledge.backlinks.map((link) => (
               <button
@@ -189,17 +217,15 @@ export function KnowledgePanel({
               </button>
             ))}
           </div>
-        ) : (
-          <p className="knowledge-empty">No backlinks yet.</p>
-        )}
-      </section>
+        </section>
+      )}
 
-      <section className="knowledge-section">
-        <div className="knowledge-header">
-          <span className="label">Related Wiki</span>
-          <small>{knowledge.relatedWikiPages.length.toLocaleString()}</small>
-        </div>
-        {knowledge.relatedWikiPages.length > 0 ? (
+      {knowledge.relatedWikiPages.length > 0 && (
+        <section className="knowledge-section">
+          <div className="knowledge-header">
+            <span className="label">Related Wiki</span>
+            <small>{knowledge.relatedWikiPages.length.toLocaleString()}</small>
+          </div>
           <div className="knowledge-link-list">
             {knowledge.relatedWikiPages.map((link) => (
               <button
@@ -216,17 +242,15 @@ export function KnowledgePanel({
               </button>
             ))}
           </div>
-        ) : (
-          <p className="knowledge-empty">No related wiki pages yet.</p>
-        )}
-      </section>
+        </section>
+      )}
 
-      <section className="knowledge-section">
-        <div className="knowledge-header">
-          <span className="label">Source References</span>
-          <small>{knowledge.sourceReferences.length.toLocaleString()}</small>
-        </div>
-        {knowledge.sourceReferences.length > 0 ? (
+      {knowledge.sourceReferences.length > 0 && (
+        <section className="knowledge-section">
+          <div className="knowledge-header">
+            <span className="label">Source References</span>
+            <small>{knowledge.sourceReferences.length.toLocaleString()}</small>
+          </div>
           <div className="knowledge-link-list">
             {knowledge.sourceReferences.map((link) => (
               <button
@@ -243,10 +267,8 @@ export function KnowledgePanel({
               </button>
             ))}
           </div>
-        ) : (
-          <p className="knowledge-empty">No source references yet.</p>
-        )}
-      </section>
+        </section>
+      )}
 
       {knowledge.unresolvedLinks.length > 0 && (
         <section className="knowledge-section">
@@ -266,12 +288,12 @@ export function KnowledgePanel({
         </section>
       )}
 
-      <section className="knowledge-section">
-        <div className="knowledge-header">
-          <span className="label">Lint</span>
-          <small>{lint?.issues.length.toLocaleString() ?? "0"}</small>
-        </div>
-        {lint && lint.issues.length > 0 ? (
+      {lint && lint.issues.length > 0 && (
+        <section className="knowledge-section">
+          <div className="knowledge-header">
+            <span className="label">Checks</span>
+            <small>{lint.issues.length.toLocaleString()}</small>
+          </div>
           <div className="knowledge-link-list">
             {lint.issues.map((issue, index) => (
               <button
@@ -288,10 +310,18 @@ export function KnowledgePanel({
               </button>
             ))}
           </div>
-        ) : (
-          <p className="knowledge-empty">No lint issues in the current workspace.</p>
-        )}
-      </section>
+        </section>
+      )}
+
+      {!hasGraphDetails && (
+        <section className="knowledge-section">
+          <div className="knowledge-header">
+            <span className="label">Graph</span>
+            <small>Quiet</small>
+          </div>
+          <p className="knowledge-empty">No links, source references, or content issues yet.</p>
+        </section>
+      )}
     </aside>
   );
 }
