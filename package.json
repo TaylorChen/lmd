@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "test:e2e": "playwright test",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "node scripts/tauri-dev.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.8.1",
