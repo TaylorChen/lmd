@@ -1,9 +1,10 @@
-import type { AppSettings, AssistantDraft, QueryContext } from "../types";
+import type { AppSettings, AssistantDraft, AssistantEvent, QueryContext } from "../types";
 
 type AssistantPanelProps = {
   busy: boolean;
   queryContext: QueryContext | null;
   draft: AssistantDraft | null;
+  events: AssistantEvent[];
   settings: AppSettings;
   onSummarize: () => void;
   onSaveDraft: () => void;
@@ -13,6 +14,7 @@ export function AssistantPanel({
   busy,
   queryContext,
   draft,
+  events,
   settings,
   onSummarize,
   onSaveDraft,
@@ -45,6 +47,25 @@ export function AssistantPanel({
             Save as Wiki Page
           </button>
         </div>
+      </section>
+
+      <section className="knowledge-section">
+        <div className="knowledge-header">
+          <span className="label">Run Log</span>
+          <small>{events.length.toLocaleString()}</small>
+        </div>
+        {events.length > 0 ? (
+          <ol className="assistant-events" aria-label="Assistant run log">
+            {events.map((event, index) => (
+              <li key={`${event.label}-${index}`} className={`assistant-event ${event.tone}`}>
+                <strong>{event.label}</strong>
+                <span>{event.detail}</span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="knowledge-empty">No assistant activity yet.</p>
+        )}
       </section>
 
       <section className="knowledge-section">

@@ -17,6 +17,7 @@ declare global {
 async function installTauriMock(page: Page) {
   await page.addInitScript(() => {
     const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+    let knowledgeInitialized = false;
 
     window.__LMD_TEST_API__ = {
       async invoke(command, args) {
@@ -62,7 +63,7 @@ async function installTauriMock(page: Page) {
               },
             ],
             knowledge: {
-              isInitialized: false,
+              isInitialized: knowledgeInitialized,
               notesPath: "/workspace/notes",
               sourcesPath: "/workspace/sources",
               wikiPath: "/workspace/wiki",
@@ -209,6 +210,7 @@ async function installTauriMock(page: Page) {
         }
 
         if (command === "initialize_knowledge_workspace") {
+          knowledgeInitialized = true;
           return {
             rootPath: "/workspace",
             files: [
@@ -475,13 +477,20 @@ test("builds and saves an assistant draft", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Edit" })).toHaveClass(/active/);
   await page.locator(".toolbar").getByRole("button", { name: "Assistant" }).click();
   await expect(page.getByRole("complementary", { name: "Inspector" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("Context loaded");
+  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("2 items from alpha.md");
 
   await page.getByRole("button", { name: "Summarize Context" }).click();
   await expect(page.getByText("Assistant draft generated.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "alpha summary" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("Summary requested");
+  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("builtin / local-summary-v1");
+  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("Draft generated");
 
   await page.getByRole("button", { name: "Save as Wiki Page" }).click();
   await expect(page.getByText("Saved wiki draft to alpha-summary.md.")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("Draft saved");
+  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("alpha-summary.md");
 
   const summarizeCall = await page.evaluate(() =>
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "summarize_query_context"),

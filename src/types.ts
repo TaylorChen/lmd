@@ -124,6 +124,12 @@ export type AssistantDraft = {
   content: string;
 };
 
+export type AssistantEvent = {
+  label: string;
+  detail: string;
+  tone: "info" | "error";
+};
+
 export type AssistantProvider = "builtin" | "mock_openai" | "external_command";
 
 export type AssistantProviderInfo = {

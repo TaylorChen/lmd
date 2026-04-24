@@ -763,6 +763,40 @@ button:disabled {
   gap: 10px;
 }
 
+.assistant-events {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.assistant-event {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-muted);
+}
+
+.assistant-event.error {
+  border-color: rgba(154, 106, 22, 0.28);
+  background: var(--warning-soft);
+}
+
+.assistant-event strong,
+.assistant-event span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.assistant-event span {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .assistant-draft h2 {
   margin: 0;
   font-size: 1rem;

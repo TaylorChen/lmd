@@ -17,6 +17,7 @@ import { invokeCommand } from "./lib/tauri";
 import type {
   AssistantCatalog,
   AssistantDraft,
+  AssistantEvent,
   ExternalChange,
   DocumentKnowledge,
   EditorMode,
@@ -75,6 +76,7 @@ export default function App() {
   const [knowledgeLint, setKnowledgeLint] = useState<KnowledgeLintReport | null>(null);
   const [queryContext, setQueryContext] = useState<QueryContext | null>(null);
   const [assistantDraft, setAssistantDraft] = useState<AssistantDraft | null>(null);
+  const [assistantEvents, setAssistantEvents] = useState<AssistantEvent[]>([]);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -163,6 +165,11 @@ export default function App() {
     setKnowledgeLint(null);
     setQueryContext(null);
     setAssistantDraft(null);
+    setAssistantEvents([]);
+  }
+
+  function appendAssistantEvent(event: AssistantEvent) {
+    setAssistantEvents((currentEvents) => [...currentEvents, event].slice(-8));
   }
 
   function rememberDocument(documentPath: string) {
@@ -452,6 +459,11 @@ export default function App() {
 
     setBusy(true);
     setNotice(null);
+    appendAssistantEvent({
+      label: "Summary requested",
+      detail: `${settings.assistantProvider} / ${settings.assistantModel}`,
+      tone: "info",
+    });
     try {
       const draft = await invokeCommand<AssistantDraft>("summarize_query_context", {
         rootPath: workspace.rootPath,
@@ -461,8 +473,18 @@ export default function App() {
         model: settings.assistantModel,
       });
       setAssistantDraft(draft);
+      appendAssistantEvent({
+        label: "Draft generated",
+        detail: draft.title,
+        tone: "info",
+      });
       setNotice({ tone: "info", message: "Assistant draft generated." });
     } catch (error) {
+      appendAssistantEvent({
+        label: "Draft failed",
+        detail: String(error),
+        tone: "error",
+      });
       setNotice({ tone: "error", message: String(error) });
     } finally {
       setBusy(false);
@@ -482,9 +504,19 @@ export default function App() {
         title: assistantDraft.title,
         content: assistantDraft.content,
       });
+      appendAssistantEvent({
+        label: "Draft saved",
+        detail: fileName(savedPath),
+        tone: "info",
+      });
       setNotice({ tone: "info", message: `Saved wiki draft to ${fileName(savedPath)}.` });
       await handleRefreshWorkspace(false);
     } catch (error) {
+      appendAssistantEvent({
+        label: "Save failed",
+        detail: String(error),
+        tone: "error",
+      });
       setNotice({ tone: "error", message: String(error) });
     } finally {
       setBusy(false);
@@ -592,6 +624,11 @@ export default function App() {
           setDocumentKnowledge(knowledge);
           setKnowledgeLint(lint);
           setQueryContext(context);
+          appendAssistantEvent({
+            label: "Context loaded",
+            detail: `${context.items.length.toLocaleString()} items from ${context.currentRelativePath}`,
+            tone: "info",
+          });
         }
       } catch {
         if (!cancelled) clearKnowledge();
@@ -784,6 +821,7 @@ export default function App() {
                 busy={busy}
                 queryContext={queryContext}
                 draft={assistantDraft}
+                events={assistantEvents}
                 settings={settings}
                 onSummarize={() => void handleSummarizeContext()}
                 onSaveDraft={() => void handleSaveAssistantDraft()}
