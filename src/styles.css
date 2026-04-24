@@ -161,7 +161,7 @@ button:disabled {
 
 .workspace-panel {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   flex: 1 1 220px;
   min-height: 0;
   min-width: 0;
@@ -176,24 +176,58 @@ button:disabled {
 }
 
 .workspace-header small,
-.workspace-panel > strong {
+.workspace-panel > strong,
+.workspace-summary strong,
+.workspace-summary small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.workspace-mode {
-  display: block;
+.workspace-summary {
+  display: grid;
+  gap: 3px;
+  padding: 8px 0 6px;
+  min-width: 0;
+}
+
+.workspace-summary strong {
+  font-size: 1rem;
+}
+
+.workspace-summary small {
   color: var(--muted);
   font-size: 0.78rem;
 }
 
+.workspace-subheader {
+  margin-top: 2px;
+}
+
+.workspace-mode {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--soft-line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  background: var(--panel-muted);
+}
+
 .workspace-mode.ready {
   color: var(--accent-strong);
+  border-color: rgba(23, 155, 103, 0.2);
+  background: var(--accent-soft);
 }
 
 .workspace-mode.pending {
   color: var(--warning);
+  border-color: rgba(154, 106, 22, 0.2);
+  background: var(--warning-soft);
 }
 
 .workspace-header small,
@@ -231,7 +265,7 @@ button:disabled {
 .file-list {
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: 5px;
   min-height: 0;
   overflow: auto;
   padding-right: 2px;
@@ -241,11 +275,11 @@ button:disabled {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
   width: 100%;
   height: auto;
   min-height: 34px;
-  padding: 7px 9px;
+  padding: 8px 10px;
   text-align: left;
 }
 
@@ -273,26 +307,26 @@ button:disabled {
 .file-item em {
   grid-column: 1 / 2;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-style: normal;
 }
 
 .file-kind {
   align-self: start;
-  height: 22px;
-  padding: 2px 7px;
-  border: 1px solid var(--soft-line);
+  height: 20px;
+  padding: 1px 4px;
+  border: 0;
   border-radius: 8px;
-  background: var(--panel-muted);
+  background: transparent;
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   line-height: 1.25;
   text-transform: lowercase;
 }
 
 .file-meta {
   color: var(--muted);
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   text-align: right;
 }
 
@@ -309,7 +343,7 @@ button:disabled {
 
 .recent-panel {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -338,7 +372,7 @@ button:disabled {
 
 .settings-panel {
   display: grid;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
 }
 
@@ -348,7 +382,7 @@ button:disabled {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 0.84rem;
+  font-size: 0.82rem;
 }
 
 .settings-panel select {

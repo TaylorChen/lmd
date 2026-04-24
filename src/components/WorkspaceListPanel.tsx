@@ -120,10 +120,13 @@ export function WorkspaceListPanel({
           )
         ) : workspace ? (
           <>
-            <strong title={workspace.rootPath}>{fileName(workspace.rootPath)}</strong>
-            <small className={`workspace-mode ${workspace.knowledge.isInitialized ? "ready" : "pending"}`}>
-              {workspace.knowledge.isInitialized ? "Knowledge workspace ready" : "Standard workspace"}
-            </small>
+            <div className="workspace-summary">
+              <strong title={workspace.rootPath}>{fileName(workspace.rootPath)}</strong>
+              <small title={workspace.rootPath}>{workspace.rootPath}</small>
+              <span className={`workspace-mode ${workspace.knowledge.isInitialized ? "ready" : "pending"}`}>
+                {workspace.knowledge.isInitialized ? "Knowledge workspace ready" : "Standard workspace"}
+              </span>
+            </div>
             <form
               className="workspace-search"
               onSubmit={(event) => {
@@ -142,6 +145,12 @@ export function WorkspaceListPanel({
                 Find
               </button>
             </form>
+            {workspaceSearchActive && (
+              <div className="workspace-header workspace-subheader">
+                <span className="label">Matches</span>
+                <small>{workspaceMatches.length.toLocaleString()}</small>
+              </div>
+            )}
             <div className="file-list" aria-label="Workspace files">
               {workspaceSearchActive ? (
                 workspaceMatches.length > 0 ? (
@@ -216,6 +225,7 @@ export function WorkspaceListPanel({
       <div className="settings-panel">
         <div className="workspace-header">
           <span className="label">Settings</span>
+          <small>Local</small>
         </div>
 
         <label>
@@ -300,7 +310,9 @@ export function WorkspaceListPanel({
       </div>
 
       <div className="document-card">
-        <span className="label">Document</span>
+        <div className="workspace-header">
+          <span className="label">Document</span>
+        </div>
         <strong>{fileName(path)}</strong>
         <small title={path ?? undefined}>{path ?? "Not saved yet"}</small>
       </div>
