@@ -24,11 +24,9 @@ export function AssistantPanel({
       <section className="knowledge-section">
         <div className="knowledge-header">
           <span className="label">Assistant</span>
-          <small>
-            {settings.assistantProvider} / {settings.assistantModel}
-          </small>
+          <small>{settings.assistantModel}</small>
         </div>
-        <p className="knowledge-empty">{queryContext?.items.length.toLocaleString() ?? "0"} context items available.</p>
+        <p className="knowledge-empty">{queryContext?.items.length.toLocaleString() ?? "0"} context items ready.</p>
         <div className="knowledge-actions">
           <button
             type="button"
