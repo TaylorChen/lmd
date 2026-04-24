@@ -744,8 +744,6 @@ export default function App() {
         recentFiles={recentFiles}
         path={path}
         isLarge={isLarge}
-        byteSize={byteSize}
-        lineCount={lineCount}
         visibleStartLine={visibleStartLine}
         visibleEndLine={visibleEndLine}
         settings={settings}

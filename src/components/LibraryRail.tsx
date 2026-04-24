@@ -42,9 +42,8 @@ export function LibraryRail({
 }: LibraryRailProps) {
   return (
     <aside className="library-rail" aria-label="Library">
-      <div>
+      <div className="app-brand">
         <div className="app-mark">LMD</div>
-        <p className="sidebar-copy">Light Markdown</p>
       </div>
 
       <nav className="library-nav" aria-label="Library sections">
@@ -71,25 +70,36 @@ export function LibraryRail({
         <button type="button" onClick={onOpenWorkspace} disabled={busy}>
           Workspace
         </button>
-        <button
-          type="button"
-          onClick={onInitializeKnowledgeWorkspace}
-          disabled={busy || !workspace || workspace.knowledge.isInitialized}
-        >
-          Init Knowledge
-        </button>
-        <button type="button" onClick={onRefreshWorkspace} disabled={busy || !workspace}>
-          Refresh
-        </button>
-        <button type="button" className="primary-action" onClick={onSave} disabled={busy || !isDirty}>
-          Save
-        </button>
-        <button type="button" onClick={onExportHtml} disabled={busy}>
-          Export HTML
-        </button>
-        <button type="button" onClick={onExportPdf} disabled={busy}>
-          Export PDF
-        </button>
+        {isDirty && (
+          <button type="button" className="primary-action" onClick={onSave} disabled={busy}>
+            Save
+          </button>
+        )}
+        <details className="sidebar-more">
+          <summary>More</summary>
+          <div className="sidebar-more-actions">
+            {workspace && (
+              <>
+                <button
+                  type="button"
+                  onClick={onInitializeKnowledgeWorkspace}
+                  disabled={busy || workspace.knowledge.isInitialized}
+                >
+                  Init Knowledge
+                </button>
+                <button type="button" onClick={onRefreshWorkspace} disabled={busy}>
+                  Refresh
+                </button>
+              </>
+            )}
+            <button type="button" onClick={onExportHtml} disabled={busy}>
+              Export HTML
+            </button>
+            <button type="button" onClick={onExportPdf} disabled={busy}>
+              Export PDF
+            </button>
+          </div>
+        </details>
       </div>
     </aside>
   );

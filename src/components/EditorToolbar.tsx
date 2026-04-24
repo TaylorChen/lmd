@@ -72,7 +72,6 @@ export function EditorToolbar({
 
       <div className="toolbar-controls">
         <div className="toolbar-group">
-          <span className="toolbar-label">View</span>
           <div className="mode-switch" aria-label="Editor mode">
             {(["edit", "split", "preview"] as const).map((nextMode) => (
               <button
@@ -89,7 +88,6 @@ export function EditorToolbar({
 
         {canShowKnowledge && (
           <div className="toolbar-group">
-            <span className="toolbar-label">Inspector</span>
             <div className="mode-switch" aria-label="Inspector tab">
               <button
                 type="button"

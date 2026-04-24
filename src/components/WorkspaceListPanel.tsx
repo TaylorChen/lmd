@@ -1,4 +1,4 @@
-import { fileName, formatBytes } from "../lib/format";
+import { fileName } from "../lib/format";
 import type {
   AppSettings,
   AssistantCatalog,
@@ -21,8 +21,6 @@ type WorkspaceListPanelProps = {
   recentFiles: RecentFile[];
   path: string | null;
   isLarge: boolean;
-  byteSize: number;
-  lineCount: number;
   visibleStartLine: number;
   visibleEndLine: number;
   settings: AppSettings;
@@ -54,8 +52,6 @@ export function WorkspaceListPanel({
   recentFiles,
   path,
   isLarge,
-  byteSize,
-  lineCount,
   visibleStartLine,
   visibleEndLine,
   settings,
@@ -82,8 +78,7 @@ export function WorkspaceListPanel({
     wiki: "Wiki",
     recent: "Recent",
   }[librarySection];
-  const showRecentPanel = recentFiles.length > 0;
-  const showDocumentMeta = Boolean(path || workspace);
+  const showRecentPanel = !workspace && recentFiles.length > 0;
 
   return (
     <aside className="workspace-list-panel" aria-label="Workspace notes">
@@ -124,7 +119,6 @@ export function WorkspaceListPanel({
           <>
             <div className="workspace-summary">
               <strong title={workspace.rootPath}>{fileName(workspace.rootPath)}</strong>
-              <small title={workspace.rootPath}>{workspace.rootPath}</small>
               <span className={`workspace-mode ${workspace.knowledge.isInitialized ? "ready" : "pending"}`}>
                 {workspace.knowledge.isInitialized ? "Knowledge workspace ready" : "Standard workspace"}
               </span>
@@ -186,7 +180,6 @@ export function WorkspaceListPanel({
                     <span>{fileName(file.relativePath)}</span>
                     <small className="file-kind">{sourceKindForPath(file.relativePath)}</small>
                     <em>{file.relativePath}</em>
-                    <small className="file-meta">{formatBytes(file.byteSize)}</small>
                   </button>
                 ))
               ) : (
@@ -195,7 +188,10 @@ export function WorkspaceListPanel({
             </div>
           </>
         ) : (
-          <p className="empty-workspace">Open a folder to browse notes.</p>
+          <div className="workspace-empty-state">
+            <strong>Workspace</strong>
+            <p className="empty-workspace">Open a folder to browse notes.</p>
+          </div>
         )}
       </div>
 
@@ -222,102 +218,94 @@ export function WorkspaceListPanel({
         </div>
       )}
 
-      <div className="settings-panel">
-        <div className="workspace-header">
+      <details className="settings-panel">
+        <summary className="settings-summary">
           <span className="label">Settings</span>
           <small>Local</small>
+        </summary>
+
+        <div className="settings-content">
+          <label>
+            <span>Default view</span>
+            <select
+              aria-label="Default view"
+              value={settings.defaultEditorMode}
+              onChange={(event) => updateSetting({ defaultEditorMode: event.target.value as EditorMode })}
+            >
+              <option value="edit">Edit</option>
+              <option value="split">Split</option>
+              <option value="preview">Preview</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Search results</span>
+            <select
+              aria-label="Search results"
+              value={settings.searchResultLimit}
+              onChange={(event) => updateSetting({ searchResultLimit: Number(event.target.value) })}
+            >
+              <option value={40}>40</option>
+              <option value={80}>80</option>
+              <option value={120}>120</option>
+              <option value={200}>200</option>
+            </select>
+          </label>
+
+          <label>
+            <span>File check</span>
+            <select
+              aria-label="File check"
+              value={settings.externalCheckSeconds}
+              onChange={(event) => updateSetting({ externalCheckSeconds: Number(event.target.value) })}
+            >
+              <option value={2}>2 sec</option>
+              <option value={5}>5 sec</option>
+              <option value={10}>10 sec</option>
+              <option value={30}>30 sec</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Assistant</span>
+            <select
+              aria-label="Assistant provider"
+              value={settings.assistantProvider}
+              onChange={(event) => {
+                const nextProvider = assistantCatalog.providers.find(
+                  (provider) => provider.id === event.target.value,
+                );
+                if (!nextProvider) return;
+                updateSetting({
+                  assistantProvider: nextProvider.id,
+                  assistantModel: nextProvider.models[0] ?? settings.assistantModel,
+                });
+              }}
+            >
+              {assistantCatalog.providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Assistant model</span>
+            <select
+              aria-label="Assistant model"
+              value={settings.assistantModel}
+              onChange={(event) => updateSetting({ assistantModel: event.target.value })}
+            >
+              {selectedProvider?.models.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
-
-        <label>
-          <span>Default view</span>
-          <select
-            aria-label="Default view"
-            value={settings.defaultEditorMode}
-            onChange={(event) => updateSetting({ defaultEditorMode: event.target.value as EditorMode })}
-          >
-            <option value="edit">Edit</option>
-            <option value="split">Split</option>
-            <option value="preview">Preview</option>
-          </select>
-        </label>
-
-        <label>
-          <span>Search results</span>
-          <select
-            aria-label="Search results"
-            value={settings.searchResultLimit}
-            onChange={(event) => updateSetting({ searchResultLimit: Number(event.target.value) })}
-          >
-            <option value={40}>40</option>
-            <option value={80}>80</option>
-            <option value={120}>120</option>
-            <option value={200}>200</option>
-          </select>
-        </label>
-
-        <label>
-          <span>File check</span>
-          <select
-            aria-label="File check"
-            value={settings.externalCheckSeconds}
-            onChange={(event) => updateSetting({ externalCheckSeconds: Number(event.target.value) })}
-          >
-            <option value={2}>2 sec</option>
-            <option value={5}>5 sec</option>
-            <option value={10}>10 sec</option>
-            <option value={30}>30 sec</option>
-          </select>
-        </label>
-
-        <label>
-          <span>Assistant</span>
-          <select
-            aria-label="Assistant provider"
-            value={settings.assistantProvider}
-            onChange={(event) => {
-              const nextProvider = assistantCatalog.providers.find(
-                (provider) => provider.id === event.target.value,
-              );
-              if (!nextProvider) return;
-              updateSetting({
-                assistantProvider: nextProvider.id,
-                assistantModel: nextProvider.models[0] ?? settings.assistantModel,
-              });
-            }}
-          >
-            {assistantCatalog.providers.map((provider) => (
-              <option key={provider.id} value={provider.id}>
-                {provider.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
-          <span>Assistant model</span>
-          <select
-            aria-label="Assistant model"
-            value={settings.assistantModel}
-            onChange={(event) => updateSetting({ assistantModel: event.target.value })}
-          >
-            {selectedProvider?.models.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {showDocumentMeta && (
-        <div className="document-card">
-          <div className="workspace-header">
-            <span className="label">Document</span>
-          </div>
-          <strong>{fileName(path)}</strong>
-          <small title={path ?? undefined}>{path ? "Saved locally" : "Not saved yet"}</small>
-        </div>
-      )}
+      </details>
 
       {isLarge && (
         <div className="large-file-card">
@@ -326,19 +314,6 @@ export function WorkspaceListPanel({
           <small>
             Lines {visibleStartLine.toLocaleString()}-{visibleEndLine.toLocaleString()}
           </small>
-        </div>
-      )}
-
-      {showDocumentMeta && (
-        <div className="stats-grid">
-          <div>
-            <span>{formatBytes(byteSize)}</span>
-            <small>Size</small>
-          </div>
-          <div>
-            <span>{lineCount.toLocaleString()}</span>
-            <small>Lines</small>
-          </div>
         </div>
       )}
     </aside>

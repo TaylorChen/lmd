@@ -330,6 +330,7 @@ test("edits markdown and renders preview modes", async ({ page }) => {
 });
 
 test("persists settings across reload", async ({ page }) => {
+  await page.getByText("Settings").click();
   await page.getByLabel("Default view").selectOption("preview");
   await page.getByLabel("Search results").selectOption("120");
   await page.getByLabel("File check").selectOption("10");
@@ -338,6 +339,7 @@ test("persists settings across reload", async ({ page }) => {
 
   await page.reload();
 
+  await page.getByText("Settings").click();
   await expect(page.getByRole("button", { name: "Preview" })).toHaveClass(/active/);
   await expect(page.getByLabel("Default view")).toHaveValue("preview");
   await expect(page.getByLabel("Search results")).toHaveValue("120");
@@ -355,6 +357,7 @@ test("saves and exports the current document", async ({ page }) => {
   await expect(page.getByText("Saved untitled.md.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "untitled.md" })).toBeVisible();
 
+  await page.getByText("More").click();
   await page.getByRole("button", { name: "Export HTML" }).click();
   await expect(page.getByText("Exported HTML to untitled.html.")).toBeVisible();
 
@@ -416,6 +419,7 @@ test("initializes a knowledge workspace", async ({ page }) => {
   await page.getByRole("button", { name: "Workspace" }).click();
   await expect(page.getByText("Standard workspace")).toBeVisible();
 
+  await page.getByText("More").click();
   await page.getByRole("button", { name: "Init Knowledge" }).click();
   await expect(page.getByText("Knowledge workspace initialized.")).toBeVisible();
   await expect(page.getByText("Knowledge workspace ready")).toBeVisible();
@@ -429,6 +433,7 @@ test("initializes a knowledge workspace", async ({ page }) => {
 
 test("shows document knowledge for initialized workspaces", async ({ page }) => {
   await page.getByRole("button", { name: "Workspace" }).click();
+  await page.getByText("More").click();
   await page.getByRole("button", { name: "Init Knowledge" }).click();
 
   await page.locator(".file-list .file-item").first().focus();
@@ -471,6 +476,7 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
 
 test("builds and saves an assistant draft", async ({ page }) => {
   await page.getByRole("button", { name: "Workspace" }).click();
+  await page.getByText("More").click();
   await page.getByRole("button", { name: "Init Knowledge" }).click();
   await page.locator(".file-list .file-item").first().focus();
   await page.keyboard.press("Enter");

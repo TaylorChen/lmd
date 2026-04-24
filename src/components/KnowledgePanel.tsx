@@ -75,10 +75,10 @@ export function KnowledgePanel({
           <small>{knowledge.currentRelativePath}</small>
         </div>
         <div className="knowledge-stats" aria-label="Knowledge summary">
-          <StatChip label="Tags" value={knowledge.tags.length} />
-          <StatChip label="Links" value={knowledge.outgoingLinks.length} />
-          <StatChip label="Backlinks" value={knowledge.backlinks.length} />
-          <StatChip label="Issues" value={lint?.issues.length ?? 0} />
+          <StatChip label="tags" value={knowledge.tags.length} />
+          <StatChip label="links" value={knowledge.outgoingLinks.length} />
+          <StatChip label="backlinks" value={knowledge.backlinks.length} />
+          <StatChip label="issues" value={lint?.issues.length ?? 0} />
         </div>
         {(workspaceIndexPath || workspaceLogPath) && (
           <div className="knowledge-actions">
