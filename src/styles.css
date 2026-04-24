@@ -345,35 +345,41 @@ button:disabled {
   display: grid;
   gap: 6px;
   min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--soft-line);
 }
 
 .recent-list {
   display: grid;
-  gap: 6px;
-  max-height: 122px;
+  gap: 4px;
+  max-height: 112px;
   overflow: auto;
 }
 
 .recent-item {
   display: block;
   width: 100%;
-  height: 32px;
+  height: 30px;
   overflow: hidden;
-  padding: 0 9px;
+  padding: 0 8px;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--muted);
 }
 
 .recent-item.active {
   border-color: rgba(23, 155, 103, 0.46);
   background: var(--accent-soft);
+  color: var(--text);
 }
 
 .settings-panel {
   display: grid;
   gap: 7px;
   min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--soft-line);
 }
 
 .settings-panel label {
@@ -410,10 +416,19 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.document-card {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--soft-line);
+  min-width: 0;
+}
+
 .document-card strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 0.98rem;
 }
 
 .document-card small {
@@ -444,18 +459,20 @@ button:disabled {
 .stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 8px;
   margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--soft-line);
 }
 
 .stats-grid div {
   display: grid;
   gap: 4px;
   min-width: 0;
-  padding: 12px;
+  padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--panel);
+  background: var(--panel-muted);
 }
 
 .stats-grid span {

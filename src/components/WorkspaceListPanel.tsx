@@ -314,7 +314,7 @@ export function WorkspaceListPanel({
           <span className="label">Document</span>
         </div>
         <strong>{fileName(path)}</strong>
-        <small title={path ?? undefined}>{path ?? "Not saved yet"}</small>
+        <small title={path ?? undefined}>{path ? "Saved locally" : "Not saved yet"}</small>
       </div>
 
       {isLarge && (
