@@ -82,6 +82,8 @@ export function WorkspaceListPanel({
     wiki: "Wiki",
     recent: "Recent",
   }[librarySection];
+  const showRecentPanel = recentFiles.length > 0;
+  const showDocumentMeta = Boolean(path || workspace);
 
   return (
     <aside className="workspace-list-panel" aria-label="Workspace notes">
@@ -197,12 +199,12 @@ export function WorkspaceListPanel({
         )}
       </div>
 
-      <div className="recent-panel">
-        <div className="workspace-header">
-          <span className="label">Recent</span>
-          <small>{recentFiles.length.toLocaleString()}</small>
-        </div>
-        {recentFiles.length > 0 ? (
+      {showRecentPanel && (
+        <div className="recent-panel">
+          <div className="workspace-header">
+            <span className="label">Recent</span>
+            <small>{recentFiles.length.toLocaleString()}</small>
+          </div>
           <div className="recent-list" aria-label="Recent files">
             {recentFiles.map((file) => (
               <button
@@ -217,10 +219,8 @@ export function WorkspaceListPanel({
               </button>
             ))}
           </div>
-        ) : (
-          <p className="empty-workspace">No recent files yet.</p>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="settings-panel">
         <div className="workspace-header">
@@ -309,13 +309,15 @@ export function WorkspaceListPanel({
         </label>
       </div>
 
-      <div className="document-card">
-        <div className="workspace-header">
-          <span className="label">Document</span>
+      {showDocumentMeta && (
+        <div className="document-card">
+          <div className="workspace-header">
+            <span className="label">Document</span>
+          </div>
+          <strong>{fileName(path)}</strong>
+          <small title={path ?? undefined}>{path ? "Saved locally" : "Not saved yet"}</small>
         </div>
-        <strong>{fileName(path)}</strong>
-        <small title={path ?? undefined}>{path ? "Saved locally" : "Not saved yet"}</small>
-      </div>
+      )}
 
       {isLarge && (
         <div className="large-file-card">
@@ -327,16 +329,18 @@ export function WorkspaceListPanel({
         </div>
       )}
 
-      <div className="stats-grid">
-        <div>
-          <span>{formatBytes(byteSize)}</span>
-          <small>Size</small>
+      {showDocumentMeta && (
+        <div className="stats-grid">
+          <div>
+            <span>{formatBytes(byteSize)}</span>
+            <small>Size</small>
+          </div>
+          <div>
+            <span>{lineCount.toLocaleString()}</span>
+            <small>Lines</small>
+          </div>
         </div>
-        <div>
-          <span>{lineCount.toLocaleString()}</span>
-          <small>Lines</small>
-        </div>
-      </div>
+      )}
     </aside>
   );
 }
