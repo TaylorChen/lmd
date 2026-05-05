@@ -1,24 +1,23 @@
 # LMD
 
-LMD is a native Markdown editor built with Tauri, React, and Rust. It is optimized for fast local editing, workspace browsing, and practical handling of large Markdown files without turning into a browser-only note app.
+LMD is a native Markdown editor built with Tauri, React, and Rust. It is designed for local-first note taking, fast Markdown editing, workspace browsing, and AI-assisted writing without turning into a browser-only note app.
+
+![LMD editor screenshot](docs/assets/lmd-editor.png)
 
 [MIT licensed](LICENSE).
 
-## Current Scope
+## Highlights
 
-LMD currently focuses on a local-first desktop workflow:
-
-- Edit Markdown with CodeMirror
-- Switch between Edit, Split, and Preview modes
-- Browse a Markdown workspace and search across files
-- Reopen recent files and restore the last session
-- Open large files in read-only paged mode
-- Detect external file changes and deletions
-- Initialize and inspect a local knowledge workspace
-- Build assistant drafts from explicit local context
-- Export HTML
-- Export PDF
-- Persist editor settings locally
+- Native macOS desktop shell powered by Tauri
+- Focused three-column layout for files, writing/preview, and AI assistance
+- Edit, Split, and Preview modes for Markdown writing
+- Workspace browsing, recent files, and full-text search
+- Local knowledge workspace with `notes/`, `sources/`, `wiki/`, and `wiki/inbox/`
+- AI assistant chat with DeepSeek, MiniMax, Kimi, 智谱 GLM, or a local external command
+- Save AI drafts directly into `wiki/inbox/`
+- HTML and lightweight PDF export
+- Large-file read-only paging for Markdown files over 5 MB
+- Browser E2E tests and Rust backend tests
 
 ## Features
 
@@ -30,7 +29,7 @@ LMD currently focuses on a local-first desktop workflow:
 - Real file metadata checks for external change detection
 - Knowledge workspace protocol with `notes/`, `sources/`, `wiki/`, and `.lmd/knowledge/`
 - Wiki links, backlinks, unresolved links, source references, and lint checks
-- Assistant panel with provider selection and save-to-wiki draft workflow
+- Assistant chat with provider selection, explicit loading states, and save-to-wiki draft workflow
 - HTML export using the same renderer as Preview
 - Lightweight Markdown-aware PDF export with heading, list, quote, and code styling
 - Playwright browser E2E coverage for core UI flows
@@ -54,7 +53,7 @@ tests/e2e/     Playwright browser-based UI tests
 docs/          QA notes and platform limitations
 ```
 
-## Development
+## Quick Start
 
 Requirements:
 
@@ -72,7 +71,7 @@ npm install
 Run the app in development:
 
 ```bash
-npm run tauri dev
+npm run tauri:dev
 ```
 
 If you only need the frontend dev server:
@@ -80,6 +79,29 @@ If you only need the frontend dev server:
 ```bash
 npm run dev
 ```
+
+## Knowledge Workspace
+
+Open a folder as a workspace, then use `More -> Initialize Knowledge Base` in the left rail. LMD creates:
+
+```text
+notes/
+sources/
+wiki/
+wiki/inbox/
+.lmd/knowledge/
+AGENTS.md
+wiki/index.md
+wiki/log.md
+```
+
+AI drafts saved from the assistant are written to:
+
+```text
+<workspace>/wiki/inbox/<draft-title>.md
+```
+
+The app also updates `wiki/index.md` and `wiki/log.md` when saving a draft.
 
 ## Test and Build
 
@@ -145,7 +167,7 @@ Example:
 # Optional fallback if the command path is not configured in Settings.
 export LMD_ASSISTANT_COMMAND=/absolute/path/to/lmd/scripts/lmd-assistant-command.example.mjs
 export LMD_ASSISTANT_TIMEOUT_SECONDS=60
-npm run tauri dev
+npm run tauri:dev
 ```
 
 The timeout defaults to 60 seconds and is capped at 600 seconds.

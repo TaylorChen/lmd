@@ -124,6 +124,12 @@ export type AssistantDraft = {
   content: string;
 };
 
+export type AssistantMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+};
+
 export type AssistantEvent = {
   label: string;
   detail: string;

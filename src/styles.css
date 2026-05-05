@@ -214,7 +214,9 @@ button:disabled {
 
 .library-nav button.active,
 .file-item.active,
-.recent-item.active {
+.recent-item.active,
+.recent-file-row.active .file-item,
+.recent-compact-row.active .recent-item {
   border-color: rgba(204, 120, 92, 0.22);
   background: var(--accent-soft);
   color: var(--accent-strong);
@@ -449,6 +451,19 @@ button:disabled {
   overflow: auto;
 }
 
+.recent-file-row,
+.recent-compact-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.recent-file-row .file-item {
+  min-width: 0;
+}
+
 .recent-item {
   display: block;
   width: 100%;
@@ -459,6 +474,33 @@ button:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
+}
+
+.recent-remove-button,
+.recent-remove-icon {
+  flex: none;
+  height: 30px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.recent-remove-button {
+  padding: 0 8px;
+  font-size: 0.78rem;
+}
+
+.recent-remove-icon {
+  width: 30px;
+  padding: 0;
+  font-size: 1rem;
+}
+
+.recent-remove-button:hover:not(:disabled),
+.recent-remove-icon:hover:not(:disabled) {
+  border-color: rgba(166, 65, 44, 0.18);
+  background: rgba(166, 65, 44, 0.08);
+  color: var(--danger);
 }
 
 .settings-panel {
@@ -785,7 +827,8 @@ button:disabled {
 }
 
 .inspector-rail > .markdown-preview,
-.inspector-rail > .knowledge-panel {
+.inspector-rail > .knowledge-panel,
+.inspector-rail > .assistant-chat-panel {
   border: 0;
   border-radius: 0;
   box-shadow: none;
@@ -1048,6 +1091,232 @@ button:disabled {
   background: transparent;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.assistant-chat-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.assistant-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px 12px;
+}
+
+.assistant-chat-header div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.assistant-chat-header strong {
+  font-size: 1rem;
+}
+
+.assistant-chat-header span,
+.assistant-chat-header small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-message-list {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px 28px 22px;
+}
+
+.assistant-empty-chat {
+  display: grid;
+  gap: 8px;
+  align-self: center;
+  margin-top: 28px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.assistant-empty-chat strong {
+  color: var(--body);
+  font-size: 1rem;
+}
+
+.assistant-message {
+  display: grid;
+  max-width: 92%;
+}
+
+.assistant-message.user {
+  justify-self: end;
+  max-width: 78%;
+}
+
+.assistant-message.assistant {
+  justify-self: start;
+}
+
+.assistant-message-body {
+  min-width: 0;
+}
+
+.assistant-message.user .assistant-message-body {
+  padding: 12px 16px;
+  border-radius: 18px;
+  background: #f0efed;
+  color: var(--text);
+}
+
+.assistant-message.assistant .assistant-message-body {
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.assistant-message-body pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+}
+
+.assistant-working {
+  display: inline-flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 34px;
+  color: var(--accent-strong);
+}
+
+.assistant-working > span:last-child {
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.assistant-working-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background:
+    linear-gradient(currentColor 0 0) 50% 0 / 4px 13px no-repeat,
+    linear-gradient(currentColor 0 0) 50% 100% / 4px 13px no-repeat,
+    linear-gradient(currentColor 0 0) 0 50% / 13px 4px no-repeat,
+    linear-gradient(currentColor 0 0) 100% 50% / 13px 4px no-repeat,
+    linear-gradient(45deg, transparent 44%, currentColor 45% 55%, transparent 56%) 50% 50% / 30px 30px no-repeat,
+    linear-gradient(-45deg, transparent 44%, currentColor 45% 55%, transparent 56%) 50% 50% / 30px 30px no-repeat;
+  animation: assistant-working-spin 1.15s linear infinite;
+}
+
+@keyframes assistant-working-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.assistant-chat-footer {
+  display: grid;
+  gap: 10px;
+  padding: 12px 16px 18px;
+  border-top: 1px solid var(--soft-line);
+  background: color-mix(in srgb, var(--panel) 94%, white);
+}
+
+.assistant-quick-actions,
+.assistant-draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.assistant-quick-actions button,
+.assistant-draft-actions button {
+  height: 28px;
+  padding: 0 9px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.assistant-quick-actions button:hover:not(:disabled),
+.assistant-draft-actions button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.assistant-composer {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow: 0 10px 30px rgba(24, 22, 20, 0.08);
+}
+
+.assistant-composer textarea {
+  min-height: 64px;
+  resize: none;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.45;
+  outline: none;
+}
+
+.assistant-composer-bar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.assistant-composer-bar span {
+  justify-self: end;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-plus-button,
+.assistant-send-button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 12px;
+  font-size: 1.2rem;
+}
+
+.assistant-plus-button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--body);
+}
+
+.assistant-send-button {
+  border-color: transparent;
+  background: var(--accent);
+  color: white;
+}
+
+.assistant-debug-log {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.assistant-debug-log summary {
+  cursor: pointer;
 }
 
 .markdown-preview > *:first-child,

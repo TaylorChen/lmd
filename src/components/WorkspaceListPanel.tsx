@@ -30,6 +30,7 @@ type WorkspaceListPanelProps = {
   onOpenWorkspaceFile: (file: WorkspaceFile) => void;
   onOpenSearchMatch: (match: SearchMatch) => void;
   onOpenRecentFile: (path: string, name: string) => void;
+  onRemoveRecentFile: (path: string) => void;
   onSettingsChange: (settings: AppSettings) => void;
 };
 
@@ -70,6 +71,7 @@ export function WorkspaceListPanel({
   onOpenWorkspaceFile,
   onOpenSearchMatch,
   onOpenRecentFile,
+  onRemoveRecentFile,
   onSettingsChange,
 }: WorkspaceListPanelProps) {
   function updateSetting(nextSettings: Partial<AppSettings>) {
@@ -100,7 +102,7 @@ export function WorkspaceListPanel({
     wiki: "知识库",
     recent: "最近",
   }[librarySection];
-  const showRecentPanel = !workspace && recentFiles.length > 0;
+  const showRecentPanel = !workspace && librarySection !== "recent" && recentFiles.length > 0;
 
   return (
     <aside className="workspace-list-panel" aria-label="工作区笔记">
@@ -120,18 +122,32 @@ export function WorkspaceListPanel({
           recentFiles.length > 0 ? (
             <div className="file-list" aria-label="工作区文件">
               {recentFiles.map((file) => (
-                <button
-                  type="button"
+                <div
                   key={file.path}
-                  className={`file-item ${file.path === path ? "active" : ""}`}
-                  onClick={() => onOpenRecentFile(file.path, file.name)}
-                  disabled={busy}
-                  title={file.path}
+                  className={`recent-file-row ${file.path === path ? "active" : ""}`}
                 >
-                  <span>{file.name}</span>
-                  <small className="file-kind">最近</small>
-                  <em>{file.path}</em>
-                </button>
+                  <button
+                    type="button"
+                    className="file-item"
+                    onClick={() => onOpenRecentFile(file.path, file.name)}
+                    disabled={busy}
+                    title={file.path}
+                  >
+                    <span>{file.name}</span>
+                    <small className="file-kind">最近</small>
+                    <em>{file.path}</em>
+                  </button>
+                  <button
+                    type="button"
+                    className="recent-remove-button"
+                    onClick={() => onRemoveRecentFile(file.path)}
+                    disabled={busy}
+                    aria-label={`移除最近文件 ${file.name}`}
+                    title="从最近列表移除"
+                  >
+                    移除
+                  </button>
+                </div>
               ))}
             </div>
           ) : (
@@ -225,16 +241,30 @@ export function WorkspaceListPanel({
           </div>
           <div className="recent-list" aria-label="最近文件">
             {recentFiles.map((file) => (
-              <button
-                type="button"
+              <div
                 key={file.path}
-                className={`recent-item ${file.path === path ? "active" : ""}`}
-                onClick={() => onOpenRecentFile(file.path, file.name)}
-                disabled={busy}
-                title={file.path}
+                className={`recent-compact-row ${file.path === path ? "active" : ""}`}
               >
-                {file.name}
-              </button>
+                <button
+                  type="button"
+                  className="recent-item"
+                  onClick={() => onOpenRecentFile(file.path, file.name)}
+                  disabled={busy}
+                  title={file.path}
+                >
+                  {file.name}
+                </button>
+                <button
+                  type="button"
+                  className="recent-remove-icon"
+                  onClick={() => onRemoveRecentFile(file.path)}
+                  disabled={busy}
+                  aria-label={`移除最近文件 ${file.name}`}
+                  title="从最近列表移除"
+                >
+                  ×
+                </button>
+              </div>
             ))}
           </div>
         </div>

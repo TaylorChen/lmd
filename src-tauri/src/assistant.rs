@@ -11,6 +11,8 @@ use std::{
 pub(crate) const DEFAULT_PROVIDER: &str = "deepseek";
 pub(crate) const DEFAULT_MODEL: &str = "deepseek-v4-flash";
 const DEFAULT_EXTERNAL_COMMAND_TIMEOUT_SECONDS: u64 = 60;
+const DEFAULT_NETWORK_TIMEOUT_SECONDS: u64 = 30;
+const DEFAULT_ASSISTANT_MAX_TOKENS: u32 = 1200;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -122,9 +124,13 @@ fn openai_compatible_summary(request: AssistantRequest<'_>) -> Result<AssistantD
     let prompt = request.prompt.unwrap_or("").trim();
     let task = request.task.unwrap_or("summarize").trim();
     let user_prompt = build_llm_prompt(request.context, request.current_content, task, prompt);
+    let timeout = network_timeout(request.external_timeout_seconds);
+    let thinking = deepseek_thinking_mode(request.provider, request.model);
     let input = serde_json::to_vec(&OpenAiCompatibleRequest {
         model: request.model,
-        temperature: 0.3,
+        temperature: Some(0.3),
+        max_tokens: DEFAULT_ASSISTANT_MAX_TOKENS,
+        thinking,
         messages: vec![
             ChatMessage {
                 role: "system",
@@ -141,7 +147,10 @@ fn openai_compatible_summary(request: AssistantRequest<'_>) -> Result<AssistantD
     let output = Command::new("curl")
         .arg("-sS")
         .arg("--max-time")
-        .arg(DEFAULT_EXTERNAL_COMMAND_TIMEOUT_SECONDS.to_string())
+        .arg(timeout.as_secs().to_string())
+        .arg("--connect-timeout")
+        .arg("10")
+        .arg("--fail-with-body")
         .arg("-X")
         .arg("POST")
         .arg(&base_url)
@@ -165,11 +174,8 @@ fn openai_compatible_summary(request: AssistantRequest<'_>) -> Result<AssistantD
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
-            format!("Assistant API failed with status {}", output.status)
-        } else {
-            format!("Assistant API failed: {stderr}")
-        });
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        return Err(format_assistant_api_error(output.status.to_string(), &stderr, &stdout));
     }
 
     let response = serde_json::from_slice::<OpenAiCompatibleResponse>(&output.stdout)
@@ -236,6 +242,34 @@ fn limit_chars(value: &str, max_chars: usize) -> String {
         output.push_str("\n\n...[内容过长，已截断]");
     }
     output
+}
+
+fn network_timeout(configured_seconds: Option<u64>) -> Duration {
+    let seconds = configured_seconds
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(DEFAULT_NETWORK_TIMEOUT_SECONDS);
+    Duration::from_secs(seconds.min(120))
+}
+
+fn deepseek_thinking_mode<'a>(provider: &str, model: &str) -> Option<ThinkingMode<'a>> {
+    if provider == "deepseek" && !model.contains("reasoner") {
+        Some(ThinkingMode { kind: "disabled" })
+    } else {
+        None
+    }
+}
+
+fn format_assistant_api_error(status: String, stderr: &str, stdout: &str) -> String {
+    if stderr.contains("timed out") || stderr.contains("Operation timed out") {
+        return "AI 请求超时，请检查网络、API 地址或稍后重试。".to_string();
+    }
+    if !stdout.is_empty() {
+        return format!("Assistant API failed with status {status}: {}", limit_chars(stdout, 800));
+    }
+    if !stderr.is_empty() {
+        return format!("Assistant API failed: {}", limit_chars(stderr, 800));
+    }
+    format!("Assistant API failed with status {status}")
 }
 
 fn suggest_draft_title(context: &QueryContext, task: &str, content: &str) -> String {
@@ -382,7 +416,17 @@ struct ExternalCommandInput<'a> {
 struct OpenAiCompatibleRequest<'a> {
     model: &'a str,
     messages: Vec<ChatMessage<'a>>,
-    temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<ThinkingMode<'a>>,
+}
+
+#[derive(Serialize)]
+struct ThinkingMode<'a> {
+    #[serde(rename = "type")]
+    kind: &'a str,
 }
 
 #[derive(Serialize)]

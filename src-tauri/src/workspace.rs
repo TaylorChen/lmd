@@ -544,8 +544,11 @@ pub(crate) fn save_wiki_draft(
     title: &str,
     content: &str,
 ) -> Result<String, String> {
-    let file_name = format!("{}.md", slugify_title(title));
-    let target_path = root.join("wiki/inbox").join(file_name);
+    let file_name = format!("{}.md", draft_file_stem(title));
+    let inbox_path = root.join("wiki/inbox");
+    fs::create_dir_all(&inbox_path)
+        .map_err(|error| format!("Could not create {}: {error}", inbox_path.display()))?;
+    let target_path = inbox_path.join(file_name);
     let draft_content = format_wiki_draft(title, content);
     fs::write(&target_path, draft_content)
         .map_err(|error| format!("Could not write {}: {error}", target_path.display()))?;
@@ -814,9 +817,9 @@ fn slugify_title(title: &str) -> String {
     let mut previous_dash = false;
 
     for character in title.chars() {
-        let next = if character.is_ascii_alphanumeric() {
+        let next = if character.is_alphanumeric() {
             previous_dash = false;
-            character.to_ascii_lowercase()
+            character.to_lowercase().next().unwrap_or(character)
         } else if !previous_dash {
             previous_dash = true;
             '-'
@@ -827,6 +830,19 @@ fn slugify_title(title: &str) -> String {
     }
 
     slug.trim_matches('-').to_string().chars().take(64).collect()
+}
+
+fn draft_file_stem(title: &str) -> String {
+    let slug = slugify_title(title);
+    if !slug.is_empty() {
+        return slug;
+    }
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format!("ai-draft-{timestamp}")
 }
 
 fn format_wiki_draft(title: &str, content: &str) -> String {
@@ -845,6 +861,10 @@ fn format_wiki_draft(title: &str, content: &str) -> String {
 
 fn append_to_knowledge_log(root: &Path, target_path: &Path) -> Result<(), String> {
     let log_path = root.join("wiki/log.md");
+    if let Some(parent) = log_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Could not create {}: {error}", parent.display()))?;
+    }
     let relative_path = target_path
         .strip_prefix(root)
         .unwrap_or(target_path)
@@ -861,6 +881,10 @@ fn append_to_knowledge_log(root: &Path, target_path: &Path) -> Result<(), String
 
 fn ensure_inbox_entry_in_index(root: &Path, target_path: &Path) -> Result<(), String> {
     let index_path = root.join("wiki/index.md");
+    if let Some(parent) = index_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Could not create {}: {error}", parent.display()))?;
+    }
     let relative_path = target_path
         .strip_prefix(root.join("wiki"))
         .unwrap_or(target_path)

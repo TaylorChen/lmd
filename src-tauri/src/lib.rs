@@ -135,7 +135,7 @@ fn query_context(
 }
 
 #[tauri::command]
-fn summarize_query_context(
+async fn summarize_query_context(
     root_path: String,
     current_path: String,
     current_content: Option<String>,
@@ -148,29 +148,73 @@ fn summarize_query_context(
     external_command: Option<String>,
     external_timeout_seconds: Option<u64>,
 ) -> Result<workspace::AssistantDraft, String> {
-    let full_current_content = match current_content {
-        Some(content) => Some(content),
-        None => std::fs::read_to_string(&current_path).ok(),
-    };
-    let context = workspace::query_context(
-        &PathBuf::from(root_path),
-        &PathBuf::from(current_path),
-        full_current_content.as_deref(),
-    )?;
-    assistant::summarize_query_context(
-        assistant::AssistantRequest {
-            provider: provider.as_deref().unwrap_or(assistant::DEFAULT_PROVIDER),
-            model: model.as_deref().unwrap_or(assistant::DEFAULT_MODEL),
-            context: &context,
-            current_content: full_current_content.as_deref(),
-            task: task.as_deref(),
-            prompt: prompt.as_deref(),
-            api_key: api_key.as_deref(),
-            base_url: base_url.as_deref(),
-            external_command: external_command.as_deref(),
-            external_timeout_seconds,
-        },
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        let full_current_content = match current_content {
+            Some(content) => Some(content),
+            None => std::fs::read_to_string(&current_path).ok(),
+        };
+        let context = workspace::query_context(
+            &PathBuf::from(root_path),
+            &PathBuf::from(&current_path),
+            full_current_content.as_deref(),
+        )?;
+        assistant::summarize_query_context(
+            assistant::AssistantRequest {
+                provider: provider.as_deref().unwrap_or(assistant::DEFAULT_PROVIDER),
+                model: model.as_deref().unwrap_or(assistant::DEFAULT_MODEL),
+                context: &context,
+                current_content: full_current_content.as_deref(),
+                task: task.as_deref(),
+                prompt: prompt.as_deref(),
+                api_key: api_key.as_deref(),
+                base_url: base_url.as_deref(),
+                external_command: external_command.as_deref(),
+                external_timeout_seconds,
+            },
+        )
+    })
+    .await
+    .map_err(|error| format!("Assistant task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn summarize_editor_context(
+    current_path: Option<String>,
+    current_relative_path: Option<String>,
+    current_content: String,
+    provider: Option<String>,
+    model: Option<String>,
+    task: Option<String>,
+    prompt: Option<String>,
+    api_key: Option<String>,
+    base_url: Option<String>,
+    external_command: Option<String>,
+    external_timeout_seconds: Option<u64>,
+) -> Result<workspace::AssistantDraft, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let context = workspace::QueryContext {
+            current_path: current_path.unwrap_or_else(|| "untitled.md".to_string()),
+            current_relative_path: current_relative_path.unwrap_or_else(|| "untitled.md".to_string()),
+            items: Vec::new(),
+        };
+
+        assistant::summarize_query_context(
+            assistant::AssistantRequest {
+                provider: provider.as_deref().unwrap_or(assistant::DEFAULT_PROVIDER),
+                model: model.as_deref().unwrap_or(assistant::DEFAULT_MODEL),
+                context: &context,
+                current_content: Some(&current_content),
+                task: task.as_deref(),
+                prompt: prompt.as_deref(),
+                api_key: api_key.as_deref(),
+                base_url: base_url.as_deref(),
+                external_command: external_command.as_deref(),
+                external_timeout_seconds,
+            },
+        )
+    })
+    .await
+    .map_err(|error| format!("Assistant task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -287,6 +331,7 @@ pub fn run() {
             refresh_workspace,
             save_wiki_draft,
             search_workspace,
+            summarize_editor_context,
             summarize_query_context,
             save_markdown_file
         ])
@@ -671,6 +716,36 @@ mod tests {
         assert!(index_content.contains("topic-summary.md"));
 
         fs::remove_file(script_path).expect("remove assistant command");
+        fs::remove_dir_all(root).expect("remove workspace");
+    }
+
+    #[test]
+    fn saves_wiki_draft_when_inbox_directory_is_missing() {
+        let root = temp_workspace_path("assistant-draft-missing-inbox");
+        fs::create_dir_all(&root).expect("create workspace root");
+
+        let saved_path = save_wiki_draft(&root, "AI", "# AI\n\nDraft").expect("save draft");
+
+        assert!(root.join("wiki/inbox/ai.md").is_file());
+        assert!(root.join("wiki/index.md").is_file());
+        assert!(root.join("wiki/log.md").is_file());
+        assert_eq!(saved_path, root.join("wiki/inbox/ai.md").to_string_lossy());
+
+        fs::remove_dir_all(root).expect("remove workspace");
+    }
+
+    #[test]
+    fn saves_wiki_draft_with_non_ascii_or_empty_title_names() {
+        let root = temp_workspace_path("assistant-draft-names");
+        fs::create_dir_all(&root).expect("create workspace root");
+
+        let chinese_path = save_wiki_draft(&root, "你好，世界", "# 你好").expect("save chinese draft");
+        let fallback_path = save_wiki_draft(&root, "!!!", "# Empty title").expect("save fallback draft");
+
+        assert!(chinese_path.ends_with("/wiki/inbox/你好-世界.md"));
+        assert!(fallback_path.contains("/wiki/inbox/ai-draft-"));
+        assert!(!fallback_path.ends_with("/wiki/inbox/.md"));
+
         fs::remove_dir_all(root).expect("remove workspace");
     }
 

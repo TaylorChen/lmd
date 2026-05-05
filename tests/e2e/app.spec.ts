@@ -182,6 +182,13 @@ async function installTauriMock(page: Page) {
           };
         }
 
+        if (command === "summarize_editor_context") {
+          return {
+            title: "chat reply",
+            content: "你好，我可以帮助你整理当前 Markdown 内容。",
+          };
+        }
+
         if (command === "assistant_catalog") {
           return {
             defaultProvider: "deepseek",
@@ -389,6 +396,30 @@ test("persists settings across reload", async ({ page }) => {
   await expect(page.getByLabel("外部命令超时时间")).toHaveValue("120");
 });
 
+test("allows assistant chat without knowledge context", async ({ page }) => {
+  const sendButton = page.getByRole("button", { name: "发送" });
+
+  await expect(sendButton).toBeDisabled();
+  await page.getByLabel("输入 AI 指令").fill("你好");
+  await expect(sendButton).toBeEnabled();
+  await sendButton.click();
+
+  await expect(page.getByLabel("AI 对话")).toContainText("你好");
+  await expect(page.getByText("AI 草稿已生成。")).toBeVisible();
+  await expect(page.getByText("你好，我可以帮助你整理当前 Markdown 内容。")).toBeVisible();
+
+  const chatCall = await page.evaluate(() =>
+    window.__LMD_TEST_CALLS__?.find((call) => call.command === "summarize_editor_context"),
+  );
+  expect(chatCall?.args).toMatchObject({
+    currentRelativePath: "未命名",
+    provider: "deepseek",
+    model: "deepseek-v4-flash",
+    task: "chat",
+    prompt: "你好",
+  });
+});
+
 test("saves and exports the current document", async ({ page }) => {
   await page.locator(".cm-content").click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
@@ -410,6 +441,28 @@ test("saves and exports the current document", async ({ page }) => {
   expect(calls.map((call) => call.command)).toEqual(
     expect.arrayContaining(["save_markdown_file", "export_markdown_html", "export_markdown_pdf"]),
   );
+});
+
+test("removes files from the recent list without deleting the document", async ({ page }) => {
+  await page.locator(".cm-content").click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+  await page.keyboard.type("# Recent title\n\nBody");
+
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText("已保存 untitled.md。")).toBeVisible();
+
+  await page.getByRole("navigation", { name: "资料库分区" }).getByRole("button", { name: "最近" }).click();
+  await expect(page.locator(".file-list .file-item").filter({ hasText: "untitled.md" })).toBeVisible();
+
+  await page.getByRole("button", { name: "移除最近文件 untitled.md" }).click();
+  await expect(page.getByText("已从最近列表移除。")).toBeVisible();
+  await expect(page.getByText("暂无最近文件。")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "untitled.md" })).toBeVisible();
+
+  const recentFiles = await page.evaluate(() => window.localStorage.getItem("lmd:recent-files"));
+  expect(recentFiles).toBe("[]");
+  const lastDocumentPath = await page.evaluate(() => window.localStorage.getItem("lmd:last-document-path"));
+  expect(lastDocumentPath).toBeNull();
 });
 
 test("opens workspace, searches, and opens a match", async ({ page }) => {
@@ -558,13 +611,15 @@ test("builds and saves an assistant draft", async ({ page }) => {
 
   await page.getByRole("button", { name: "总结笔记" }).click();
   await expect(page.getByText("AI 草稿已生成。")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "alpha summary" })).toBeVisible();
+  await expect(page.getByLabel("AI 对话")).toContainText("# alpha summary");
   await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("已请求 AI");
   await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("external_command / command-json-v1");
   await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("草稿已生成");
 
   await page.getByRole("button", { name: "保存为 Wiki 页面" }).click();
   await expect(page.getByText("已将 Wiki 草稿保存到 alpha-summary.md。")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "资料库分区" }).getByRole("button", { name: "收件箱" })).toHaveClass(/active/);
+  await expect(page.locator(".file-list .file-item").filter({ hasText: "alpha-summary.md" })).toBeVisible();
   await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("草稿已保存");
   await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("alpha-summary.md");
 

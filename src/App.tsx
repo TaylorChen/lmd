@@ -19,6 +19,7 @@ import type {
   AssistantCatalog,
   AssistantDraft,
   AssistantEvent,
+  AssistantMessage,
   AssistantProvider,
   ExternalChange,
   DocumentKnowledge,
@@ -105,11 +106,13 @@ export default function App() {
   const [knowledgeLint, setKnowledgeLint] = useState<KnowledgeLintReport | null>(null);
   const [queryContext, setQueryContext] = useState<QueryContext | null>(null);
   const [assistantDraft, setAssistantDraft] = useState<AssistantDraft | null>(null);
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([]);
   const [assistantEvents, setAssistantEvents] = useState<AssistantEvent[]>([]);
   const [assistantPrompt, setAssistantPrompt] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [assistantBusy, setAssistantBusy] = useState(false);
 
   const isDirty = !readOnly && content !== savedContent;
   const matches = useMemo(() => countSearchMatches(content, search), [content, search]);
@@ -196,11 +199,55 @@ export default function App() {
     setKnowledgeLint(null);
     setQueryContext(null);
     setAssistantDraft(null);
+    setAssistantMessages([]);
     setAssistantEvents([]);
   }
 
   function appendAssistantEvent(event: AssistantEvent) {
     setAssistantEvents((currentEvents) => [...currentEvents, event].slice(-8));
+  }
+
+  function appendAssistantMessage(message: Omit<AssistantMessage, "id">) {
+    setAssistantMessages((currentMessages) => [
+      ...currentMessages,
+      {
+        ...message,
+        id: `${Date.now()}-${currentMessages.length}`,
+      },
+    ]);
+  }
+
+  function assistantTaskLabel(task: string, prompt: string) {
+    const trimmedPrompt = prompt.trim();
+    if (trimmedPrompt) return trimmedPrompt;
+    if (task === "polish") return "优化当前笔记";
+    if (task === "todos") return "提取当前笔记中的待办";
+    if (task === "title") return "生成标题候选";
+    if (task === "wiki") return "整理为 Wiki 草稿";
+    return "总结当前笔记";
+  }
+
+  function addSavedInboxFile(savedPath: string) {
+    if (!workspace) return;
+    const relativePath = isPathInsideRoot(savedPath, workspace.rootPath)
+      ? savedPath.slice(workspace.rootPath.length).replace(/^[/\\]+/, "")
+      : `wiki/inbox/${fileName(savedPath)}`;
+    const savedFile: WorkspaceFile = {
+      path: savedPath,
+      relativePath,
+      name: fileName(savedPath),
+      byteSize: 0,
+    };
+    setWorkspace({
+      ...workspace,
+      files: [
+        savedFile,
+        ...workspace.files.filter((file) => file.path !== savedPath),
+      ],
+    });
+    setLibrarySection("inbox");
+    setWorkspaceSearchActive(false);
+    setWorkspaceMatches([]);
   }
 
   function rememberDocument(documentPath: string) {
@@ -218,6 +265,18 @@ export default function App() {
       return nextRecentFiles;
     });
     window.localStorage.setItem(storageKeys.lastDocumentPath, documentPath);
+  }
+
+  function handleRemoveRecentFile(documentPath: string) {
+    setRecentFiles((currentRecentFiles) => {
+      const nextRecentFiles = currentRecentFiles.filter((file) => file.path !== documentPath);
+      writeRecentFiles(nextRecentFiles);
+      return nextRecentFiles;
+    });
+    if (window.localStorage.getItem(storageKeys.lastDocumentPath) === documentPath) {
+      window.localStorage.removeItem(storageKeys.lastDocumentPath);
+    }
+    setNotice({ tone: "info", message: "已从最近列表移除。" });
   }
 
   async function handleNew() {
@@ -493,14 +552,19 @@ export default function App() {
   }
 
   async function handleAssistantRun(task: string, prompt = "") {
+    appendAssistantMessage({ role: "user", content: assistantTaskLabel(task, prompt) });
     if (!workspace || !path) {
-      setNotice({ tone: "error", message: "请先打开知识库工作区中的文档。" });
+      if (task === "chat") {
+        await handleAssistantEditorRun(task, prompt);
+      } else {
+        setNotice({ tone: "error", message: "请先打开知识库工作区中的文档。" });
+      }
       return;
     }
 
     const providerConfig = assistantProviderConfig(settings.assistantProvider);
-    setBusy(true);
-    setNotice(null);
+    setAssistantBusy(true);
+    setNotice({ tone: "info", message: "AI 正在生成，请稍候..." });
     appendAssistantEvent({
       label: "已请求 AI",
       detail: `${settings.assistantProvider} / ${settings.assistantModel}`,
@@ -521,6 +585,7 @@ export default function App() {
         externalTimeoutSeconds: providerConfig.externalTimeoutSeconds,
       });
       setAssistantDraft(draft);
+      appendAssistantMessage({ role: "assistant", content: draft.content });
       appendAssistantEvent({
         label: "草稿已生成",
         detail: draft.title,
@@ -535,7 +600,50 @@ export default function App() {
       });
       setNotice({ tone: "error", message: String(error) });
     } finally {
-      setBusy(false);
+      setAssistantBusy(false);
+    }
+  }
+
+  async function handleAssistantEditorRun(task: string, prompt = "") {
+    const providerConfig = assistantProviderConfig(settings.assistantProvider);
+    setAssistantBusy(true);
+    setNotice({ tone: "info", message: "AI 正在生成，请稍候..." });
+    appendAssistantEvent({
+      label: "已请求 AI",
+      detail: `${settings.assistantProvider} / ${settings.assistantModel}`,
+      tone: "info",
+    });
+    try {
+      const draft = await invokeCommand<AssistantDraft>("summarize_editor_context", {
+        currentPath: path,
+        currentRelativePath: fileName(path),
+        currentContent: content,
+        provider: settings.assistantProvider,
+        model: settings.assistantModel,
+        task,
+        prompt,
+        apiKey: providerConfig.apiKey,
+        baseUrl: providerConfig.baseUrl,
+        externalCommand: providerConfig.externalCommand,
+        externalTimeoutSeconds: providerConfig.externalTimeoutSeconds,
+      });
+      setAssistantDraft(draft);
+      appendAssistantMessage({ role: "assistant", content: draft.content });
+      appendAssistantEvent({
+        label: "草稿已生成",
+        detail: draft.title,
+        tone: "info",
+      });
+      setNotice({ tone: "info", message: "AI 草稿已生成。" });
+    } catch (error) {
+      appendAssistantEvent({
+        label: "草稿生成失败",
+        detail: String(error),
+        tone: "error",
+      });
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setAssistantBusy(false);
     }
   }
 
@@ -567,8 +675,29 @@ export default function App() {
         detail: fileName(savedPath),
         tone: "info",
       });
+      addSavedInboxFile(savedPath);
       setNotice({ tone: "info", message: `已将 Wiki 草稿保存到 ${fileName(savedPath)}。` });
-      await handleRefreshWorkspace(false);
+      const refreshedWorkspace = await invokeCommand<Workspace>("refresh_workspace", {
+        rootPath: workspace.rootPath,
+      });
+      const savedRelativePath = isPathInsideRoot(savedPath, refreshedWorkspace.rootPath)
+        ? savedPath.slice(refreshedWorkspace.rootPath.length).replace(/^[/\\]+/, "")
+        : `wiki/inbox/${fileName(savedPath)}`;
+      const savedFile: WorkspaceFile = {
+        path: savedPath,
+        relativePath: savedRelativePath,
+        name: fileName(savedPath),
+        byteSize: 0,
+      };
+      setWorkspace({
+        ...refreshedWorkspace,
+        files: [
+          savedFile,
+          ...refreshedWorkspace.files.filter((file) => file.path !== savedPath),
+        ],
+      });
+      window.localStorage.setItem(storageKeys.lastWorkspaceRoot, refreshedWorkspace.rootPath);
+      setWorkspaceSearchActive(false);
     } catch (error) {
       appendAssistantEvent({
         label: "保存失败",
@@ -923,6 +1052,7 @@ export default function App() {
           onOpenWorkspaceFile={(file) => void handleOpenWorkspaceFile(file)}
           onOpenSearchMatch={(match) => void handleOpenSearchMatch(match)}
           onOpenRecentFile={(recentPath, name) => void openPath(recentPath, name)}
+          onRemoveRecentFile={handleRemoveRecentFile}
           onSettingsChange={handleSettingsChange}
         />
       </div>
@@ -1011,7 +1141,7 @@ export default function App() {
             queryContext={queryContext}
             workspaceIndexPath={workspace ? `${workspace.knowledge.wikiPath}/index.md` : null}
             workspaceLogPath={workspace ? `${workspace.knowledge.wikiPath}/log.md` : null}
-            busy={busy}
+            busy={assistantBusy}
             onOpenPath={(nextPath, name) => void openPath(nextPath, name)}
           />
         ) : (
@@ -1019,6 +1149,7 @@ export default function App() {
             busy={busy}
             queryContext={queryContext}
             draft={assistantDraft}
+            messages={assistantMessages}
             events={assistantEvents}
             settings={settings}
             prompt={assistantPrompt}
