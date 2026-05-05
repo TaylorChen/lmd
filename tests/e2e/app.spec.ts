@@ -307,6 +307,7 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await expect(page.getByRole("navigation", { name: "Library sections" })).toBeVisible();
   await expect(page.getByRole("button", { name: "All Notes" })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Workspace notes" })).toBeVisible();
+  await expect(page.getByLabel("Inspector tab").getByRole("button", { name: "Preview" })).toHaveCount(0);
 
   await page.locator(".cm-content").click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
@@ -317,6 +318,12 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await page.getByRole("button", { name: "Split" }).click();
   await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
   await expect(page.locator(".document-main .markdown-preview h1")).toHaveText("Preview title");
+  const firstPreviewBlockOffset = await page.locator(".document-main .markdown-preview h1").evaluate((heading) => {
+    const preview = heading.closest(".markdown-preview");
+    if (!preview) return Number.POSITIVE_INFINITY;
+    return heading.getBoundingClientRect().top - preview.getBoundingClientRect().top;
+  });
+  expect(firstPreviewBlockOffset).toBeLessThan(20);
   await expect(page.locator(".document-main .markdown-preview table")).toContainText("Alpha");
   await expect(page.locator(".document-main").getByRole("checkbox", { name: "done item" })).toBeChecked();
   await expect(page.locator(".document-main").getByRole("link", { name: "https://example.com" })).toBeVisible();

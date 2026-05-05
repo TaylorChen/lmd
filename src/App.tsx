@@ -73,7 +73,7 @@ export default function App() {
   const [externalChange, setExternalChange] = useState<ExternalChange | null>(null);
   const [search, setSearch] = useState("");
   const [editorMode, setEditorMode] = useState<EditorMode>(() => settings.defaultEditorMode);
-  const [inspectorTab, setInspectorTab] = useState<"preview" | "knowledge" | "assistant">("assistant");
+  const [inspectorTab, setInspectorTab] = useState<"knowledge" | "assistant">("assistant");
   const [documentKnowledge, setDocumentKnowledge] = useState<DocumentKnowledge | null>(null);
   const [knowledgeLint, setKnowledgeLint] = useState<KnowledgeLintReport | null>(null);
   const [queryContext, setQueryContext] = useState<QueryContext | null>(null);
@@ -902,17 +902,8 @@ export default function App() {
           >
             Knowledge
           </button>
-          <button
-            type="button"
-            className={inspectorTab === "preview" ? "active" : ""}
-            onClick={() => setInspectorTab("preview")}
-          >
-            Preview
-          </button>
         </div>
-        {inspectorTab === "preview" ? (
-          <MarkdownPreview content={content} />
-        ) : inspectorTab === "knowledge" ? (
+        {inspectorTab === "knowledge" ? (
           <KnowledgePanel
             knowledge={documentKnowledge}
             lint={knowledgeLint}

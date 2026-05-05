@@ -705,6 +705,10 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
+.document-main.split .markdown-preview {
+  padding-top: 8px;
+}
+
 .document-main.preview .markdown-preview {
   width: min(100%, 940px);
   justify-self: center;
@@ -982,12 +986,23 @@ button:disabled {
   word-break: break-word;
 }
 
-.markdown-preview > *:first-child {
+.markdown-preview > *:first-child,
+.markdown-preview > div > *:first-child {
   margin-top: 0;
 }
 
-.markdown-preview > *:last-child {
+.markdown-preview > *:last-child,
+.markdown-preview > div > *:last-child {
   margin-bottom: 0;
+}
+
+.markdown-preview > div > h1:first-child,
+.markdown-preview > div > h2:first-child,
+.markdown-preview > div > h3:first-child,
+.markdown-preview > div > h4:first-child,
+.markdown-preview > div > h5:first-child,
+.markdown-preview > div > h6:first-child {
+  padding-top: 0;
 }
 
 .markdown-preview h1,
