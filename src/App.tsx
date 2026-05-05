@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
+import type { EditorView } from "@codemirror/view";
 import { AssistantPanel } from "./components/AssistantPanel";
-import { EditorToolbar } from "./components/EditorToolbar";
+import { EditorToolbar, type MarkdownAction } from "./components/EditorToolbar";
 import { KnowledgePanel } from "./components/KnowledgePanel";
 import { LibraryRail } from "./components/LibraryRail";
 import { MarkdownPreview } from "./components/MarkdownPreview";
@@ -50,6 +51,7 @@ const defaultAssistantCatalog: AssistantCatalog = {
 };
 
 export default function App() {
+  const editorViewRef = useRef<EditorView | null>(null);
   const [content, setContent] = useState(emptyDocument);
   const [savedContent, setSavedContent] = useState(emptyDocument);
   const [path, setPath] = useState<string | null>(null);
@@ -71,13 +73,14 @@ export default function App() {
   const [externalChange, setExternalChange] = useState<ExternalChange | null>(null);
   const [search, setSearch] = useState("");
   const [editorMode, setEditorMode] = useState<EditorMode>(() => settings.defaultEditorMode);
-  const [inspectorTab, setInspectorTab] = useState<"preview" | "knowledge" | "assistant">("preview");
+  const [inspectorTab, setInspectorTab] = useState<"preview" | "knowledge" | "assistant">("assistant");
   const [documentKnowledge, setDocumentKnowledge] = useState<DocumentKnowledge | null>(null);
   const [knowledgeLint, setKnowledgeLint] = useState<KnowledgeLintReport | null>(null);
   const [queryContext, setQueryContext] = useState<QueryContext | null>(null);
   const [assistantDraft, setAssistantDraft] = useState<AssistantDraft | null>(null);
   const [assistantEvents, setAssistantEvents] = useState<AssistantEvent[]>([]);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const isDirty = !readOnly && content !== savedContent;
@@ -533,6 +536,52 @@ export default function App() {
     setVisibleLineCount(stats.lineCount);
   }
 
+  function applyMarkdownAction(action: MarkdownAction) {
+    if (readOnly) return;
+
+    const view = editorViewRef.current;
+    if (!view) {
+      const fallback = action === "h1" ? "# " : action === "h2" ? "## " : "";
+      if (fallback) handleChange(`${fallback}${content}`);
+      return;
+    }
+
+    const selection = view.state.selection.main;
+    const selectedText = view.state.doc.sliceString(selection.from, selection.to);
+
+    if (action === "h1" || action === "h2") {
+      const line = view.state.doc.lineAt(selection.from);
+      const marker = action === "h1" ? "# " : "## ";
+      const nextLine = `${marker}${line.text.replace(/^#{1,6}\s+/, "")}`;
+      view.dispatch({
+        changes: { from: line.from, to: line.to, insert: nextLine },
+        selection: { anchor: line.from + nextLine.length },
+      });
+      view.focus();
+      return;
+    }
+
+    const wrapSelection = (before: string, after = before, placeholder = "text") => {
+      const inner = selectedText || placeholder;
+      const insert = `${before}${inner}${after}`;
+      const anchor = selectedText ? selection.from + insert.length : selection.from + before.length;
+      const head = selectedText ? anchor : anchor + placeholder.length;
+      view.dispatch({
+        changes: { from: selection.from, to: selection.to, insert },
+        selection: { anchor, head },
+      });
+      view.focus();
+    };
+
+    if (action === "bold") wrapSelection("**", "**", "bold text");
+    if (action === "italic") wrapSelection("*", "*", "italic text");
+    if (action === "code") {
+      if (selectedText.includes("\n")) wrapSelection("```markdown\n", "\n```", selectedText || "code");
+      else wrapSelection("`", "`", "code");
+    }
+    if (action === "link") wrapSelection("[", "](https://example.com)", "link text");
+  }
+
   async function loadRange(startLine: number) {
     if (!path || !isLarge) return;
     setBusy(true);
@@ -712,77 +761,86 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
-      <LibraryRail
-        busy={busy}
-        workspace={workspace}
-        isDirty={isDirty}
-        activeSection={librarySection}
-        onSectionChange={(section) => {
-          setLibrarySection(section);
-          setWorkspaceSearchActive(false);
-          setWorkspaceMatches([]);
-        }}
-        onNew={() => void handleNew()}
-        onOpen={() => void handleOpen()}
-        onOpenWorkspace={() => void handleOpenWorkspace()}
-        onInitializeKnowledgeWorkspace={() => void handleInitializeKnowledgeWorkspace()}
-        onRefreshWorkspace={() => void handleRefreshWorkspace()}
-        onSave={() => void handleSave()}
-        onExportHtml={() => void handleExportHtml()}
-        onExportPdf={() => void handleExportPdf()}
-      />
+    <main className={`app-shell ${leftPanelOpen ? "left-open" : "left-closed"}`}>
+      <button
+        type="button"
+        className="floating-panel-toggle"
+        onClick={() => setLeftPanelOpen(true)}
+        aria-label="Show note library"
+        title="Show library"
+      >
+        &gt;
+      </button>
 
-      <WorkspaceListPanel
-        busy={busy}
-        workspace={workspace}
-        librarySection={librarySection}
-        workspaceFiles={workspaceFiles}
-        workspaceQuery={workspaceQuery}
-        workspaceMatches={workspaceMatches}
-        workspaceSearchActive={workspaceSearchActive}
-        recentFiles={recentFiles}
-        path={path}
-        isLarge={isLarge}
-        visibleStartLine={visibleStartLine}
-        visibleEndLine={visibleEndLine}
-        settings={settings}
-        assistantCatalog={assistantCatalog}
-        onWorkspaceQueryChange={(query) => {
-          setWorkspaceQuery(query);
-          setWorkspaceSearchActive(false);
-          if (!query.trim()) {
-            setWorkspaceMatches([]);
-          }
-        }}
-        onWorkspaceSearch={() => void handleWorkspaceSearch()}
-        onOpenWorkspaceFile={(file) => void handleOpenWorkspaceFile(file)}
-        onOpenSearchMatch={(match) => void handleOpenSearchMatch(match)}
-        onOpenRecentFile={(recentPath, name) => void openPath(recentPath, name)}
-        onSettingsChange={handleSettingsChange}
-      />
-
-      <section className="editor-pane">
-        <EditorToolbar
-          path={path}
+      <div className="left-workspace" aria-hidden={!leftPanelOpen}>
+        <LibraryRail
+          busy={busy}
           readOnly={readOnly}
           isDirty={isDirty}
+          workspace={workspace}
+          leftPanelOpen={leftPanelOpen}
+          activeSection={librarySection}
+          onToggleLeftPanel={() => setLeftPanelOpen((open) => !open)}
+          onSectionChange={(section) => {
+            setLibrarySection(section);
+            setWorkspaceSearchActive(false);
+            setWorkspaceMatches([]);
+          }}
+          onNew={() => void handleNew()}
+          onOpen={() => void handleOpen()}
+          onOpenWorkspace={() => void handleOpenWorkspace()}
+          onSave={() => void handleSave()}
+          onInitializeKnowledgeWorkspace={() => void handleInitializeKnowledgeWorkspace()}
+          onRefreshWorkspace={() => void handleRefreshWorkspace()}
+          onExportHtml={() => void handleExportHtml()}
+          onExportPdf={() => void handleExportPdf()}
+        />
+
+        <WorkspaceListPanel
+          busy={busy}
+          workspace={workspace}
+          librarySection={librarySection}
+          workspaceFiles={workspaceFiles}
+          workspaceQuery={workspaceQuery}
+          workspaceMatches={workspaceMatches}
+          workspaceSearchActive={workspaceSearchActive}
+          recentFiles={recentFiles}
+          path={path}
           isLarge={isLarge}
           visibleStartLine={visibleStartLine}
           visibleEndLine={visibleEndLine}
+          settings={settings}
+          assistantCatalog={assistantCatalog}
+          onWorkspaceQueryChange={(query) => {
+            setWorkspaceQuery(query);
+            setWorkspaceSearchActive(false);
+            if (!query.trim()) {
+              setWorkspaceMatches([]);
+            }
+          }}
+          onWorkspaceSearch={() => void handleWorkspaceSearch()}
+          onOpenWorkspaceFile={(file) => void handleOpenWorkspaceFile(file)}
+          onOpenSearchMatch={(match) => void handleOpenSearchMatch(match)}
+          onOpenRecentFile={(recentPath, name) => void openPath(recentPath, name)}
+          onSettingsChange={handleSettingsChange}
+        />
+      </div>
+
+      <section className="editor-pane">
+        <EditorToolbar
+          isLarge={isLarge}
+          canFormat={!readOnly && !busy}
           busy={busy}
           canPageBack={canPageBack}
           canPageForward={canPageForward}
           search={search}
           matches={matches}
           mode={editorMode}
-          inspectorTab={inspectorTab}
-          canShowKnowledge={Boolean(workspace?.knowledge.isInitialized && path)}
           onPreviousWindow={handlePreviousWindow}
           onNextWindow={handleNextWindow}
           onSearchChange={setSearch}
           onModeChange={setEditorMode}
-          onInspectorTabChange={setInspectorTab}
+          onMarkdownAction={applyMarkdownAction}
         />
 
         <NoticeStack
@@ -794,6 +852,16 @@ export default function App() {
         />
 
         <div className={`document-workspace ${editorMode}`}>
+          <div className="document-heading">
+            <h1>{fileName(path)}</h1>
+            <p>
+              {readOnly
+                ? `Read-only lines ${visibleStartLine.toLocaleString()}-${visibleEndLine.toLocaleString()}`
+                : isDirty
+                  ? "Unsaved changes"
+                  : "All changes saved"}
+            </p>
+          </div>
           <div className={`document-main ${editorMode}`}>
             {editorMode !== "preview" && (
               <div className="editor-frame">
@@ -803,6 +871,9 @@ export default function App() {
                   basicSetup={false}
                   extensions={extensions}
                   onChange={handleChange}
+                  onCreateEditor={(view) => {
+                    editorViewRef.current = view;
+                  }}
                   theme="light"
                 />
               </div>
@@ -811,33 +882,58 @@ export default function App() {
             {editorMode !== "edit" && <MarkdownPreview content={content} />}
           </div>
 
-          <aside className="inspector-rail" aria-label="Inspector">
-            {inspectorTab === "preview" || !workspace?.knowledge.isInitialized ? (
-              <MarkdownPreview content={content} />
-            ) : inspectorTab === "assistant" ? (
-              <AssistantPanel
-                busy={busy}
-                queryContext={queryContext}
-                draft={assistantDraft}
-                events={assistantEvents}
-                settings={settings}
-                onSummarize={() => void handleSummarizeContext()}
-                onSaveDraft={() => void handleSaveAssistantDraft()}
-              />
-            ) : (
-              <KnowledgePanel
-                knowledge={documentKnowledge}
-                lint={knowledgeLint}
-                queryContext={queryContext}
-                workspaceIndexPath={workspace ? `${workspace.knowledge.wikiPath}/index.md` : null}
-                workspaceLogPath={workspace ? `${workspace.knowledge.wikiPath}/log.md` : null}
-                busy={busy}
-                onOpenPath={(nextPath, name) => void openPath(nextPath, name)}
-              />
-            )}
-          </aside>
         </div>
       </section>
+
+      <aside className="right-companion inspector-rail" aria-label="Inspector">
+        <div className="companion-tabs mode-switch" aria-label="Inspector tab">
+          <button
+            type="button"
+            className={inspectorTab === "assistant" ? "active" : ""}
+            onClick={() => setInspectorTab("assistant")}
+          >
+            Assistant
+          </button>
+          <button
+            type="button"
+            className={inspectorTab === "knowledge" ? "active" : ""}
+            onClick={() => setInspectorTab("knowledge")}
+            disabled={!workspace?.knowledge.isInitialized || !path}
+          >
+            Knowledge
+          </button>
+          <button
+            type="button"
+            className={inspectorTab === "preview" ? "active" : ""}
+            onClick={() => setInspectorTab("preview")}
+          >
+            Preview
+          </button>
+        </div>
+        {inspectorTab === "preview" ? (
+          <MarkdownPreview content={content} />
+        ) : inspectorTab === "knowledge" ? (
+          <KnowledgePanel
+            knowledge={documentKnowledge}
+            lint={knowledgeLint}
+            queryContext={queryContext}
+            workspaceIndexPath={workspace ? `${workspace.knowledge.wikiPath}/index.md` : null}
+            workspaceLogPath={workspace ? `${workspace.knowledge.wikiPath}/log.md` : null}
+            busy={busy}
+            onOpenPath={(nextPath, name) => void openPath(nextPath, name)}
+          />
+        ) : (
+          <AssistantPanel
+            busy={busy}
+            queryContext={queryContext}
+            draft={assistantDraft}
+            events={assistantEvents}
+            settings={settings}
+            onSummarize={() => void handleSummarizeContext()}
+            onSaveDraft={() => void handleSaveAssistantDraft()}
+          />
+        )}
+      </aside>
     </main>
   );
 }

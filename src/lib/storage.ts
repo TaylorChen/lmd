@@ -2,7 +2,7 @@ import type { AppSettings, AssistantProvider, EditorMode, RecentFile } from "../
 
 export const recentFileLimit = 8;
 export const defaultSettings: AppSettings = {
-  defaultEditorMode: "edit",
+  defaultEditorMode: "split",
   searchResultLimit: 80,
   externalCheckSeconds: 5,
   assistantProvider: "builtin",

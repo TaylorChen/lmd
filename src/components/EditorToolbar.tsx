@@ -1,63 +1,62 @@
-import { fileName } from "../lib/format";
 import type { EditorMode } from "../types";
 
+export type MarkdownAction = "h1" | "h2" | "bold" | "italic" | "code" | "link";
+
 type EditorToolbarProps = {
-  path: string | null;
-  readOnly: boolean;
-  isDirty: boolean;
   isLarge: boolean;
-  visibleStartLine: number;
-  visibleEndLine: number;
+  canFormat: boolean;
   busy: boolean;
   canPageBack: boolean;
   canPageForward: boolean;
   search: string;
   matches: number;
   mode: EditorMode;
-  inspectorTab: "preview" | "knowledge" | "assistant";
-  canShowKnowledge: boolean;
   onPreviousWindow: () => void;
   onNextWindow: () => void;
   onSearchChange: (search: string) => void;
   onModeChange: (mode: EditorMode) => void;
-  onInspectorTabChange: (tab: "preview" | "knowledge" | "assistant") => void;
+  onMarkdownAction: (action: MarkdownAction) => void;
 };
 
 export function EditorToolbar({
-  path,
-  readOnly,
-  isDirty,
   isLarge,
-  visibleStartLine,
-  visibleEndLine,
+  canFormat,
   busy,
   canPageBack,
   canPageForward,
   search,
   matches,
   mode,
-  inspectorTab,
-  canShowKnowledge,
   onPreviousWindow,
   onNextWindow,
   onSearchChange,
   onModeChange,
-  onInspectorTabChange,
+  onMarkdownAction,
 }: EditorToolbarProps) {
   return (
     <header className="toolbar">
-      <div className="toolbar-main">
-        <div className="document-title">
-          <h1>{fileName(path)}</h1>
-          <p>
-            {readOnly
-              ? `Read-only lines ${visibleStartLine.toLocaleString()}-${visibleEndLine.toLocaleString()}`
-              : isDirty
-                ? "Unsaved changes"
-                : "All changes saved"}
-          </p>
-        </div>
+      <div className="format-toolbar" aria-label="Markdown shortcuts">
+        <button type="button" onClick={() => onMarkdownAction("h1")} disabled={!canFormat}>
+          H1
+        </button>
+        <button type="button" onClick={() => onMarkdownAction("h2")} disabled={!canFormat}>
+          H2
+        </button>
+        <button type="button" onClick={() => onMarkdownAction("bold")} disabled={!canFormat}>
+          B
+        </button>
+        <button type="button" onClick={() => onMarkdownAction("italic")} disabled={!canFormat}>
+          I
+        </button>
+        <button type="button" onClick={() => onMarkdownAction("code")} disabled={!canFormat}>
+          Code
+        </button>
+        <button type="button" onClick={() => onMarkdownAction("link")} disabled={!canFormat}>
+          Link
+        </button>
+      </div>
 
+      <div className="toolbar-controls">
         {isLarge && (
           <div className="range-controls">
             <button type="button" onClick={onPreviousWindow} disabled={busy || !canPageBack}>
@@ -68,9 +67,7 @@ export function EditorToolbar({
             </button>
           </div>
         )}
-      </div>
 
-      <div className="toolbar-controls">
         <div className="toolbar-group">
           <div className="mode-switch" aria-label="Editor mode">
             {(["edit", "split", "preview"] as const).map((nextMode) => (
@@ -86,33 +83,6 @@ export function EditorToolbar({
           </div>
         </div>
 
-        {canShowKnowledge && (
-          <div className="toolbar-group">
-            <div className="mode-switch" aria-label="Inspector tab">
-              <button
-                type="button"
-                className={inspectorTab === "preview" ? "active" : ""}
-                onClick={() => onInspectorTabChange("preview")}
-              >
-                Preview
-              </button>
-              <button
-                type="button"
-                className={inspectorTab === "knowledge" ? "active" : ""}
-                onClick={() => onInspectorTabChange("knowledge")}
-              >
-                Knowledge
-              </button>
-              <button
-                type="button"
-                className={inspectorTab === "assistant" ? "active" : ""}
-                onClick={() => onInspectorTabChange("assistant")}
-              >
-                Assistant
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       <label className="search-box toolbar-search">

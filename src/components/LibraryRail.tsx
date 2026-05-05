@@ -2,16 +2,19 @@ import type { LibrarySection, Workspace } from "../types";
 
 type LibraryRailProps = {
   busy: boolean;
-  workspace: Workspace | null;
+  readOnly: boolean;
   isDirty: boolean;
+  workspace: Workspace | null;
+  leftPanelOpen: boolean;
   activeSection: LibrarySection;
+  onToggleLeftPanel: () => void;
   onSectionChange: (section: LibrarySection) => void;
   onNew: () => void;
   onOpen: () => void;
   onOpenWorkspace: () => void;
+  onSave: () => void;
   onInitializeKnowledgeWorkspace: () => void;
   onRefreshWorkspace: () => void;
-  onSave: () => void;
   onExportHtml: () => void;
   onExportPdf: () => void;
 };
@@ -27,16 +30,19 @@ const libraryItems: Array<{ id: LibrarySection; label: string; requiresWorkspace
 
 export function LibraryRail({
   busy,
-  workspace,
+  readOnly,
   isDirty,
+  workspace,
+  leftPanelOpen,
   activeSection,
+  onToggleLeftPanel,
   onSectionChange,
   onNew,
   onOpen,
   onOpenWorkspace,
+  onSave,
   onInitializeKnowledgeWorkspace,
   onRefreshWorkspace,
-  onSave,
   onExportHtml,
   onExportPdf,
 }: LibraryRailProps) {
@@ -44,6 +50,79 @@ export function LibraryRail({
     <aside className="library-rail" aria-label="Library">
       <div className="app-brand">
         <div className="app-mark">LMD</div>
+        <button
+          type="button"
+          className="panel-toggle"
+          onClick={onToggleLeftPanel}
+          aria-label={leftPanelOpen ? "Hide note library" : "Show note library"}
+          title={leftPanelOpen ? "Hide library" : "Show library"}
+        >
+          {leftPanelOpen ? "<" : ">"}
+        </button>
+      </div>
+
+      <div className="sidebar-actions" aria-label="File actions">
+        <button type="button" onClick={onNew} disabled={busy}>
+          New
+        </button>
+        <button type="button" onClick={onOpen} disabled={busy}>
+          Open
+        </button>
+        <button type="button" onClick={onOpenWorkspace} disabled={busy}>
+          Workspace
+        </button>
+        <button type="button" onClick={onSave} disabled={busy || readOnly || !isDirty}>
+          Save
+        </button>
+        <details className="sidebar-more">
+          <summary>More</summary>
+          <div className="sidebar-more-actions">
+            {workspace && (
+              <>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    onInitializeKnowledgeWorkspace();
+                  }}
+                  disabled={busy || workspace.knowledge.isInitialized}
+                >
+                  Init Knowledge
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    onRefreshWorkspace();
+                  }}
+                  disabled={busy}
+                >
+                  Refresh Workspace
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                onExportHtml();
+              }}
+              disabled={busy}
+            >
+              Export HTML
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                onExportPdf();
+              }}
+              disabled={busy}
+            >
+              Export PDF
+            </button>
+          </div>
+        </details>
       </div>
 
       <nav className="library-nav" aria-label="Library sections">
@@ -59,48 +138,6 @@ export function LibraryRail({
           </button>
         ))}
       </nav>
-
-      <div className="sidebar-actions" aria-label="File actions">
-        <button type="button" onClick={onNew} disabled={busy}>
-          New
-        </button>
-        <button type="button" onClick={onOpen} disabled={busy}>
-          Open
-        </button>
-        <button type="button" onClick={onOpenWorkspace} disabled={busy}>
-          Workspace
-        </button>
-        {isDirty && (
-          <button type="button" className="primary-action" onClick={onSave} disabled={busy}>
-            Save
-          </button>
-        )}
-        <details className="sidebar-more">
-          <summary>More</summary>
-          <div className="sidebar-more-actions">
-            {workspace && (
-              <>
-                <button
-                  type="button"
-                  onClick={onInitializeKnowledgeWorkspace}
-                  disabled={busy || workspace.knowledge.isInitialized}
-                >
-                  Init Knowledge
-                </button>
-                <button type="button" onClick={onRefreshWorkspace} disabled={busy}>
-                  Refresh
-                </button>
-              </>
-            )}
-            <button type="button" onClick={onExportHtml} disabled={busy}>
-              Export HTML
-            </button>
-            <button type="button" onClick={onExportPdf} disabled={busy}>
-              Export PDF
-            </button>
-          </div>
-        </details>
-      </div>
     </aside>
   );
 }

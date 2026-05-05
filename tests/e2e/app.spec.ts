@@ -303,7 +303,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("edits markdown and renders preview modes", async ({ page }) => {
-  await expect(page.locator(".toolbar").getByRole("heading", { name: "Untitled" })).toBeVisible();
+  await expect(page.locator(".document-heading").getByRole("heading", { name: "Untitled" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Library sections" })).toBeVisible();
   await expect(page.getByRole("button", { name: "All Notes" })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Workspace notes" })).toBeVisible();
@@ -321,12 +321,23 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await expect(page.locator(".document-main").getByRole("checkbox", { name: "done item" })).toBeChecked();
   await expect(page.locator(".document-main").getByRole("link", { name: "https://example.com" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Preview" }).click();
+  await page.getByLabel("Editor mode").getByRole("button", { name: "Preview" }).click();
   await expect(page.locator(".editor-frame")).toHaveCount(0);
   await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
 
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.locator(".editor-frame")).toBeVisible();
+});
+
+test("applies markdown toolbar shortcuts to the editor", async ({ page }) => {
+  await page.locator(".cm-content").click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+  await page.keyboard.type("Toolbar text");
+
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+  await page.getByLabel("Markdown shortcuts").getByRole("button", { name: "B" }).click();
+
+  await expect(page.locator(".cm-content")).toContainText("**Toolbar text**");
 });
 
 test("persists settings across reload", async ({ page }) => {
@@ -340,7 +351,7 @@ test("persists settings across reload", async ({ page }) => {
   await page.reload();
 
   await page.getByText("Settings").click();
-  await expect(page.getByRole("button", { name: "Preview" })).toHaveClass(/active/);
+  await expect(page.getByLabel("Editor mode").getByRole("button", { name: "Preview" })).toHaveClass(/active/);
   await expect(page.getByLabel("Default view")).toHaveValue("preview");
   await expect(page.getByLabel("Search results")).toHaveValue("120");
   await expect(page.getByLabel("File check")).toHaveValue("10");
@@ -353,7 +364,7 @@ test("saves and exports the current document", async ({ page }) => {
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
   await page.keyboard.type("# Saved title\n\nBody");
 
-  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Saved untitled.md.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "untitled.md" })).toBeVisible();
 
@@ -361,6 +372,7 @@ test("saves and exports the current document", async ({ page }) => {
   await page.getByRole("button", { name: "Export HTML" }).click();
   await expect(page.getByText("Exported HTML to untitled.html.")).toBeVisible();
 
+  await page.getByText("More").click();
   await page.getByRole("button", { name: "Export PDF" }).click();
   await expect(page.getByText("Exported PDF to untitled.pdf.")).toBeVisible();
 
@@ -390,6 +402,15 @@ test("opens workspace, searches, and opens a match", async ({ page }) => {
   expect(searchCall?.args).toMatchObject({ rootPath: "/workspace", query: "needle", maxResults: 80 });
 });
 
+test("shows a clear message when native workspace actions run in web preview", async ({ page }) => {
+  await page.evaluate(() => {
+    window.__LMD_TEST_API__ = undefined;
+  });
+
+  await page.getByRole("button", { name: "Workspace" }).click();
+  await expect(page.getByText(/Native file and workspace actions require the Tauri desktop app/)).toBeVisible();
+});
+
 test("filters workspace files from the library rail", async ({ page }) => {
   await page.getByRole("button", { name: "Workspace" }).click();
   const libraryNav = page.getByRole("navigation", { name: "Library sections" });
@@ -415,6 +436,18 @@ test("filters workspace files from the library rail", async ({ page }) => {
   await expect(page.locator(".file-kind").filter({ hasText: "source" })).toBeVisible();
 });
 
+test("collapses and restores the note library", async ({ page }) => {
+  await expect(page.getByRole("complementary", { name: "Workspace notes" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Hide note library" }).click();
+  await expect(page.locator(".app-shell")).toHaveClass(/left-closed/);
+  await expect(page.getByRole("button", { name: "Show note library" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Show note library" }).click();
+  await expect(page.locator(".app-shell")).toHaveClass(/left-open/);
+  await expect(page.getByRole("complementary", { name: "Workspace notes" })).toBeVisible();
+});
+
 test("initializes a knowledge workspace", async ({ page }) => {
   await page.getByRole("button", { name: "Workspace" }).click();
   await expect(page.getByText("Standard workspace")).toBeVisible();
@@ -423,6 +456,7 @@ test("initializes a knowledge workspace", async ({ page }) => {
   await page.getByRole("button", { name: "Init Knowledge" }).click();
   await expect(page.getByText("Knowledge workspace initialized.")).toBeVisible();
   await expect(page.getByText("Knowledge workspace ready")).toBeVisible();
+  await page.getByText("More").click();
   await expect(page.getByRole("button", { name: "Init Knowledge" })).toBeDisabled();
 
   const initCall = await page.evaluate(() =>
@@ -439,8 +473,8 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
   await page.locator(".file-list .file-item").first().focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "alpha.md" })).toBeVisible();
-  await page.getByRole("button", { name: "Split" }).click();
-  await page.locator(".toolbar").getByRole("button", { name: "Knowledge" }).click();
+  await page.getByLabel("Editor mode").getByRole("button", { name: "Split" }).click();
+  await page.getByLabel("Inspector tab").getByRole("button", { name: "Knowledge" }).click();
 
   await expect(page.locator(".knowledge-link-item span").filter({ hasText: "wiki/overview.md" }).first()).toBeVisible();
   await expect(page.getByText("#writing")).toBeVisible();
@@ -480,8 +514,8 @@ test("builds and saves an assistant draft", async ({ page }) => {
   await page.getByRole("button", { name: "Init Knowledge" }).click();
   await page.locator(".file-list .file-item").first().focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("button", { name: "Edit" })).toHaveClass(/active/);
-  await page.locator(".toolbar").getByRole("button", { name: "Assistant" }).click();
+  await expect(page.getByLabel("Editor mode").getByRole("button", { name: "Split" })).toHaveClass(/active/);
+  await page.getByLabel("Inspector tab").getByRole("button", { name: "Assistant" }).click();
   await expect(page.getByRole("complementary", { name: "Inspector" })).toBeVisible();
   await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("Context loaded");
   await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("2 items from alpha.md");
