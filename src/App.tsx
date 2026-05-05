@@ -19,6 +19,7 @@ import type {
   AssistantCatalog,
   AssistantDraft,
   AssistantEvent,
+  AssistantProvider,
   ExternalChange,
   DocumentKnowledge,
   EditorMode,
@@ -36,17 +37,43 @@ import type {
 } from "./types";
 
 const largeWindowLines = 600;
-const emptyDocument = `# Untitled
+const emptyDocument = `# 未命名
 
-Start writing in Markdown.
+开始写 Markdown。
 `;
 
 const defaultAssistantCatalog: AssistantCatalog = {
-  defaultProvider: "builtin",
+  defaultProvider: "deepseek",
   providers: [
-    { id: "builtin", label: "Builtin", models: ["local-summary-v1", "local-summary-v2"] },
-    { id: "mock_openai", label: "Mock OpenAI", models: ["gpt-mock-1", "gpt-mock-2"] },
-    { id: "external_command", label: "External Command", models: ["command-json-v1"] },
+    {
+      id: "deepseek",
+      label: "DeepSeek",
+      models: ["deepseek-v4-flash", "deepseek-v4-pro"],
+      baseUrl: "https://api.deepseek.com/chat/completions",
+      apiKeyEnv: "DEEPSEEK_API_KEY",
+    },
+    {
+      id: "minimax",
+      label: "MiniMax",
+      models: ["MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2"],
+      baseUrl: "https://api.minimaxi.com/v1/chat/completions",
+      apiKeyEnv: "MINIMAX_API_KEY",
+    },
+    {
+      id: "kimi",
+      label: "Kimi",
+      models: ["kimi-k2.6", "kimi-k2.5", "moonshot-v1-128k"],
+      baseUrl: "https://api.moonshot.cn/v1/chat/completions",
+      apiKeyEnv: "MOONSHOT_API_KEY",
+    },
+    {
+      id: "zhipu",
+      label: "智谱 GLM",
+      models: ["glm-5.1", "glm-4.7", "glm-4.5"],
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      apiKeyEnv: "ZAI_API_KEY",
+    },
+    { id: "external_command", label: "外部命令", models: ["command-json-v1"] },
   ],
 };
 
@@ -79,6 +106,7 @@ export default function App() {
   const [queryContext, setQueryContext] = useState<QueryContext | null>(null);
   const [assistantDraft, setAssistantDraft] = useState<AssistantDraft | null>(null);
   const [assistantEvents, setAssistantEvents] = useState<AssistantEvent[]>([]);
+  const [assistantPrompt, setAssistantPrompt] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -193,7 +221,7 @@ export default function App() {
   }
 
   async function handleNew() {
-    if (isDirty && !window.confirm("Discard unsaved changes?")) return;
+    if (isDirty && !window.confirm("放弃未保存的更改？")) return;
     setContent(emptyDocument);
     setSavedContent(emptyDocument);
     setPath(null);
@@ -207,11 +235,11 @@ export default function App() {
     setVisibleLineCount(3);
     setSearch("");
     clearKnowledge();
-    setNotice({ tone: "info", message: "New document ready." });
+    setNotice({ tone: "info", message: "新文档已就绪。" });
   }
 
   async function handleOpen() {
-    if (isDirty && !window.confirm("Discard unsaved changes?")) return;
+    if (isDirty && !window.confirm("放弃未保存的更改？")) return;
 
     setBusy(true);
     setNotice(null);
@@ -223,8 +251,8 @@ export default function App() {
       setNotice({
         tone: "info",
         message: document.isLarge
-          ? `Opened ${fileName(document.path)} in read-only large-file mode.`
-          : `Opened ${fileName(document.path)}.`,
+          ? `已用大文件只读模式打开 ${fileName(document.path)}。`
+          : `已打开 ${fileName(document.path)}。`,
       });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -234,7 +262,7 @@ export default function App() {
   }
 
   async function handleOpenWorkspace() {
-    if (isDirty && !window.confirm("Discard unsaved changes?")) return;
+    if (isDirty && !window.confirm("放弃未保存的更改？")) return;
 
     setBusy(true);
     setNotice(null);
@@ -248,7 +276,7 @@ export default function App() {
       setWorkspaceSearchActive(false);
       setNotice({
         tone: "info",
-        message: `Opened workspace with ${nextWorkspace.files.length.toLocaleString()} files.`,
+        message: `已打开工作区，共 ${nextWorkspace.files.length.toLocaleString()} 个文件。`,
       });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -259,7 +287,7 @@ export default function App() {
 
   async function handleRefreshWorkspace(showNotice = true) {
     if (!workspace) {
-      setNotice({ tone: "error", message: "Open a workspace before refreshing." });
+      setNotice({ tone: "error", message: "请先打开工作区再刷新。" });
       return;
     }
 
@@ -278,7 +306,7 @@ export default function App() {
       if (showNotice) {
         setNotice({
           tone: "info",
-          message: `Refreshed workspace with ${nextWorkspace.files.length.toLocaleString()} files.`,
+          message: `工作区已刷新，共 ${nextWorkspace.files.length.toLocaleString()} 个文件。`,
         });
       }
     } catch (error) {
@@ -290,7 +318,7 @@ export default function App() {
 
   async function handleInitializeKnowledgeWorkspace() {
     if (!workspace) {
-      setNotice({ tone: "error", message: "Open a workspace before initializing knowledge mode." });
+      setNotice({ tone: "error", message: "请先打开工作区再初始化知识库模式。" });
       return;
     }
 
@@ -303,7 +331,7 @@ export default function App() {
       setWorkspace(nextWorkspace);
       window.localStorage.setItem(storageKeys.lastWorkspaceRoot, nextWorkspace.rootPath);
       setWorkspaceSearchActive(false);
-      setNotice({ tone: "info", message: "Knowledge workspace initialized." });
+      setNotice({ tone: "info", message: "知识库工作区已初始化。" });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -313,7 +341,7 @@ export default function App() {
 
   async function openPath(pathToOpen: string, displayName: string) {
     if (pathToOpen === path) return;
-    if (isDirty && !window.confirm("Discard unsaved changes?")) return;
+    if (isDirty && !window.confirm("放弃未保存的更改？")) return;
 
     setBusy(true);
     setNotice(null);
@@ -324,8 +352,8 @@ export default function App() {
       setNotice({
         tone: "info",
         message: document.isLarge
-          ? `Opened ${displayName} in read-only large-file mode.`
-          : `Opened ${displayName}.`,
+          ? `已用大文件只读模式打开 ${displayName}。`
+          : `已打开 ${displayName}。`,
       });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -344,7 +372,7 @@ export default function App() {
 
   async function handleWorkspaceSearch() {
     if (!workspace) {
-      setNotice({ tone: "error", message: "Open a workspace before searching." });
+      setNotice({ tone: "error", message: "请先打开工作区再搜索。" });
       return;
     }
 
@@ -367,7 +395,7 @@ export default function App() {
       setWorkspaceSearchActive(true);
       setNotice({
         tone: "info",
-        message: `Found ${matches.length.toLocaleString()} workspace matches.`,
+        message: `找到 ${matches.length.toLocaleString()} 条工作区匹配结果。`,
       });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -378,18 +406,18 @@ export default function App() {
 
   async function handleSave() {
     if (readOnly) {
-      setNotice({ tone: "error", message: "Large files are read-only in this version." });
+      setNotice({ tone: "error", message: "当前版本中大文件为只读模式。" });
       return;
     }
     if (
       externalChange?.kind === "modified" &&
-      !window.confirm("This file changed on disk. Save anyway and overwrite the external changes?")
+      !window.confirm("该文件已在磁盘中被修改。仍要保存并覆盖外部更改吗？")
     ) {
       return;
     }
     if (
       externalChange?.kind === "missing" &&
-      !window.confirm("This file was removed from disk. Save anyway and recreate it?")
+      !window.confirm("该文件已从磁盘中删除。仍要保存并重新创建它吗？")
     ) {
       return;
     }
@@ -412,7 +440,7 @@ export default function App() {
       if (workspace && isPathInsideRoot(result.path, workspace.rootPath)) {
         void handleRefreshWorkspace(false);
       }
-      setNotice({ tone: "info", message: `Saved ${fileName(result.path)}.` });
+      setNotice({ tone: "info", message: `已保存 ${fileName(result.path)}。` });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -429,7 +457,7 @@ export default function App() {
         html: renderMarkdownDocument(fileName(path), content),
       });
       if (!exportedPath) return;
-      setNotice({ tone: "info", message: `Exported HTML to ${fileName(exportedPath)}.` });
+      setNotice({ tone: "info", message: `已导出 HTML 到 ${fileName(exportedPath)}。` });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -446,7 +474,7 @@ export default function App() {
         content,
       });
       if (!exportedPath) return;
-      setNotice({ tone: "info", message: `Exported PDF to ${fileName(exportedPath)}.` });
+      setNotice({ tone: "info", message: `已导出 PDF 到 ${fileName(exportedPath)}。` });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -454,16 +482,27 @@ export default function App() {
     }
   }
 
-  async function handleSummarizeContext() {
+  function assistantProviderConfig(provider: AssistantProvider) {
+    const providerInfo = assistantCatalog.providers.find((item) => item.id === provider);
+    return {
+      apiKey: settings.assistantApiKeys[provider],
+      baseUrl: settings.assistantBaseUrls[provider] || providerInfo?.baseUrl,
+      externalCommand: settings.assistantExternalCommand,
+      externalTimeoutSeconds: settings.assistantExternalTimeoutSeconds,
+    };
+  }
+
+  async function handleAssistantRun(task: string, prompt = "") {
     if (!workspace || !path) {
-      setNotice({ tone: "error", message: "Open a document inside a knowledge workspace first." });
+      setNotice({ tone: "error", message: "请先打开知识库工作区中的文档。" });
       return;
     }
 
+    const providerConfig = assistantProviderConfig(settings.assistantProvider);
     setBusy(true);
     setNotice(null);
     appendAssistantEvent({
-      label: "Summary requested",
+      label: "已请求 AI",
       detail: `${settings.assistantProvider} / ${settings.assistantModel}`,
       tone: "info",
     });
@@ -474,17 +513,23 @@ export default function App() {
         currentContent: isDirty ? content : undefined,
         provider: settings.assistantProvider,
         model: settings.assistantModel,
+        task,
+        prompt,
+        apiKey: providerConfig.apiKey,
+        baseUrl: providerConfig.baseUrl,
+        externalCommand: providerConfig.externalCommand,
+        externalTimeoutSeconds: providerConfig.externalTimeoutSeconds,
       });
       setAssistantDraft(draft);
       appendAssistantEvent({
-        label: "Draft generated",
+        label: "草稿已生成",
         detail: draft.title,
         tone: "info",
       });
-      setNotice({ tone: "info", message: "Assistant draft generated." });
+      setNotice({ tone: "info", message: "AI 草稿已生成。" });
     } catch (error) {
       appendAssistantEvent({
-        label: "Draft failed",
+        label: "草稿生成失败",
         detail: String(error),
         tone: "error",
       });
@@ -492,6 +537,16 @@ export default function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleSummarizeContext() {
+    await handleAssistantRun("summarize");
+  }
+
+  async function handleAssistantPromptSubmit(prompt: string) {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) return;
+    await handleAssistantRun("chat", trimmedPrompt);
   }
 
   async function handleSaveAssistantDraft() {
@@ -508,15 +563,15 @@ export default function App() {
         content: assistantDraft.content,
       });
       appendAssistantEvent({
-        label: "Draft saved",
+        label: "草稿已保存",
         detail: fileName(savedPath),
         tone: "info",
       });
-      setNotice({ tone: "info", message: `Saved wiki draft to ${fileName(savedPath)}.` });
+      setNotice({ tone: "info", message: `已将 Wiki 草稿保存到 ${fileName(savedPath)}。` });
       await handleRefreshWorkspace(false);
     } catch (error) {
       appendAssistantEvent({
-        label: "Save failed",
+        label: "保存失败",
         detail: String(error),
         tone: "error",
       });
@@ -534,6 +589,52 @@ export default function App() {
     setLineCount(stats.lineCount);
     setVisibleStartLine(stats.lineCount === 0 ? 0 : 1);
     setVisibleLineCount(stats.lineCount);
+  }
+
+  function insertAssistantDraft() {
+    if (!assistantDraft || readOnly) return;
+    const insert = assistantDraft.content.trim();
+    if (!insert) return;
+
+    const view = editorViewRef.current;
+    if (!view) {
+      handleChange(content ? `${content.trimEnd()}\n\n${insert}\n` : `${insert}\n`);
+      setNotice({ tone: "info", message: "AI 内容已插入编辑器。" });
+      return;
+    }
+
+    const selection = view.state.selection.main;
+    const prefix = selection.from > 0 ? "\n\n" : "";
+    const suffix = insert.endsWith("\n") ? "" : "\n";
+    view.dispatch({
+      changes: { from: selection.to, to: selection.to, insert: `${prefix}${insert}${suffix}` },
+    });
+    view.focus();
+    setNotice({ tone: "info", message: "AI 内容已插入编辑器。" });
+  }
+
+  function replaceSelectionWithAssistantDraft() {
+    if (!assistantDraft || readOnly) return;
+    const insert = assistantDraft.content.trim();
+    if (!insert) return;
+
+    const view = editorViewRef.current;
+    if (!view) {
+      handleChange(`${insert}\n`);
+      setNotice({ tone: "info", message: "已用 AI 内容替换当前文档。" });
+      return;
+    }
+
+    const selection = view.state.selection.main;
+    view.dispatch({
+      changes: { from: selection.from, to: selection.to, insert },
+      selection: { anchor: selection.from + insert.length },
+    });
+    view.focus();
+    setNotice({
+      tone: "info",
+      message: selection.empty ? "AI 内容已插入光标位置。" : "已用 AI 内容替换选中文本。",
+    });
   }
 
   function applyMarkdownAction(action: MarkdownAction) {
@@ -561,7 +662,7 @@ export default function App() {
       return;
     }
 
-    const wrapSelection = (before: string, after = before, placeholder = "text") => {
+    const wrapSelection = (before: string, after = before, placeholder = "文本") => {
       const inner = selectedText || placeholder;
       const insert = `${before}${inner}${after}`;
       const anchor = selectedText ? selection.from + insert.length : selection.from + before.length;
@@ -573,13 +674,13 @@ export default function App() {
       view.focus();
     };
 
-    if (action === "bold") wrapSelection("**", "**", "bold text");
-    if (action === "italic") wrapSelection("*", "*", "italic text");
+    if (action === "bold") wrapSelection("**", "**", "加粗文本");
+    if (action === "italic") wrapSelection("*", "*", "斜体文本");
     if (action === "code") {
       if (selectedText.includes("\n")) wrapSelection("```markdown\n", "\n```", selectedText || "code");
-      else wrapSelection("`", "`", "code");
+      else wrapSelection("`", "`", "代码");
     }
-    if (action === "link") wrapSelection("[", "](https://example.com)", "link text");
+    if (action === "link") wrapSelection("[", "](https://example.com)", "链接文本");
   }
 
   async function loadRange(startLine: number) {
@@ -598,11 +699,11 @@ export default function App() {
       setVisibleLineCount(range.lineCount);
       setNotice({
         tone: "info",
-        message: `Loaded lines ${range.startLine.toLocaleString()}-${(
+        message: `已加载第 ${range.startLine.toLocaleString()}-${(
           range.startLine +
           range.lineCount -
           1
-        ).toLocaleString()}.`,
+        ).toLocaleString()} 行。`,
       });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -621,7 +722,7 @@ export default function App() {
 
   async function handleReloadCurrentFile() {
     if (!path) return;
-    if (isDirty && !window.confirm("Discard unsaved changes and reload from disk?")) return;
+    if (isDirty && !window.confirm("放弃未保存的更改并从磁盘重新加载？")) return;
 
     setBusy(true);
     setNotice(null);
@@ -629,7 +730,7 @@ export default function App() {
       const document = await invokeCommand<MarkdownDocument>("open_markdown_path", { path });
       applyDocument(document);
       rememberDocument(document.path);
-      setNotice({ tone: "info", message: `Reloaded ${fileName(document.path)}.` });
+      setNotice({ tone: "info", message: `已重新加载 ${fileName(document.path)}。` });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -674,8 +775,8 @@ export default function App() {
           setKnowledgeLint(lint);
           setQueryContext(context);
           appendAssistantEvent({
-            label: "Context loaded",
-            detail: `${context.items.length.toLocaleString()} items from ${context.currentRelativePath}`,
+            label: "上下文已加载",
+            detail: `${context.items.length.toLocaleString()} 条，来自 ${context.currentRelativePath}`,
             tone: "info",
           });
         }
@@ -719,11 +820,11 @@ export default function App() {
         }
 
         if (!cancelled) {
-          setNotice({ tone: "info", message: "Restored previous session." });
+          setNotice({ tone: "info", message: "已恢复上次会话。" });
         }
       } catch (error) {
         if (!cancelled) {
-          setNotice({ tone: "error", message: `Could not restore previous session: ${String(error)}` });
+          setNotice({ tone: "error", message: `无法恢复上次会话：${String(error)}` });
         }
       } finally {
         if (!cancelled) setBusy(false);
@@ -766,8 +867,8 @@ export default function App() {
         type="button"
         className="floating-panel-toggle"
         onClick={() => setLeftPanelOpen(true)}
-        aria-label="Show note library"
-        title="Show library"
+        aria-label="显示笔记栏"
+        title="显示笔记栏"
       >
         &gt;
       </button>
@@ -856,10 +957,10 @@ export default function App() {
             <h1>{fileName(path)}</h1>
             <p>
               {readOnly
-                ? `Read-only lines ${visibleStartLine.toLocaleString()}-${visibleEndLine.toLocaleString()}`
+                ? `只读：第 ${visibleStartLine.toLocaleString()}-${visibleEndLine.toLocaleString()} 行`
                 : isDirty
-                  ? "Unsaved changes"
-                  : "All changes saved"}
+                  ? "有未保存的更改"
+                  : "所有更改已保存"}
             </p>
           </div>
           <div className={`document-main ${editorMode}`}>
@@ -885,14 +986,14 @@ export default function App() {
         </div>
       </section>
 
-      <aside className="right-companion inspector-rail" aria-label="Inspector">
-        <div className="companion-tabs mode-switch" aria-label="Inspector tab">
+      <aside className="right-companion inspector-rail" aria-label="检查器">
+        <div className="companion-tabs mode-switch" aria-label="检查器标签">
           <button
             type="button"
             className={inspectorTab === "assistant" ? "active" : ""}
             onClick={() => setInspectorTab("assistant")}
           >
-            Assistant
+            AI 助手
           </button>
           <button
             type="button"
@@ -900,7 +1001,7 @@ export default function App() {
             onClick={() => setInspectorTab("knowledge")}
             disabled={!workspace?.knowledge.isInitialized || !path}
           >
-            Knowledge
+            知识
           </button>
         </div>
         {inspectorTab === "knowledge" ? (
@@ -920,8 +1021,14 @@ export default function App() {
             draft={assistantDraft}
             events={assistantEvents}
             settings={settings}
+            prompt={assistantPrompt}
+            onPromptChange={setAssistantPrompt}
             onSummarize={() => void handleSummarizeContext()}
+            onRunTask={(task) => void handleAssistantRun(task)}
+            onSubmitPrompt={(prompt) => void handleAssistantPromptSubmit(prompt)}
             onSaveDraft={() => void handleSaveAssistantDraft()}
+            onInsertDraft={insertAssistantDraft}
+            onReplaceSelection={replaceSelectionWithAssistantDraft}
           />
         )}
       </aside>

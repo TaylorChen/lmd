@@ -184,17 +184,35 @@ async function installTauriMock(page: Page) {
 
         if (command === "assistant_catalog") {
           return {
-            defaultProvider: "builtin",
+            defaultProvider: "deepseek",
             providers: [
               {
-                id: "builtin",
-                label: "Builtin",
-                models: ["local-summary-v1", "local-summary-v2"],
+                id: "deepseek",
+                label: "DeepSeek",
+                models: ["deepseek-v4-flash", "deepseek-v4-pro"],
+                baseUrl: "https://api.deepseek.com/chat/completions",
+                apiKeyEnv: "DEEPSEEK_API_KEY",
               },
               {
-                id: "mock_openai",
-                label: "Mock OpenAI",
-                models: ["gpt-mock-1", "gpt-mock-2"],
+                id: "minimax",
+                label: "MiniMax",
+                models: ["MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2"],
+                baseUrl: "https://api.minimaxi.com/v1/chat/completions",
+                apiKeyEnv: "MINIMAX_API_KEY",
+              },
+              {
+                id: "kimi",
+                label: "Kimi",
+                models: ["kimi-k2.6", "kimi-k2.5", "moonshot-v1-128k"],
+                baseUrl: "https://api.moonshot.cn/v1/chat/completions",
+                apiKeyEnv: "MOONSHOT_API_KEY",
+              },
+              {
+                id: "zhipu",
+                label: "智谱 GLM",
+                models: ["glm-5.1", "glm-4.7", "glm-4.5"],
+                baseUrl: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+                apiKeyEnv: "ZAI_API_KEY",
               },
               {
                 id: "external_command",
@@ -303,11 +321,11 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("edits markdown and renders preview modes", async ({ page }) => {
-  await expect(page.locator(".document-heading").getByRole("heading", { name: "Untitled" })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Library sections" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "All Notes" })).toBeVisible();
-  await expect(page.getByRole("complementary", { name: "Workspace notes" })).toBeVisible();
-  await expect(page.getByLabel("Inspector tab").getByRole("button", { name: "Preview" })).toHaveCount(0);
+  await expect(page.locator(".document-heading").getByRole("heading", { name: "未命名" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "资料库分区" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "全部笔记" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "工作区笔记" })).toBeVisible();
+  await expect(page.getByLabel("检查器标签").getByRole("button", { name: "预览" })).toHaveCount(0);
 
   await page.locator(".cm-content").click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
@@ -315,7 +333,7 @@ test("edits markdown and renders preview modes", async ({ page }) => {
     "# Preview title\n\n| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n\n- [x] done item\n\nhttps://example.com",
   );
 
-  await page.getByRole("button", { name: "Split" }).click();
+  await page.getByRole("button", { name: "分屏" }).click();
   await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
   await expect(page.locator(".document-main .markdown-preview h1")).toHaveText("Preview title");
   const firstPreviewBlockOffset = await page.locator(".document-main .markdown-preview h1").evaluate((heading) => {
@@ -328,11 +346,11 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await expect(page.locator(".document-main").getByRole("checkbox", { name: "done item" })).toBeChecked();
   await expect(page.locator(".document-main").getByRole("link", { name: "https://example.com" })).toBeVisible();
 
-  await page.getByLabel("Editor mode").getByRole("button", { name: "Preview" }).click();
+  await page.getByLabel("编辑模式").getByRole("button", { name: "预览" }).click();
   await expect(page.locator(".editor-frame")).toHaveCount(0);
   await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
 
-  await page.getByRole("button", { name: "Edit" }).click();
+  await page.getByRole("button", { name: "编辑" }).click();
   await expect(page.locator(".editor-frame")).toBeVisible();
 });
 
@@ -342,28 +360,33 @@ test("applies markdown toolbar shortcuts to the editor", async ({ page }) => {
   await page.keyboard.type("Toolbar text");
 
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
-  await page.getByLabel("Markdown shortcuts").getByRole("button", { name: "B" }).click();
+  await page.getByLabel("Markdown 快捷格式").getByRole("button", { name: "B" }).click();
 
   await expect(page.locator(".cm-content")).toContainText("**Toolbar text**");
 });
 
 test("persists settings across reload", async ({ page }) => {
-  await page.getByText("Settings").click();
-  await page.getByLabel("Default view").selectOption("preview");
-  await page.getByLabel("Search results").selectOption("120");
-  await page.getByLabel("File check").selectOption("10");
-  await page.getByLabel("Assistant provider").selectOption("mock_openai");
-  await page.getByLabel("Assistant model").selectOption("gpt-mock-2");
+  await page.getByText("设置", { exact: true }).click();
+  await page.getByLabel("默认视图").selectOption("preview");
+  await page.getByLabel("搜索结果").selectOption("120");
+  await page.getByLabel("文件检查").selectOption("10");
+  await expect(page.getByLabel("AI 助手提供方")).not.toContainText("外部命令");
+  await page.getByText("高级 AI 设置").click();
+  await page.getByRole("button", { name: "使用外部命令" }).click();
+  await page.getByLabel("外部命令路径").fill("/tmp/lmd-assistant");
+  await page.getByLabel("外部命令超时时间").selectOption("120");
 
   await page.reload();
 
-  await page.getByText("Settings").click();
-  await expect(page.getByLabel("Editor mode").getByRole("button", { name: "Preview" })).toHaveClass(/active/);
-  await expect(page.getByLabel("Default view")).toHaveValue("preview");
-  await expect(page.getByLabel("Search results")).toHaveValue("120");
-  await expect(page.getByLabel("File check")).toHaveValue("10");
-  await expect(page.getByLabel("Assistant provider")).toHaveValue("mock_openai");
-  await expect(page.getByLabel("Assistant model")).toHaveValue("gpt-mock-2");
+  await page.getByText("设置", { exact: true }).click();
+  await expect(page.getByLabel("编辑模式").getByRole("button", { name: "预览" })).toHaveClass(/active/);
+  await expect(page.getByLabel("默认视图")).toHaveValue("preview");
+  await expect(page.getByLabel("搜索结果")).toHaveValue("120");
+  await expect(page.getByLabel("文件检查")).toHaveValue("10");
+  await expect(page.getByLabel("AI 助手提供方")).not.toContainText("外部命令");
+  await page.getByText("高级 AI 设置").click();
+  await expect(page.getByLabel("外部命令路径")).toHaveValue("/tmp/lmd-assistant");
+  await expect(page.getByLabel("外部命令超时时间")).toHaveValue("120");
 });
 
 test("saves and exports the current document", async ({ page }) => {
@@ -371,17 +394,17 @@ test("saves and exports the current document", async ({ page }) => {
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
   await page.keyboard.type("# Saved title\n\nBody");
 
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByText("Saved untitled.md.")).toBeVisible();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText("已保存 untitled.md。")).toBeVisible();
   await expect(page.getByRole("heading", { name: "untitled.md" })).toBeVisible();
 
-  await page.getByText("More").click();
-  await page.getByRole("button", { name: "Export HTML" }).click();
-  await expect(page.getByText("Exported HTML to untitled.html.")).toBeVisible();
+  await page.getByText("更多").click();
+  await page.getByRole("button", { name: "导出 HTML" }).click();
+  await expect(page.getByText("已导出 HTML 到 untitled.html。")).toBeVisible();
 
-  await page.getByText("More").click();
-  await page.getByRole("button", { name: "Export PDF" }).click();
-  await expect(page.getByText("Exported PDF to untitled.pdf.")).toBeVisible();
+  await page.getByText("更多").click();
+  await page.getByRole("button", { name: "导出 PDF" }).click();
+  await expect(page.getByText("已导出 PDF 到 untitled.pdf。")).toBeVisible();
 
   const calls = await page.evaluate(() => window.__LMD_TEST_CALLS__);
   expect(calls.map((call) => call.command)).toEqual(
@@ -390,13 +413,13 @@ test("saves and exports the current document", async ({ page }) => {
 });
 
 test("opens workspace, searches, and opens a match", async ({ page }) => {
-  await page.getByRole("button", { name: "Workspace" }).click();
-  await expect(page.getByText("Opened workspace with 5 files.")).toBeVisible();
+  await page.getByRole("button", { name: "工作区" }).click();
+  await expect(page.getByText("已打开工作区，共 5 个文件。")).toBeVisible();
   await expect(page.getByRole("button", { name: /alpha\.md/ })).toBeVisible();
 
-  await page.getByLabel("Search workspace").fill("needle");
-  await page.getByLabel("Search workspace").press("Enter");
-  await expect(page.getByText("Found 1 workspace matches.")).toBeVisible();
+  await page.getByLabel("搜索工作区").fill("needle");
+  await page.getByLabel("搜索工作区").press("Enter");
+  await expect(page.getByText("找到 1 条工作区匹配结果。")).toBeVisible();
 
   await page.getByRole("button", { name: /needle match/ }).focus();
   await page.keyboard.press("Enter");
@@ -414,57 +437,57 @@ test("shows a clear message when native workspace actions run in web preview", a
     window.__LMD_TEST_API__ = undefined;
   });
 
-  await page.getByRole("button", { name: "Workspace" }).click();
-  await expect(page.getByText(/Native file and workspace actions require the Tauri desktop app/)).toBeVisible();
+  await page.getByRole("button", { name: "工作区" }).click();
+  await expect(page.getByText(/本地文件和工作区操作需要在 Tauri 桌面应用中使用/)).toBeVisible();
 });
 
 test("filters workspace files from the library rail", async ({ page }) => {
-  await page.getByRole("button", { name: "Workspace" }).click();
-  const libraryNav = page.getByRole("navigation", { name: "Library sections" });
+  await page.getByRole("button", { name: "工作区" }).click();
+  const libraryNav = page.getByRole("navigation", { name: "资料库分区" });
 
-  await libraryNav.getByRole("button", { name: "Notes", exact: true }).click();
+  await libraryNav.getByRole("button", { name: "笔记", exact: true }).click();
   await expect(page.getByRole("button", { name: /notes\/topic\.md/ })).toBeVisible();
-  await expect(page.locator(".file-kind").filter({ hasText: "note" })).toBeVisible();
+  await expect(page.locator(".file-kind").filter({ hasText: "笔记" })).toBeVisible();
   await expect(page.getByRole("button", { name: /wiki\/overview\.md/ })).toHaveCount(0);
 
-  await libraryNav.getByRole("button", { name: "Wiki", exact: true }).click();
+  await libraryNav.getByRole("button", { name: "知识库", exact: true }).click();
   await expect(page.getByRole("button", { name: /wiki\/overview\.md/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /wiki\/inbox\/draft\.md/ })).toBeVisible();
-  await expect(page.locator(".file-kind").filter({ hasText: "wiki" })).toBeVisible();
+  await expect(page.locator(".file-kind").filter({ hasText: "知识库" })).toBeVisible();
   await expect(page.getByRole("button", { name: /notes\/topic\.md/ })).toHaveCount(0);
 
-  await libraryNav.getByRole("button", { name: "Inbox", exact: true }).click();
+  await libraryNav.getByRole("button", { name: "收件箱", exact: true }).click();
   await expect(page.getByRole("button", { name: /wiki\/inbox\/draft\.md/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /wiki\/overview\.md/ })).toHaveCount(0);
 
-  await libraryNav.getByRole("button", { name: "All Notes", exact: true }).click();
+  await libraryNav.getByRole("button", { name: "全部笔记", exact: true }).click();
   await expect(page.getByRole("button", { name: /alpha\.md/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /sources\/source-doc\.md/ })).toBeVisible();
-  await expect(page.locator(".file-kind").filter({ hasText: "source" })).toBeVisible();
+  await expect(page.locator(".file-kind").filter({ hasText: "资料" })).toBeVisible();
 });
 
 test("collapses and restores the note library", async ({ page }) => {
-  await expect(page.getByRole("complementary", { name: "Workspace notes" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "工作区笔记" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Hide note library" }).click();
+  await page.getByRole("button", { name: "隐藏笔记栏" }).click();
   await expect(page.locator(".app-shell")).toHaveClass(/left-closed/);
-  await expect(page.getByRole("button", { name: "Show note library" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "显示笔记栏" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Show note library" }).click();
+  await page.getByRole("button", { name: "显示笔记栏" }).click();
   await expect(page.locator(".app-shell")).toHaveClass(/left-open/);
-  await expect(page.getByRole("complementary", { name: "Workspace notes" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "工作区笔记" })).toBeVisible();
 });
 
 test("initializes a knowledge workspace", async ({ page }) => {
-  await page.getByRole("button", { name: "Workspace" }).click();
-  await expect(page.getByText("Standard workspace")).toBeVisible();
+  await page.getByRole("button", { name: "工作区" }).click();
+  await expect(page.getByText("标准工作区")).toBeVisible();
 
-  await page.getByText("More").click();
-  await page.getByRole("button", { name: "Init Knowledge" }).click();
-  await expect(page.getByText("Knowledge workspace initialized.")).toBeVisible();
-  await expect(page.getByText("Knowledge workspace ready")).toBeVisible();
-  await page.getByText("More").click();
-  await expect(page.getByRole("button", { name: "Init Knowledge" })).toBeDisabled();
+  await page.getByText("更多").click();
+  await page.getByRole("button", { name: "初始化知识库" }).click();
+  await expect(page.getByText("知识库工作区已初始化。")).toBeVisible();
+  await expect(page.getByText("知识库工作区已就绪")).toBeVisible();
+  await page.getByText("更多").click();
+  await expect(page.getByRole("button", { name: "初始化知识库" })).toBeDisabled();
 
   const initCall = await page.evaluate(() =>
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "initialize_knowledge_workspace"),
@@ -473,22 +496,22 @@ test("initializes a knowledge workspace", async ({ page }) => {
 });
 
 test("shows document knowledge for initialized workspaces", async ({ page }) => {
-  await page.getByRole("button", { name: "Workspace" }).click();
-  await page.getByText("More").click();
-  await page.getByRole("button", { name: "Init Knowledge" }).click();
+  await page.getByRole("button", { name: "工作区" }).click();
+  await page.getByText("更多").click();
+  await page.getByRole("button", { name: "初始化知识库" }).click();
 
   await page.locator(".file-list .file-item").first().focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "alpha.md" })).toBeVisible();
-  await page.getByLabel("Editor mode").getByRole("button", { name: "Split" }).click();
-  await page.getByLabel("Inspector tab").getByRole("button", { name: "Knowledge" }).click();
+  await page.getByLabel("编辑模式").getByRole("button", { name: "分屏" }).click();
+  await page.getByLabel("检查器标签").getByRole("button", { name: "知识" }).click();
 
   await expect(page.locator(".knowledge-link-item span").filter({ hasText: "wiki/overview.md" }).first()).toBeVisible();
   await expect(page.getByText("#writing")).toBeVisible();
   await expect(page.locator(".knowledge-link-item.unresolved strong").first()).toHaveText("Missing Topic");
   await expect(page.getByText("sources/source-doc.md")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Open index.md" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Open log.md" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "打开 index.md" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "打开 log.md" })).toBeVisible();
   await expect(page.getByText("Unresolved link: Missing Topic")).toBeVisible();
   await expect(page.getByText("Overview context excerpt.")).toBeVisible();
 
@@ -516,28 +539,34 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
 });
 
 test("builds and saves an assistant draft", async ({ page }) => {
-  await page.getByRole("button", { name: "Workspace" }).click();
-  await page.getByText("More").click();
-  await page.getByRole("button", { name: "Init Knowledge" }).click();
+  await page.getByRole("button", { name: "工作区" }).click();
+  await page.getByText("更多").click();
+  await page.getByRole("button", { name: "初始化知识库" }).click();
   await page.locator(".file-list .file-item").first().focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByLabel("Editor mode").getByRole("button", { name: "Split" })).toHaveClass(/active/);
-  await page.getByLabel("Inspector tab").getByRole("button", { name: "Assistant" }).click();
-  await expect(page.getByRole("complementary", { name: "Inspector" })).toBeVisible();
-  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("Context loaded");
-  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("2 items from alpha.md");
+  await expect(page.getByLabel("编辑模式").getByRole("button", { name: "分屏" })).toHaveClass(/active/);
+  await page.getByLabel("检查器标签").getByRole("button", { name: "AI 助手" }).click();
+  await expect(page.getByRole("complementary", { name: "检查器" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("上下文已加载");
+  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("2 条，来自 alpha.md");
 
-  await page.getByRole("button", { name: "Summarize Context" }).click();
-  await expect(page.getByText("Assistant draft generated.")).toBeVisible();
+  await page.getByText("设置", { exact: true }).click();
+  await page.getByText("高级 AI 设置").click();
+  await page.getByRole("button", { name: "使用外部命令" }).click();
+  await page.getByLabel("外部命令路径").fill("/tmp/lmd-assistant");
+  await page.getByText("设置", { exact: true }).click();
+
+  await page.getByRole("button", { name: "总结笔记" }).click();
+  await expect(page.getByText("AI 草稿已生成。")).toBeVisible();
   await expect(page.getByRole("heading", { name: "alpha summary" })).toBeVisible();
-  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("Summary requested");
-  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("builtin / local-summary-v1");
-  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("Draft generated");
+  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("已请求 AI");
+  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("external_command / command-json-v1");
+  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("草稿已生成");
 
-  await page.getByRole("button", { name: "Save as Wiki Page" }).click();
-  await expect(page.getByText("Saved wiki draft to alpha-summary.md.")).toBeVisible();
-  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("Draft saved");
-  await expect(page.getByRole("list", { name: "Assistant run log" })).toContainText("alpha-summary.md");
+  await page.getByRole("button", { name: "保存为 Wiki 页面" }).click();
+  await expect(page.getByText("已将 Wiki 草稿保存到 alpha-summary.md。")).toBeVisible();
+  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("草稿已保存");
+  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("alpha-summary.md");
 
   const summarizeCall = await page.evaluate(() =>
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "summarize_query_context"),
@@ -545,8 +574,10 @@ test("builds and saves an assistant draft", async ({ page }) => {
   expect(summarizeCall?.args).toMatchObject({
     rootPath: "/workspace",
     currentPath: "/workspace/alpha.md",
-    provider: "builtin",
-    model: "local-summary-v1",
+    provider: "external_command",
+    model: "command-json-v1",
+    task: "summarize",
+    externalCommand: "/tmp/lmd-assistant",
   });
 
   const saveDraftCall = await page.evaluate(() =>

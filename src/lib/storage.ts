@@ -5,8 +5,12 @@ export const defaultSettings: AppSettings = {
   defaultEditorMode: "split",
   searchResultLimit: 80,
   externalCheckSeconds: 5,
-  assistantProvider: "builtin",
-  assistantModel: "local-summary-v1",
+  assistantProvider: "deepseek",
+  assistantModel: "deepseek-v4-flash",
+  assistantApiKeys: {},
+  assistantBaseUrls: {},
+  assistantExternalCommand: "",
+  assistantExternalTimeoutSeconds: 60,
 };
 
 export const storageKeys = {
@@ -21,7 +25,25 @@ function isEditorMode(value: unknown): value is EditorMode {
 }
 
 function isAssistantProvider(value: unknown): value is AssistantProvider {
-  return value === "builtin" || value === "mock_openai" || value === "external_command";
+  return (
+    value === "deepseek" ||
+    value === "minimax" ||
+    value === "kimi" ||
+    value === "zhipu" ||
+    value === "external_command"
+  );
+}
+
+function readProviderStringMap(value: unknown): Partial<Record<AssistantProvider, string>> {
+  if (!value || typeof value !== "object") return {};
+
+  const next: Partial<Record<AssistantProvider, string>> = {};
+  for (const [key, rawValue] of Object.entries(value)) {
+    if (!isAssistantProvider(key) || typeof rawValue !== "string") continue;
+    const trimmedValue = rawValue.trim();
+    if (trimmedValue) next[key] = trimmedValue;
+  }
+  return next;
 }
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -81,6 +103,18 @@ export function readSettings(): AppSettings {
         typeof parsedValue?.assistantModel === "string" && parsedValue.assistantModel.trim()
           ? parsedValue.assistantModel.trim()
           : defaultSettings.assistantModel,
+      assistantApiKeys: readProviderStringMap(parsedValue?.assistantApiKeys),
+      assistantBaseUrls: readProviderStringMap(parsedValue?.assistantBaseUrls),
+      assistantExternalCommand:
+        typeof parsedValue?.assistantExternalCommand === "string"
+          ? parsedValue.assistantExternalCommand.trim()
+          : defaultSettings.assistantExternalCommand,
+      assistantExternalTimeoutSeconds: clampNumber(
+        parsedValue?.assistantExternalTimeoutSeconds,
+        defaultSettings.assistantExternalTimeoutSeconds,
+        5,
+        600,
+      ),
     };
   } catch {
     return defaultSettings;

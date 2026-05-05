@@ -359,7 +359,10 @@ button:disabled {
 
 .workspace-search input,
 .search-box input,
-.settings-content select {
+.settings-content select,
+.settings-content input,
+.advanced-settings-content select,
+.advanced-settings-content input {
   width: 100%;
   min-width: 0;
   height: 34px;
@@ -373,7 +376,10 @@ button:disabled {
 
 .workspace-search input:focus,
 .search-box input:focus,
-.settings-content select:focus {
+.settings-content select:focus,
+.settings-content input:focus,
+.advanced-settings-content select:focus,
+.advanced-settings-content input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.14);
 }
@@ -478,13 +484,42 @@ button:disabled {
   padding-top: 10px;
 }
 
-.settings-content label {
+.settings-content label,
+.advanced-settings-content label {
   display: grid;
   grid-template-columns: minmax(0, 92px) minmax(120px, 1fr);
   align-items: center;
   gap: 8px;
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.advanced-settings-panel {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.advanced-settings-panel summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.advanced-settings-content {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.advanced-settings-content > .knowledge-action-button {
+  justify-self: start;
+}
+
+.advanced-settings-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .label {
@@ -791,6 +826,35 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.assistant-prompt {
+  display: grid;
+  gap: 8px;
+}
+
+.assistant-prompt textarea {
+  min-height: 96px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.45;
+  outline: none;
+}
+
+.assistant-prompt textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.14);
+}
+
+.assistant-prompt button {
+  justify-self: end;
+  height: 32px;
+  padding: 0 14px;
 }
 
 .knowledge-action-button {

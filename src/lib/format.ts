@@ -1,7 +1,7 @@
 import type { DocumentStats } from "../types";
 
 export function fileName(path: string | null) {
-  if (!path) return "Untitled";
+  if (!path) return "未命名";
   return path.split(/[\\/]/).pop() || path;
 }
 

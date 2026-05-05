@@ -35,7 +35,7 @@ export function EditorToolbar({
 }: EditorToolbarProps) {
   return (
     <header className="toolbar">
-      <div className="format-toolbar" aria-label="Markdown shortcuts">
+      <div className="format-toolbar" aria-label="Markdown 快捷格式">
         <button type="button" onClick={() => onMarkdownAction("h1")} disabled={!canFormat}>
           H1
         </button>
@@ -49,10 +49,10 @@ export function EditorToolbar({
           I
         </button>
         <button type="button" onClick={() => onMarkdownAction("code")} disabled={!canFormat}>
-          Code
+          代码
         </button>
         <button type="button" onClick={() => onMarkdownAction("link")} disabled={!canFormat}>
-          Link
+          链接
         </button>
       </div>
 
@@ -60,16 +60,16 @@ export function EditorToolbar({
         {isLarge && (
           <div className="range-controls">
             <button type="button" onClick={onPreviousWindow} disabled={busy || !canPageBack}>
-              Previous
+              上一段
             </button>
             <button type="button" onClick={onNextWindow} disabled={busy || !canPageForward}>
-              Next
+              下一段
             </button>
           </div>
         )}
 
         <div className="toolbar-group">
-          <div className="mode-switch" aria-label="Editor mode">
+          <div className="mode-switch" aria-label="编辑模式">
             {(["edit", "split", "preview"] as const).map((nextMode) => (
               <button
                 type="button"
@@ -77,7 +77,7 @@ export function EditorToolbar({
                 className={mode === nextMode ? "active" : ""}
                 onClick={() => onModeChange(nextMode)}
               >
-                {nextMode === "edit" ? "Edit" : nextMode === "split" ? "Split" : "Preview"}
+                {nextMode === "edit" ? "编辑" : nextMode === "split" ? "分屏" : "预览"}
               </button>
             ))}
           </div>
@@ -86,11 +86,11 @@ export function EditorToolbar({
       </div>
 
       <label className="search-box toolbar-search">
-        <span>{isLarge ? "Search window" : "Search"}</span>
+        <span>{isLarge ? "搜索当前窗口" : "搜索"}</span>
         <input
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Find in document"
+          placeholder="在文档中查找"
         />
         <strong>{search.trim() ? matches : 0}</strong>
       </label>

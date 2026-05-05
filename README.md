@@ -2,7 +2,7 @@
 
 LMD is a native Markdown editor built with Tauri, React, and Rust. It is optimized for fast local editing, workspace browsing, and practical handling of large Markdown files without turning into a browser-only note app.
 
-[MIT licensed](/Users/ahyk/nodejs/lmd/LICENSE).
+[MIT licensed](LICENSE).
 
 ## Current Scope
 
@@ -104,11 +104,14 @@ npm run test:e2e
 
 ## Assistant Providers
 
-LMD ships with three assistant provider modes:
+LMD ships with OpenAI-compatible assistant providers for DeepSeek, MiniMax, Kimi, and 智谱 GLM. Select a provider in Settings, then either enter the provider API key in the local settings panel or export the matching environment variable before starting the Tauri app:
 
-- `builtin`: deterministic local summary assembly, no network or external process
-- `mock_openai`: test adapter for provider wiring
-- `external_command`: runs a local executable defined by `LMD_ASSISTANT_COMMAND`
+- `DEEPSEEK_API_KEY`
+- `MINIMAX_API_KEY`
+- `MOONSHOT_API_KEY`
+- `ZAI_API_KEY`
+
+`external_command` runs a local executable. Configure the command path and timeout in Settings, or use `LMD_ASSISTANT_COMMAND` and `LMD_ASSISTANT_TIMEOUT_SECONDS` as environment-variable fallbacks.
 
 The external command provider is the integration point for local LLM tools such as an `llm-wiki` wrapper. LMD writes one JSON object to stdin:
 
@@ -116,6 +119,9 @@ The external command provider is the integration point for local LLM tools such 
 {
   "provider": "external_command",
   "model": "command-json-v1",
+  "task": "summarize",
+  "prompt": "Optional user instruction",
+  "currentContent": "# Current note",
   "context": {
     "currentPath": "/absolute/path/to/current.md",
     "currentRelativePath": "notes/current.md",
@@ -136,14 +142,15 @@ The command must write an assistant draft JSON object to stdout:
 Example:
 
 ```bash
+# Optional fallback if the command path is not configured in Settings.
 export LMD_ASSISTANT_COMMAND=/absolute/path/to/lmd/scripts/lmd-assistant-command.example.mjs
 export LMD_ASSISTANT_TIMEOUT_SECONDS=60
 npm run tauri dev
 ```
 
-`LMD_ASSISTANT_TIMEOUT_SECONDS` is optional. It defaults to 60 seconds and is capped at 600 seconds.
+The timeout defaults to 60 seconds and is capped at 600 seconds.
 
-The repository includes [`scripts/lmd-assistant-command.example.mjs`](/Users/ahyk/nodejs/lmd/scripts/lmd-assistant-command.example.mjs) as a minimal protocol-compatible command. Replace it with a wrapper that calls your local model or `llm-wiki` workflow.
+The repository includes [`scripts/lmd-assistant-command.example.mjs`](scripts/lmd-assistant-command.example.mjs) as a minimal protocol-compatible command. Replace it with a wrapper that calls your local model or `llm-wiki` workflow.
 
 Desktop bundles:
 
@@ -175,8 +182,8 @@ LMD uses three layers of verification:
 
 More detail:
 
-- [QA checklist](/Users/ahyk/nodejs/lmd/docs/qa-release-checklist.md)
-- [Tauri WebView automation notes](/Users/ahyk/nodejs/lmd/docs/tauri-webview-automation-notes.md)
+- [QA checklist](docs/qa-release-checklist.md)
+- [Tauri WebView automation notes](docs/tauri-webview-automation-notes.md)
 
 ## Platform Notes
 
@@ -206,8 +213,8 @@ High-priority remaining work:
 
 ## Contributing
 
-- [Contributing guide](/Users/ahyk/nodejs/lmd/CONTRIBUTING.md)
-- [Roadmap](/Users/ahyk/nodejs/lmd/ROADMAP.md)
-- [Security policy](/Users/ahyk/nodejs/lmd/SECURITY.md)
-- [Code of conduct](/Users/ahyk/nodejs/lmd/CODE_OF_CONDUCT.md)
-- [Changelog](/Users/ahyk/nodejs/lmd/CHANGELOG.md)
+- [Contributing guide](CONTRIBUTING.md)
+- [Roadmap](ROADMAP.md)
+- [Security policy](SECURITY.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Changelog](CHANGELOG.md)

@@ -20,12 +20,12 @@ type LibraryRailProps = {
 };
 
 const libraryItems: Array<{ id: LibrarySection; label: string; requiresWorkspace: boolean }> = [
-  { id: "inbox", label: "Inbox", requiresWorkspace: true },
-  { id: "all-notes", label: "All Notes", requiresWorkspace: true },
-  { id: "notes", label: "Notes", requiresWorkspace: true },
-  { id: "sources", label: "Sources", requiresWorkspace: true },
-  { id: "wiki", label: "Wiki", requiresWorkspace: true },
-  { id: "recent", label: "Recent", requiresWorkspace: false },
+  { id: "inbox", label: "收件箱", requiresWorkspace: true },
+  { id: "all-notes", label: "全部笔记", requiresWorkspace: true },
+  { id: "notes", label: "笔记", requiresWorkspace: true },
+  { id: "sources", label: "资料", requiresWorkspace: true },
+  { id: "wiki", label: "知识库", requiresWorkspace: true },
+  { id: "recent", label: "最近", requiresWorkspace: false },
 ];
 
 export function LibraryRail({
@@ -47,35 +47,35 @@ export function LibraryRail({
   onExportPdf,
 }: LibraryRailProps) {
   return (
-    <aside className="library-rail" aria-label="Library">
+    <aside className="library-rail" aria-label="资料库">
       <div className="app-brand">
         <div className="app-mark">LMD</div>
         <button
           type="button"
           className="panel-toggle"
           onClick={onToggleLeftPanel}
-          aria-label={leftPanelOpen ? "Hide note library" : "Show note library"}
-          title={leftPanelOpen ? "Hide library" : "Show library"}
+          aria-label={leftPanelOpen ? "隐藏笔记栏" : "显示笔记栏"}
+          title={leftPanelOpen ? "隐藏笔记栏" : "显示笔记栏"}
         >
           {leftPanelOpen ? "<" : ">"}
         </button>
       </div>
 
-      <div className="sidebar-actions" aria-label="File actions">
+      <div className="sidebar-actions" aria-label="文件操作">
         <button type="button" onClick={onNew} disabled={busy}>
-          New
+          新建
         </button>
         <button type="button" onClick={onOpen} disabled={busy}>
-          Open
+          打开
         </button>
         <button type="button" onClick={onOpenWorkspace} disabled={busy}>
-          Workspace
+          工作区
         </button>
         <button type="button" onClick={onSave} disabled={busy || readOnly || !isDirty}>
-          Save
+          保存
         </button>
         <details className="sidebar-more">
-          <summary>More</summary>
+          <summary>更多</summary>
           <div className="sidebar-more-actions">
             {workspace && (
               <>
@@ -87,7 +87,7 @@ export function LibraryRail({
                   }}
                   disabled={busy || workspace.knowledge.isInitialized}
                 >
-                  Init Knowledge
+                  初始化知识库
                 </button>
                 <button
                   type="button"
@@ -97,7 +97,7 @@ export function LibraryRail({
                   }}
                   disabled={busy}
                 >
-                  Refresh Workspace
+                  刷新工作区
                 </button>
               </>
             )}
@@ -109,7 +109,7 @@ export function LibraryRail({
               }}
               disabled={busy}
             >
-              Export HTML
+              导出 HTML
             </button>
             <button
               type="button"
@@ -119,13 +119,13 @@ export function LibraryRail({
               }}
               disabled={busy}
             >
-              Export PDF
+              导出 PDF
             </button>
           </div>
         </details>
       </div>
 
-      <nav className="library-nav" aria-label="Library sections">
+      <nav className="library-nav" aria-label="资料库分区">
         {libraryItems.map((item) => (
           <button
             type="button"

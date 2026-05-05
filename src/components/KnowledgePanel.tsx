@@ -11,18 +11,25 @@ type KnowledgePanelProps = {
 };
 
 function sourceKindLabel(value: Backlink["sourceKind"] | "unknown" | null) {
-  if (value === "wiki") return "Wiki";
-  if (value === "source") return "Source";
-  if (value === "note") return "Note";
-  return "Unknown";
+  if (value === "wiki") return "知识库";
+  if (value === "source") return "资料";
+  if (value === "note") return "笔记";
+  return "未知";
 }
 
 function reasonLabel(value: QueryContext["items"][number]["reason"]) {
-  if (value === "current_document") return "Current note";
-  if (value === "linked_wiki") return "Linked wiki";
-  if (value === "source_reference") return "Source reference";
-  if (value === "backlink") return "Backlink";
-  if (value === "index_hint") return "Index hint";
+  if (value === "current_document") return "当前笔记";
+  if (value === "linked_wiki") return "关联 Wiki";
+  if (value === "source_reference") return "资料引用";
+  if (value === "backlink") return "反向链接";
+  if (value === "index_hint") return "索引提示";
+  return value;
+}
+
+function severityLabel(value: KnowledgeLintReport["issues"][number]["severity"]) {
+  if (value === "info") return "提示";
+  if (value === "warning") return "警告";
+  if (value === "error") return "错误";
   return value;
 }
 
@@ -46,13 +53,13 @@ export function KnowledgePanel({
 }: KnowledgePanelProps) {
   if (!knowledge) {
     return (
-      <aside className="knowledge-panel" aria-label="Knowledge panel">
+      <aside className="knowledge-panel" aria-label="知识面板">
         <section className="knowledge-section">
           <div className="knowledge-header">
-            <span className="label">Knowledge</span>
-            <small>Ready</small>
+            <span className="label">知识</span>
+            <small>就绪</small>
           </div>
-          <p className="knowledge-empty">Open a saved note in this workspace to inspect links, tags, and source context.</p>
+          <p className="knowledge-empty">打开该工作区中已保存的笔记，即可查看链接、标签和资料上下文。</p>
         </section>
       </aside>
     );
@@ -68,17 +75,17 @@ export function KnowledgePanel({
     Boolean(lint && lint.issues.length > 0);
 
   return (
-    <aside className="knowledge-panel" aria-label="Knowledge panel">
+    <aside className="knowledge-panel" aria-label="知识面板">
       <section className="knowledge-section">
         <div className="knowledge-header">
-          <span className="label">Knowledge</span>
+          <span className="label">知识</span>
           <small>{knowledge.currentRelativePath}</small>
         </div>
-        <div className="knowledge-stats" aria-label="Knowledge summary">
-          <StatChip label="tags" value={knowledge.tags.length} />
-          <StatChip label="links" value={knowledge.outgoingLinks.length} />
-          <StatChip label="backlinks" value={knowledge.backlinks.length} />
-          <StatChip label="issues" value={lint?.issues.length ?? 0} />
+        <div className="knowledge-stats" aria-label="知识摘要">
+          <StatChip label="标签" value={knowledge.tags.length} />
+          <StatChip label="链接" value={knowledge.outgoingLinks.length} />
+          <StatChip label="反链" value={knowledge.backlinks.length} />
+          <StatChip label="问题" value={lint?.issues.length ?? 0} />
         </div>
         {(workspaceIndexPath || workspaceLogPath) && (
           <div className="knowledge-actions">
@@ -89,7 +96,7 @@ export function KnowledgePanel({
                 onClick={() => onOpenPath(workspaceIndexPath, "index.md")}
                 disabled={busy}
               >
-                Open index.md
+                打开 index.md
               </button>
             )}
             {workspaceLogPath && (
@@ -99,7 +106,7 @@ export function KnowledgePanel({
                 onClick={() => onOpenPath(workspaceLogPath, "log.md")}
                 disabled={busy}
               >
-                Open log.md
+                打开 log.md
               </button>
             )}
           </div>
@@ -108,7 +115,7 @@ export function KnowledgePanel({
 
       <section className="knowledge-section">
         <div className="knowledge-header">
-          <span className="label">Query Context</span>
+          <span className="label">查询上下文</span>
           <small>{queryContext?.items.length.toLocaleString() ?? "0"}</small>
         </div>
         {queryContext && queryContext.items.length > 0 ? (
@@ -125,19 +132,19 @@ export function KnowledgePanel({
                 <strong>{item.name}</strong>
                 <span>{item.relativePath}</span>
                 <small>{reasonLabel(item.reason)}</small>
-                <em>{item.excerpt || "No excerpt available."}</em>
+                <em>{item.excerpt || "暂无摘录。"}</em>
               </button>
             ))}
           </div>
         ) : (
-          <p className="knowledge-empty">Context will appear here after this note is indexed.</p>
+          <p className="knowledge-empty">该笔记完成索引后，上下文会显示在这里。</p>
         )}
       </section>
 
       {hasMetadata && (
         <section className="knowledge-section">
           <div className="knowledge-header">
-            <span className="label">Metadata</span>
+            <span className="label">元数据</span>
             <small>{(knowledge.frontmatter.length + knowledge.tags.length).toLocaleString()}</small>
           </div>
           {knowledge.tags.length > 0 && (
@@ -165,7 +172,7 @@ export function KnowledgePanel({
       {knowledge.outgoingLinks.length > 0 && (
         <section className="knowledge-section">
           <div className="knowledge-header">
-            <span className="label">Outgoing</span>
+            <span className="label">出站链接</span>
             <small>{knowledge.outgoingLinks.length.toLocaleString()}</small>
           </div>
           <div className="knowledge-link-list">
@@ -187,7 +194,7 @@ export function KnowledgePanel({
                 <div key={`${link.target}:${index}`} className="knowledge-link-item unresolved">
                   <strong>{link.label}</strong>
                   <span>{link.target}</span>
-                  <small>Unresolved</small>
+                  <small>未解析</small>
                 </div>
               ),
             )}
@@ -198,7 +205,7 @@ export function KnowledgePanel({
       {knowledge.backlinks.length > 0 && (
         <section className="knowledge-section">
           <div className="knowledge-header">
-            <span className="label">Backlinks</span>
+            <span className="label">反向链接</span>
             <small>{knowledge.backlinks.length.toLocaleString()}</small>
           </div>
           <div className="knowledge-link-list">
@@ -223,7 +230,7 @@ export function KnowledgePanel({
       {knowledge.relatedWikiPages.length > 0 && (
         <section className="knowledge-section">
           <div className="knowledge-header">
-            <span className="label">Related Wiki</span>
+            <span className="label">相关 Wiki</span>
             <small>{knowledge.relatedWikiPages.length.toLocaleString()}</small>
           </div>
           <div className="knowledge-link-list">
@@ -248,7 +255,7 @@ export function KnowledgePanel({
       {knowledge.sourceReferences.length > 0 && (
         <section className="knowledge-section">
           <div className="knowledge-header">
-            <span className="label">Source References</span>
+            <span className="label">资料引用</span>
             <small>{knowledge.sourceReferences.length.toLocaleString()}</small>
           </div>
           <div className="knowledge-link-list">
@@ -273,7 +280,7 @@ export function KnowledgePanel({
       {knowledge.unresolvedLinks.length > 0 && (
         <section className="knowledge-section">
           <div className="knowledge-header">
-            <span className="label">Unresolved</span>
+            <span className="label">未解析链接</span>
             <small>{knowledge.unresolvedLinks.length.toLocaleString()}</small>
           </div>
           <div className="knowledge-link-list">
@@ -281,7 +288,7 @@ export function KnowledgePanel({
               <div key={`${link.target}:${index}`} className="knowledge-link-item unresolved">
                 <strong>{link.label}</strong>
                 <span>{link.target}</span>
-                <small>Missing target</small>
+                <small>缺少目标</small>
               </div>
             ))}
           </div>
@@ -291,7 +298,7 @@ export function KnowledgePanel({
       {lint && lint.issues.length > 0 && (
         <section className="knowledge-section">
           <div className="knowledge-header">
-            <span className="label">Checks</span>
+            <span className="label">检查</span>
             <small>{lint.issues.length.toLocaleString()}</small>
           </div>
           <div className="knowledge-link-list">
@@ -306,7 +313,7 @@ export function KnowledgePanel({
               >
                 <strong>{issue.message}</strong>
                 <span>{issue.relativePath}</span>
-                <small>{issue.severity}</small>
+                <small>{severityLabel(issue.severity)}</small>
               </button>
             ))}
           </div>
@@ -316,10 +323,10 @@ export function KnowledgePanel({
       {!hasGraphDetails && (
         <section className="knowledge-section">
           <div className="knowledge-header">
-            <span className="label">Graph</span>
-            <small>Quiet</small>
+            <span className="label">图谱</span>
+            <small>暂无变化</small>
           </div>
-          <p className="knowledge-empty">No links, source references, or content issues yet.</p>
+          <p className="knowledge-empty">暂无链接、资料引用或内容问题。</p>
         </section>
       )}
     </aside>

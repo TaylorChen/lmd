@@ -5,10 +5,38 @@ mod document;
 mod export;
 mod workspace;
 
+#[cfg(target_os = "macos")]
+const APP_ICON_PNG: &[u8] = include_bytes!("../icons/icon.png");
+
 #[derive(Default)]
 struct AppState {
     documents: document::DocumentCache,
 }
+
+#[cfg(target_os = "macos")]
+fn set_macos_application_icon() {
+    use objc2::{AnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::NSData;
+
+    let Some(main_thread) = MainThreadMarker::new() else {
+        return;
+    };
+
+    let icon_data = unsafe {
+        NSData::dataWithBytes_length(APP_ICON_PNG.as_ptr().cast(), APP_ICON_PNG.len())
+    };
+    let Some(icon) = NSImage::initWithData(NSImage::alloc(), &icon_data) else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(main_thread);
+    unsafe {
+        app.setApplicationIconImage(Some(&icon));
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_macos_application_icon() {}
 
 #[tauri::command]
 fn document_stats(content: String) -> document::DocumentStats {
@@ -113,17 +141,34 @@ fn summarize_query_context(
     current_content: Option<String>,
     provider: Option<String>,
     model: Option<String>,
+    task: Option<String>,
+    prompt: Option<String>,
+    api_key: Option<String>,
+    base_url: Option<String>,
+    external_command: Option<String>,
+    external_timeout_seconds: Option<u64>,
 ) -> Result<workspace::AssistantDraft, String> {
+    let full_current_content = match current_content {
+        Some(content) => Some(content),
+        None => std::fs::read_to_string(&current_path).ok(),
+    };
     let context = workspace::query_context(
         &PathBuf::from(root_path),
         &PathBuf::from(current_path),
-        current_content.as_deref(),
+        full_current_content.as_deref(),
     )?;
     assistant::summarize_query_context(
         assistant::AssistantRequest {
             provider: provider.as_deref().unwrap_or(assistant::DEFAULT_PROVIDER),
             model: model.as_deref().unwrap_or(assistant::DEFAULT_MODEL),
             context: &context,
+            current_content: full_current_content.as_deref(),
+            task: task.as_deref(),
+            prompt: prompt.as_deref(),
+            api_key: api_key.as_deref(),
+            base_url: base_url.as_deref(),
+            external_command: external_command.as_deref(),
+            external_timeout_seconds,
         },
     )
 }
@@ -221,6 +266,10 @@ fn export_markdown_pdf(path: Option<String>, content: String) -> Result<Option<S
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
+        .setup(|_app| {
+            set_macos_application_icon();
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             document_stats,
             document_knowledge,
@@ -577,12 +626,35 @@ mod tests {
         fs::write(root.join("notes/topic.md"), "# Topic\n\nBody").expect("write topic");
 
         let context = query_context(&root, &root.join("notes/topic.md"), None).expect("query context");
+        let script_path = temp_workspace_path("assistant-draft-command").with_extension("sh");
+        let mut script = fs::File::create(&script_path).expect("create assistant command");
+        writeln!(
+            script,
+            "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{{\"title\":\"topic summary\",\"content\":\"# topic summary\\n\\n## Summary\\n\\nFrom command.\"}}'"
+        )
+        .expect("write assistant command");
+        #[cfg(unix)]
+        {
+            let mut permissions = fs::metadata(&script_path)
+                .expect("assistant command metadata")
+                .permissions();
+            permissions.set_mode(0o700);
+            fs::set_permissions(&script_path, permissions).expect("chmod assistant command");
+        }
+
         let draft = summarize_assistant_query_context(AssistantRequest {
-            provider: "builtin",
-            model: "local-summary-v1",
+            provider: "external_command",
+            model: "command-json-v1",
             context: &context,
+            current_content: None,
+            task: None,
+            prompt: None,
+            api_key: None,
+            base_url: None,
+            external_command: Some(script_path.to_string_lossy().as_ref()),
+            external_timeout_seconds: Some(30),
         })
-        .expect("builtin summary");
+        .expect("external command summary");
         assert!(draft.title.contains("topic"));
         assert!(draft.content.contains("Summary"));
 
@@ -598,11 +670,12 @@ mod tests {
         assert!(index_content.contains("## Inbox"));
         assert!(index_content.contains("topic-summary.md"));
 
+        fs::remove_file(script_path).expect("remove assistant command");
         fs::remove_dir_all(root).expect("remove workspace");
     }
 
     #[test]
-    fn selects_mock_provider_adapter_for_assistant_summary() {
+    fn requires_api_key_for_network_provider() {
         let context = QueryContext {
             current_path: "/tmp/topic.md".to_string(),
             current_relative_path: "notes/topic.md".to_string(),
@@ -616,15 +689,27 @@ mod tests {
             }],
         };
 
-        let draft = summarize_assistant_query_context(AssistantRequest {
-            provider: "mock_openai",
-            model: "gpt-mock-1",
+        let previous = env::var("DEEPSEEK_API_KEY").ok();
+        env::remove_var("DEEPSEEK_API_KEY");
+        let error = summarize_assistant_query_context(AssistantRequest {
+            provider: "deepseek",
+            model: "deepseek-v4-flash",
             context: &context,
+            current_content: None,
+            task: None,
+            prompt: None,
+            api_key: None,
+            base_url: None,
+            external_command: None,
+            external_timeout_seconds: None,
         })
-        .expect("mock summary");
+        .expect_err("missing api key should fail before network call");
+        match previous {
+            Some(value) => env::set_var("DEEPSEEK_API_KEY", value),
+            None => env::remove_var("DEEPSEEK_API_KEY"),
+        }
 
-        assert!(draft.content.contains("_Provider: mock_openai / gpt-mock-1_"));
-        assert!(draft.content.contains("mock_openai adapter active"));
+        assert!(error.contains("API Key"));
     }
 
     #[test]
@@ -643,9 +728,16 @@ mod tests {
         };
 
         let error = summarize_assistant_query_context(AssistantRequest {
-            provider: "builtin",
-            model: "gpt-mock-1",
+            provider: "deepseek",
+            model: "unsupported-model",
             context: &context,
+            current_content: None,
+            task: None,
+            prompt: None,
+            api_key: None,
+            base_url: None,
+            external_command: None,
+            external_timeout_seconds: None,
         })
         .expect_err("invalid model should fail");
 
@@ -682,18 +774,19 @@ mod tests {
             fs::set_permissions(&script_path, permissions).expect("chmod assistant command");
         }
 
-        let previous = env::var("LMD_ASSISTANT_COMMAND").ok();
-        env::set_var("LMD_ASSISTANT_COMMAND", &script_path);
         let draft = summarize_assistant_query_context(AssistantRequest {
             provider: "external_command",
             model: "command-json-v1",
             context: &context,
+            current_content: Some("# Topic\n\nBody"),
+            task: Some("summarize"),
+            prompt: Some("Make it short."),
+            api_key: None,
+            base_url: None,
+            external_command: Some(script_path.to_string_lossy().as_ref()),
+            external_timeout_seconds: Some(30),
         })
         .expect("external command summary");
-        match previous {
-            Some(value) => env::set_var("LMD_ASSISTANT_COMMAND", value),
-            None => env::remove_var("LMD_ASSISTANT_COMMAND"),
-        }
 
         assert_eq!(draft.title, "external summary");
         assert!(draft.content.contains("From command."));
@@ -704,12 +797,11 @@ mod tests {
     fn exposes_assistant_catalog() {
         let catalog = assistant_catalog_state();
 
-        assert_eq!(catalog.default_provider, "builtin");
-        assert!(catalog.providers.iter().any(|provider| provider.id == "builtin"));
-        assert!(catalog
-            .providers
-            .iter()
-            .any(|provider| provider.id == "mock_openai" && provider.models.iter().any(|model| model == "gpt-mock-1")));
+        assert_eq!(catalog.default_provider, "deepseek");
+        assert!(catalog.providers.iter().any(|provider| provider.id == "deepseek"));
+        assert!(catalog.providers.iter().any(|provider| provider.id == "minimax"));
+        assert!(catalog.providers.iter().any(|provider| provider.id == "kimi"));
+        assert!(catalog.providers.iter().any(|provider| provider.id == "zhipu"));
         assert!(catalog
             .providers
             .iter()

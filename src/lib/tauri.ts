@@ -16,7 +16,7 @@ declare global {
 }
 
 export const nativeRuntimeRequiredMessage =
-  "Native file and workspace actions require the Tauri desktop app. Run `npm run tauri:dev` to use this command.";
+  "本地文件和工作区操作需要在 Tauri 桌面应用中使用。请运行 `npm run tauri:dev` 后再执行此命令。";
 
 export function isNativeRuntime() {
   return typeof window !== "undefined" && typeof window.__TAURI_INTERNALS__?.invoke === "function";

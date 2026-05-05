@@ -1,5 +1,5 @@
 use crate::workspace::{AssistantDraft, QueryContext};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     env,
     io::Write,
@@ -8,8 +8,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(crate) const DEFAULT_PROVIDER: &str = "builtin";
-pub(crate) const DEFAULT_MODEL: &str = "local-summary-v1";
+pub(crate) const DEFAULT_PROVIDER: &str = "deepseek";
+pub(crate) const DEFAULT_MODEL: &str = "deepseek-v4-flash";
 const DEFAULT_EXTERNAL_COMMAND_TIMEOUT_SECONDS: u64 = 60;
 
 #[derive(Debug, Serialize)]
@@ -18,6 +18,8 @@ pub(crate) struct AssistantProviderInfo {
     pub(crate) id: String,
     pub(crate) label: String,
     pub(crate) models: Vec<String>,
+    pub(crate) base_url: Option<String>,
+    pub(crate) api_key_env: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -31,6 +33,13 @@ pub(crate) struct AssistantRequest<'a> {
     pub(crate) provider: &'a str,
     pub(crate) model: &'a str,
     pub(crate) context: &'a QueryContext,
+    pub(crate) current_content: Option<&'a str>,
+    pub(crate) task: Option<&'a str>,
+    pub(crate) prompt: Option<&'a str>,
+    pub(crate) api_key: Option<&'a str>,
+    pub(crate) base_url: Option<&'a str>,
+    pub(crate) external_command: Option<&'a str>,
+    pub(crate) external_timeout_seconds: Option<u64>,
 }
 
 pub(crate) fn catalog() -> AssistantCatalog {
@@ -38,19 +47,39 @@ pub(crate) fn catalog() -> AssistantCatalog {
         default_provider: DEFAULT_PROVIDER.to_string(),
         providers: vec![
             AssistantProviderInfo {
-                id: "builtin".to_string(),
-                label: "Builtin".to_string(),
-                models: vec!["local-summary-v1".to_string(), "local-summary-v2".to_string()],
+                id: "deepseek".to_string(),
+                label: "DeepSeek".to_string(),
+                models: vec!["deepseek-v4-flash".to_string(), "deepseek-v4-pro".to_string()],
+                base_url: Some("https://api.deepseek.com/chat/completions".to_string()),
+                api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
             },
             AssistantProviderInfo {
-                id: "mock_openai".to_string(),
-                label: "Mock OpenAI".to_string(),
-                models: vec!["gpt-mock-1".to_string(), "gpt-mock-2".to_string()],
+                id: "minimax".to_string(),
+                label: "MiniMax".to_string(),
+                models: vec!["MiniMax-M2.7".to_string(), "MiniMax-M2.5".to_string(), "MiniMax-M2".to_string()],
+                base_url: Some("https://api.minimaxi.com/v1/chat/completions".to_string()),
+                api_key_env: Some("MINIMAX_API_KEY".to_string()),
+            },
+            AssistantProviderInfo {
+                id: "kimi".to_string(),
+                label: "Kimi".to_string(),
+                models: vec!["kimi-k2.6".to_string(), "kimi-k2.5".to_string(), "moonshot-v1-128k".to_string()],
+                base_url: Some("https://api.moonshot.cn/v1/chat/completions".to_string()),
+                api_key_env: Some("MOONSHOT_API_KEY".to_string()),
+            },
+            AssistantProviderInfo {
+                id: "zhipu".to_string(),
+                label: "智谱 GLM".to_string(),
+                models: vec!["glm-5.1".to_string(), "glm-4.7".to_string(), "glm-4.5".to_string()],
+                base_url: Some("https://open.bigmodel.cn/api/paas/v4/chat/completions".to_string()),
+                api_key_env: Some("ZAI_API_KEY".to_string()),
             },
             AssistantProviderInfo {
                 id: "external_command".to_string(),
                 label: "External Command".to_string(),
                 models: vec!["command-json-v1".to_string()],
+                base_url: None,
+                api_key_env: None,
             },
         ],
     }
@@ -60,10 +89,176 @@ pub(crate) fn summarize_query_context(request: AssistantRequest<'_>) -> Result<A
     validate_request(&request)?;
 
     match request.provider {
-        "builtin" => Ok(builtin_summary(request.context, request.provider, request.model)),
-        "mock_openai" => Ok(mock_openai_summary(request.context, request.provider, request.model)),
+        "deepseek" | "minimax" | "kimi" | "zhipu" => openai_compatible_summary(request),
         "external_command" => external_command_summary(request),
         _ => Err(format!("Unsupported assistant provider: {}", request.provider)),
+    }
+}
+
+fn openai_compatible_summary(request: AssistantRequest<'_>) -> Result<AssistantDraft, String> {
+    let provider = catalog()
+        .providers
+        .into_iter()
+        .find(|provider| provider.id == request.provider)
+        .ok_or_else(|| format!("Unsupported assistant provider: {}", request.provider))?;
+    let base_url = request
+        .base_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or(provider.base_url)
+        .ok_or_else(|| format!("{} has no API endpoint configured", request.provider))?;
+    let api_key = request
+        .api_key
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| provider.api_key_env.as_deref().and_then(|name| env::var(name).ok()))
+        .ok_or_else(|| {
+            let env_name = provider.api_key_env.unwrap_or_else(|| "PROVIDER_API_KEY".to_string());
+            format!("请在设置中填写 API Key，或设置环境变量 {env_name}")
+        })?;
+
+    let prompt = request.prompt.unwrap_or("").trim();
+    let task = request.task.unwrap_or("summarize").trim();
+    let user_prompt = build_llm_prompt(request.context, request.current_content, task, prompt);
+    let input = serde_json::to_vec(&OpenAiCompatibleRequest {
+        model: request.model,
+        temperature: 0.3,
+        messages: vec![
+            ChatMessage {
+                role: "system",
+                content: "你是 LMD 的中文笔记写作助手。请只返回 Markdown 正文，不要包裹 JSON，不要解释你的工作过程。输出应适合直接插入笔记或保存为 Wiki 草稿。",
+            },
+            ChatMessage {
+                role: "user",
+                content: &user_prompt,
+            },
+        ],
+    })
+    .map_err(|error| format!("Could not encode assistant request: {error}"))?;
+
+    let output = Command::new("curl")
+        .arg("-sS")
+        .arg("--max-time")
+        .arg(DEFAULT_EXTERNAL_COMMAND_TIMEOUT_SECONDS.to_string())
+        .arg("-X")
+        .arg("POST")
+        .arg(&base_url)
+        .arg("-H")
+        .arg("Content-Type: application/json")
+        .arg("-H")
+        .arg(format!("Authorization: Bearer {api_key}"))
+        .arg("--data-binary")
+        .arg("@-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            if let Some(mut stdin) = child.stdin.take() {
+                stdin.write_all(&input)?;
+            }
+            child.wait_with_output()
+        })
+        .map_err(|error| format!("Could not call assistant API: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!("Assistant API failed with status {}", output.status)
+        } else {
+            format!("Assistant API failed: {stderr}")
+        });
+    }
+
+    let response = serde_json::from_slice::<OpenAiCompatibleResponse>(&output.stdout)
+        .map_err(|error| format!("Assistant API returned invalid JSON: {error}"))?;
+    if let Some(error) = response.error {
+        return Err(error.message);
+    }
+    let content = response
+        .choices
+        .into_iter()
+        .next()
+        .map(|choice| choice.message.content.trim().to_string())
+        .filter(|content| !content.is_empty())
+        .ok_or_else(|| "Assistant API returned no content".to_string())?;
+
+    Ok(AssistantDraft {
+        title: suggest_draft_title(request.context, task, &content),
+        content,
+    })
+}
+
+fn build_llm_prompt(
+    context: &QueryContext,
+    current_content: Option<&str>,
+    task: &str,
+    user_prompt: &str,
+) -> String {
+    let mut prompt = String::new();
+    prompt.push_str("当前文档路径：");
+    prompt.push_str(&context.current_relative_path);
+    prompt.push_str("\n\n任务：");
+    prompt.push_str(match task {
+        "polish" => "优化文字，保持原意，提升清晰度、结构和可读性。",
+        "todos" => "从当前内容提取可执行待办事项。",
+        "title" => "为当前笔记生成 5 个简洁标题候选。",
+        "wiki" => "整理为可沉淀到知识库的 Wiki 草稿。",
+        "chat" => "根据用户要求回答或改写。",
+        _ => "总结当前笔记和相关上下文。",
+    });
+    if !user_prompt.is_empty() {
+        prompt.push_str("\n\n用户补充要求：");
+        prompt.push_str(user_prompt);
+    }
+    if let Some(content) = current_content.map(str::trim).filter(|content| !content.is_empty()) {
+        prompt.push_str("\n\n当前文档全文：\n");
+        prompt.push_str(&limit_chars(content, 24_000));
+    }
+    prompt.push_str("\n\n相关上下文：\n");
+    for item in &context.items {
+        prompt.push_str(&format!(
+            "- {} [{} / {}]: {}\n",
+            item.relative_path, item.source_kind, item.reason, item.excerpt
+        ));
+    }
+    prompt
+}
+
+fn limit_chars(value: &str, max_chars: usize) -> String {
+    let mut output = String::new();
+    for character in value.chars().take(max_chars) {
+        output.push(character);
+    }
+    if value.chars().count() > max_chars {
+        output.push_str("\n\n...[内容过长，已截断]");
+    }
+    output
+}
+
+fn suggest_draft_title(context: &QueryContext, task: &str, content: &str) -> String {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(title) = trimmed.strip_prefix("# ") {
+            let title = title.trim();
+            if !title.is_empty() {
+                return title.to_string();
+            }
+        }
+    }
+
+    let stem = std::path::Path::new(&context.current_relative_path)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("AI 草稿");
+    match task {
+        "title" => format!("{stem} 标题候选"),
+        "todos" => format!("{stem} 待办"),
+        "polish" => format!("{stem} 优化稿"),
+        "wiki" => format!("{stem} Wiki 草稿"),
+        _ => format!("{stem} AI 草稿"),
     }
 }
 
@@ -87,55 +282,25 @@ fn validate_request(request: &AssistantRequest<'_>) -> Result<(), String> {
     ))
 }
 
-fn builtin_summary(context: &QueryContext, provider: &str, model: &str) -> AssistantDraft {
-    let mut content = String::new();
-    content.push_str("# ");
-    content.push_str(&suggest_wiki_title(context));
-    content.push_str("\n\n");
-    content.push_str(&format!("_Provider: {provider} / {model}_\n\n"));
-    content.push_str("## Summary\n\n");
-    content.push_str(&format!(
-        "This draft was assembled from {} context items around `{}`.\n\n",
-        context.items.len(),
-        context.current_relative_path
-    ));
-
-    for item in &context.items {
-        content.push_str(&format!(
-            "- **{}** (`{}` / `{}`): {}\n",
-            item.name, item.source_kind, item.reason, item.excerpt
-        ));
-    }
-
-    content.push_str("\n## Notes\n\n");
-    content.push_str("- Expand the strongest threads into durable wiki pages.\n");
-    content.push_str("- Replace placeholder synthesis with reviewed prose before publishing.\n");
-
-    AssistantDraft {
-        title: suggest_wiki_title(context),
-        content,
-    }
-}
-
-fn mock_openai_summary(context: &QueryContext, provider: &str, model: &str) -> AssistantDraft {
-    let mut draft = builtin_summary(context, provider, model);
-    draft.content.push_str("\n## Provider Notes\n\n");
-    draft.content.push_str("- mock_openai adapter active.\n");
-    draft.content.push_str("- Replace this stub with a real API client before production use.\n");
-    draft
-}
-
 fn external_command_summary(request: AssistantRequest<'_>) -> Result<AssistantDraft, String> {
-    let command_path = env::var("LMD_ASSISTANT_COMMAND")
-        .map_err(|_| "LMD_ASSISTANT_COMMAND is not configured".to_string())?;
+    let command_path = request
+        .external_command
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| env::var("LMD_ASSISTANT_COMMAND").ok())
+        .ok_or_else(|| "请在设置中填写外部命令路径，或设置环境变量 LMD_ASSISTANT_COMMAND".to_string())?;
     if command_path.trim().is_empty() {
-        return Err("LMD_ASSISTANT_COMMAND is empty".to_string());
+        return Err("外部命令路径为空。".to_string());
     }
 
     let input = serde_json::to_vec(&ExternalCommandInput {
         provider: request.provider,
         model: request.model,
         context: request.context,
+        task: request.task,
+        prompt: request.prompt,
+        current_content: request.current_content,
     })
     .map_err(|error| format!("Could not encode assistant command input: {error}"))?;
 
@@ -155,7 +320,7 @@ fn external_command_summary(request: AssistantRequest<'_>) -> Result<AssistantDr
             .map_err(|error| format!("Could not write assistant command input: {error}"))?;
     }
 
-    let timeout = external_command_timeout();
+    let timeout = external_command_timeout(request.external_timeout_seconds);
     let started_at = Instant::now();
     loop {
         match child.try_wait() {
@@ -189,11 +354,15 @@ fn external_command_summary(request: AssistantRequest<'_>) -> Result<AssistantDr
         .map_err(|error| format!("Assistant command must return JSON draft: {error}"))
 }
 
-fn external_command_timeout() -> Duration {
-    let seconds = env::var("LMD_ASSISTANT_TIMEOUT_SECONDS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
+fn external_command_timeout(request_seconds: Option<u64>) -> Duration {
+    let seconds = request_seconds
         .filter(|seconds| *seconds > 0)
+        .or_else(|| {
+            env::var("LMD_ASSISTANT_TIMEOUT_SECONDS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|seconds| *seconds > 0)
+        })
         .unwrap_or(DEFAULT_EXTERNAL_COMMAND_TIMEOUT_SECONDS);
     Duration::from_secs(seconds.min(600))
 }
@@ -204,13 +373,41 @@ struct ExternalCommandInput<'a> {
     provider: &'a str,
     model: &'a str,
     context: &'a QueryContext,
+    task: Option<&'a str>,
+    prompt: Option<&'a str>,
+    current_content: Option<&'a str>,
 }
 
-fn suggest_wiki_title(context: &QueryContext) -> String {
-    let base = std::path::Path::new(&context.current_relative_path)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("context")
-        .replace(['-', '_'], " ");
-    format!("{base} summary")
+#[derive(Serialize)]
+struct OpenAiCompatibleRequest<'a> {
+    model: &'a str,
+    messages: Vec<ChatMessage<'a>>,
+    temperature: f32,
+}
+
+#[derive(Serialize)]
+struct ChatMessage<'a> {
+    role: &'a str,
+    content: &'a str,
+}
+
+#[derive(Deserialize)]
+struct OpenAiCompatibleResponse {
+    choices: Vec<OpenAiChoice>,
+    error: Option<OpenAiError>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiChoice {
+    message: OpenAiMessage,
+}
+
+#[derive(Deserialize)]
+struct OpenAiMessage {
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct OpenAiError {
+    message: String,
 }

@@ -130,12 +130,19 @@ export type AssistantEvent = {
   tone: "info" | "error";
 };
 
-export type AssistantProvider = "builtin" | "mock_openai" | "external_command";
+export type AssistantProvider =
+  | "deepseek"
+  | "minimax"
+  | "kimi"
+  | "zhipu"
+  | "external_command";
 
 export type AssistantProviderInfo = {
   id: AssistantProvider;
   label: string;
   models: string[];
+  baseUrl?: string;
+  apiKeyEnv?: string;
 };
 
 export type AssistantCatalog = {
@@ -180,4 +187,8 @@ export type AppSettings = {
   externalCheckSeconds: number;
   assistantProvider: AssistantProvider;
   assistantModel: string;
+  assistantApiKeys: Partial<Record<AssistantProvider, string>>;
+  assistantBaseUrls: Partial<Record<AssistantProvider, string>>;
+  assistantExternalCommand: string;
+  assistantExternalTimeoutSeconds: number;
 };

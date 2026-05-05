@@ -45,7 +45,7 @@ This repository currently uses:
 - Playwright browser tests for core UI flows
 - real Tauri bundle builds for release verification
 
-Native Tauri WebDriver automation is not currently available on macOS. See [docs/tauri-webview-automation-notes.md](/Users/ahyk/nodejs/lmd/docs/tauri-webview-automation-notes.md).
+Native Tauri WebDriver automation is not currently available on macOS. See [docs/tauri-webview-automation-notes.md](docs/tauri-webview-automation-notes.md).
 
 ## Issue Reports
 

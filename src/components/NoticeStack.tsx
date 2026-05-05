@@ -21,7 +21,7 @@ export function NoticeStack({
         <div className={`notice ${notice.tone}`}>
           <span>{notice.message}</span>
           <button type="button" onClick={onDismissNotice}>
-            Dismiss
+            关闭
           </button>
         </div>
       )}
@@ -30,12 +30,12 @@ export function NoticeStack({
         <div className="notice warning">
           <span>
             {externalChange.kind === "missing"
-              ? "This file was removed from disk."
-              : "This file changed on disk."}
+              ? "该文件已从磁盘中删除。"
+              : "该文件已在磁盘中被修改。"}
           </span>
           {externalChange.kind === "modified" && (
             <button type="button" onClick={onReloadCurrentFile} disabled={busy}>
-              Reload
+              重新加载
             </button>
           )}
         </div>

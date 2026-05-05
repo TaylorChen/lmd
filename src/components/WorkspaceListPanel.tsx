@@ -34,11 +34,20 @@ type WorkspaceListPanelProps = {
 };
 
 function sourceKindForPath(relativePath: string) {
-  if (relativePath.startsWith("wiki/inbox/")) return "inbox";
-  if (relativePath.startsWith("wiki/")) return "wiki";
-  if (relativePath.startsWith("sources/")) return "source";
-  if (relativePath.startsWith("notes/")) return "note";
-  return "file";
+  if (relativePath.startsWith("wiki/inbox/")) return "收件箱";
+  if (relativePath.startsWith("wiki/")) return "知识库";
+  if (relativePath.startsWith("sources/")) return "资料";
+  if (relativePath.startsWith("notes/")) return "笔记";
+  return "文件";
+}
+
+function assistantProviderLabel(provider: AssistantCatalog["providers"][number]) {
+  if (provider.id === "deepseek") return "DeepSeek";
+  if (provider.id === "minimax") return "MiniMax";
+  if (provider.id === "kimi") return "Kimi";
+  if (provider.id === "zhipu") return "智谱 GLM";
+  if (provider.id === "external_command") return "外部命令";
+  return provider.label;
 }
 
 export function WorkspaceListPanel({
@@ -70,33 +79,46 @@ export function WorkspaceListPanel({
   const selectedProvider =
     assistantCatalog.providers.find((provider) => provider.id === settings.assistantProvider) ??
     assistantCatalog.providers[0];
+  const primaryAssistantProviders = assistantCatalog.providers.filter(
+    (provider) => provider.id !== "external_command",
+  );
+  const externalCommandProvider = assistantCatalog.providers.find(
+    (provider) => provider.id === "external_command",
+  );
+  const primarySelectedProvider =
+    selectedProvider?.id === "external_command"
+      ? primaryAssistantProviders[0]
+      : selectedProvider;
+  const providerNeedsKey = selectedProvider
+    ? !["external_command"].includes(selectedProvider.id)
+    : false;
   const sectionLabel = {
-    inbox: "Inbox",
-    "all-notes": "Workspace",
-    notes: "Notes",
-    sources: "Sources",
-    wiki: "Wiki",
-    recent: "Recent",
+    inbox: "收件箱",
+    "all-notes": "工作区",
+    notes: "笔记",
+    sources: "资料",
+    wiki: "知识库",
+    recent: "最近",
   }[librarySection];
   const showRecentPanel = !workspace && recentFiles.length > 0;
 
   return (
-    <aside className="workspace-list-panel" aria-label="Workspace notes">
+    <aside className="workspace-list-panel" aria-label="工作区笔记">
       <div className="workspace-panel">
         <div className="workspace-header">
           <span className="label">{sectionLabel}</span>
           <small>
             {librarySection === "recent"
-              ? `${recentFiles.length.toLocaleString()} files`
+              ? `${recentFiles.length.toLocaleString()} 个文件`
               : workspace
-                ? `${workspaceFiles.length.toLocaleString()} files`
-                : "None"}
+                ? `${workspaceFiles.length.toLocaleString()} 个文件`
+                : "无"}
           </small>
         </div>
 
         {librarySection === "recent" ? (
           recentFiles.length > 0 ? (
-            <div className="file-list" aria-label="Workspace files">
+            <div className="file-list" aria-label="工作区文件">
               {recentFiles.map((file) => (
                 <button
                   type="button"
@@ -107,20 +129,20 @@ export function WorkspaceListPanel({
                   title={file.path}
                 >
                   <span>{file.name}</span>
-                  <small className="file-kind">recent</small>
+                  <small className="file-kind">最近</small>
                   <em>{file.path}</em>
                 </button>
               ))}
             </div>
           ) : (
-            <p className="empty-workspace">No recent files yet.</p>
+            <p className="empty-workspace">暂无最近文件。</p>
           )
         ) : workspace ? (
           <>
             <div className="workspace-summary">
               <strong title={workspace.rootPath}>{fileName(workspace.rootPath)}</strong>
               <span className={`workspace-mode ${workspace.knowledge.isInitialized ? "ready" : "pending"}`}>
-                {workspace.knowledge.isInitialized ? "Knowledge workspace ready" : "Standard workspace"}
+                {workspace.knowledge.isInitialized ? "知识库工作区已就绪" : "标准工作区"}
               </span>
             </div>
             <form
@@ -131,23 +153,23 @@ export function WorkspaceListPanel({
               }}
             >
               <input
-                aria-label="Search workspace"
+                aria-label="搜索工作区"
                 value={workspaceQuery}
                 onChange={(event) => onWorkspaceQueryChange(event.target.value)}
-                placeholder="Search workspace"
+                placeholder="搜索工作区"
                 disabled={busy}
               />
               <button type="submit" disabled={busy || !workspaceQuery.trim()}>
-                Find
+                查找
               </button>
             </form>
             {workspaceSearchActive && (
               <div className="workspace-header workspace-subheader">
-                <span className="label">Matches</span>
+                <span className="label">匹配结果</span>
                 <small>{workspaceMatches.length.toLocaleString()}</small>
               </div>
             )}
-            <div className="file-list" aria-label="Workspace files">
+            <div className="file-list" aria-label="工作区文件">
               {workspaceSearchActive ? (
                 workspaceMatches.length > 0 ? (
                   workspaceMatches.map((match, index) => (
@@ -160,12 +182,12 @@ export function WorkspaceListPanel({
                       title={`${match.relativePath}:${match.lineNumber}`}
                     >
                       <span>{match.relativePath}</span>
-                      <small className="file-kind">Line {match.lineNumber.toLocaleString()}</small>
+                      <small className="file-kind">第 {match.lineNumber.toLocaleString()} 行</small>
                       <em>{match.lineText}</em>
                     </button>
                   ))
                 ) : (
-                  <p className="empty-workspace">No matches found.</p>
+                  <p className="empty-workspace">未找到匹配结果。</p>
                 )
               ) : workspaceFiles.length > 0 ? (
                 workspaceFiles.map((file) => (
@@ -183,14 +205,14 @@ export function WorkspaceListPanel({
                   </button>
                 ))
               ) : (
-                <p className="empty-workspace">No Markdown files found in {sectionLabel}.</p>
+                <p className="empty-workspace">{sectionLabel}中未找到 Markdown 文件。</p>
               )}
             </div>
           </>
         ) : (
           <div className="workspace-empty-state">
-            <strong>Workspace</strong>
-            <p className="empty-workspace">Open a folder to browse notes.</p>
+            <strong>工作区</strong>
+            <p className="empty-workspace">打开文件夹以浏览笔记。</p>
           </div>
         )}
       </div>
@@ -198,10 +220,10 @@ export function WorkspaceListPanel({
       {showRecentPanel && (
         <div className="recent-panel">
           <div className="workspace-header">
-            <span className="label">Recent</span>
+            <span className="label">最近</span>
             <small>{recentFiles.length.toLocaleString()}</small>
           </div>
-          <div className="recent-list" aria-label="Recent files">
+          <div className="recent-list" aria-label="最近文件">
             {recentFiles.map((file) => (
               <button
                 type="button"
@@ -220,28 +242,28 @@ export function WorkspaceListPanel({
 
       <details className="settings-panel">
         <summary className="settings-summary">
-          <span className="label">Settings</span>
-          <small>Local</small>
+          <span className="label">设置</span>
+          <small>本地</small>
         </summary>
 
         <div className="settings-content">
           <label>
-            <span>Default view</span>
+            <span>默认视图</span>
             <select
-              aria-label="Default view"
+              aria-label="默认视图"
               value={settings.defaultEditorMode}
               onChange={(event) => updateSetting({ defaultEditorMode: event.target.value as EditorMode })}
             >
-              <option value="edit">Edit</option>
-              <option value="split">Split</option>
-              <option value="preview">Preview</option>
+              <option value="edit">编辑</option>
+              <option value="split">分屏</option>
+              <option value="preview">预览</option>
             </select>
           </label>
 
           <label>
-            <span>Search results</span>
+            <span>搜索结果</span>
             <select
-              aria-label="Search results"
+              aria-label="搜索结果"
               value={settings.searchResultLimit}
               onChange={(event) => updateSetting({ searchResultLimit: Number(event.target.value) })}
             >
@@ -253,24 +275,24 @@ export function WorkspaceListPanel({
           </label>
 
           <label>
-            <span>File check</span>
+            <span>文件检查</span>
             <select
-              aria-label="File check"
+              aria-label="文件检查"
               value={settings.externalCheckSeconds}
               onChange={(event) => updateSetting({ externalCheckSeconds: Number(event.target.value) })}
             >
-              <option value={2}>2 sec</option>
-              <option value={5}>5 sec</option>
-              <option value={10}>10 sec</option>
-              <option value={30}>30 sec</option>
+              <option value={2}>2 秒</option>
+              <option value={5}>5 秒</option>
+              <option value={10}>10 秒</option>
+              <option value={30}>30 秒</option>
             </select>
           </label>
 
           <label>
-            <span>Assistant</span>
+            <span>AI 助手</span>
             <select
-              aria-label="Assistant provider"
-              value={settings.assistantProvider}
+              aria-label="AI 助手提供方"
+              value={primarySelectedProvider?.id ?? ""}
               onChange={(event) => {
                 const nextProvider = assistantCatalog.providers.find(
                   (provider) => provider.id === event.target.value,
@@ -282,37 +304,141 @@ export function WorkspaceListPanel({
                 });
               }}
             >
-              {assistantCatalog.providers.map((provider) => (
+              {primaryAssistantProviders.map((provider) => (
                 <option key={provider.id} value={provider.id}>
-                  {provider.label}
+                  {assistantProviderLabel(provider)}
                 </option>
               ))}
             </select>
           </label>
 
           <label>
-            <span>Assistant model</span>
+            <span>AI 模型</span>
             <select
-              aria-label="Assistant model"
-              value={settings.assistantModel}
-              onChange={(event) => updateSetting({ assistantModel: event.target.value })}
+              aria-label="AI 模型"
+              value={
+                selectedProvider?.id === "external_command"
+                  ? primarySelectedProvider?.models[0] ?? ""
+                  : settings.assistantModel
+              }
+              onChange={(event) =>
+                updateSetting({
+                  assistantProvider: primarySelectedProvider?.id ?? settings.assistantProvider,
+                  assistantModel: event.target.value,
+                })
+              }
             >
-              {selectedProvider?.models.map((model) => (
+              {primarySelectedProvider?.models.map((model) => (
                 <option key={model} value={model}>
                   {model}
                 </option>
               ))}
             </select>
           </label>
+
+          {providerNeedsKey && selectedProvider && (
+            <>
+              <label>
+                <span>API Key</span>
+                <input
+                  aria-label="AI API Key"
+                  type="password"
+                  value={settings.assistantApiKeys[selectedProvider.id] ?? ""}
+                  onChange={(event) =>
+                    updateSetting({
+                      assistantApiKeys: {
+                        ...settings.assistantApiKeys,
+                        [selectedProvider.id]: event.target.value,
+                      },
+                    })
+                  }
+                  placeholder={selectedProvider.apiKeyEnv ?? "API Key"}
+                />
+              </label>
+
+              <label>
+                <span>接口地址</span>
+                <input
+                  aria-label="AI 接口地址"
+                  value={settings.assistantBaseUrls[selectedProvider.id] ?? selectedProvider.baseUrl ?? ""}
+                  onChange={(event) =>
+                    updateSetting({
+                      assistantBaseUrls: {
+                        ...settings.assistantBaseUrls,
+                        [selectedProvider.id]: event.target.value,
+                      },
+                    })
+                  }
+                  placeholder={selectedProvider.baseUrl ?? "https://.../chat/completions"}
+                />
+              </label>
+            </>
+          )}
+
+          {externalCommandProvider && (
+            <details className="advanced-settings-panel">
+              <summary>高级 AI 设置</summary>
+              <div className="advanced-settings-content">
+                <p className="advanced-settings-note">
+                  当前高级模式：{selectedProvider?.id === "external_command" ? "外部命令" : "未启用"}
+                </p>
+                <button
+                  type="button"
+                  className="knowledge-action-button"
+                  onClick={() =>
+                    updateSetting({
+                      assistantProvider: externalCommandProvider.id,
+                      assistantModel: externalCommandProvider.models[0] ?? settings.assistantModel,
+                    })
+                  }
+                >
+                  使用外部命令
+                </button>
+
+                <label>
+                  <span>命令路径</span>
+                  <input
+                    aria-label="外部命令路径"
+                    value={settings.assistantExternalCommand}
+                    onChange={(event) =>
+                      updateSetting({
+                        assistantExternalCommand: event.target.value,
+                      })
+                    }
+                    placeholder="例如 /absolute/path/to/assistant"
+                  />
+                </label>
+
+                <label>
+                  <span>超时时间</span>
+                  <select
+                    aria-label="外部命令超时时间"
+                    value={settings.assistantExternalTimeoutSeconds}
+                    onChange={(event) =>
+                      updateSetting({
+                        assistantExternalTimeoutSeconds: Number(event.target.value),
+                      })
+                    }
+                  >
+                    <option value={30}>30 秒</option>
+                    <option value={60}>60 秒</option>
+                    <option value={120}>120 秒</option>
+                    <option value={300}>300 秒</option>
+                    <option value={600}>600 秒</option>
+                  </select>
+                </label>
+              </div>
+            </details>
+          )}
         </div>
       </details>
 
       {isLarge && (
         <div className="large-file-card">
-          <span className="label">Large file</span>
-          <strong>Read-only window</strong>
+          <span className="label">大文件</span>
+          <strong>只读窗口</strong>
           <small>
-            Lines {visibleStartLine.toLocaleString()}-{visibleEndLine.toLocaleString()}
+            第 {visibleStartLine.toLocaleString()}-{visibleEndLine.toLocaleString()} 行
           </small>
         </div>
       )}
