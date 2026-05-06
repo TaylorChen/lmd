@@ -347,7 +347,12 @@ pub(crate) fn document_knowledge(
     let current = indexed
         .iter()
         .find(|document| document.path == current_key)
-        .ok_or_else(|| format!("Current document is not inside workspace: {}", current_path.display()))?;
+        .ok_or_else(|| {
+            format!(
+                "Current document is not inside workspace: {}",
+                current_path.display()
+            )
+        })?;
 
     let backlinks = collect_backlinks(&indexed, &current.path);
     let unresolved_links = current
@@ -356,7 +361,11 @@ pub(crate) fn document_knowledge(
         .filter(|link| link.resolved_path.is_none())
         .map(to_knowledge_link)
         .collect::<Vec<_>>();
-    let outgoing_links = current.links.iter().map(to_knowledge_link).collect::<Vec<_>>();
+    let outgoing_links = current
+        .links
+        .iter()
+        .map(to_knowledge_link)
+        .collect::<Vec<_>>();
     let related_wiki_pages = backlinks
         .iter()
         .filter(|link| link.source_kind == "wiki")
@@ -370,7 +379,10 @@ pub(crate) fn document_knowledge(
             Some(Backlink {
                 path: link.resolved_path.clone()?,
                 relative_path: link.resolved_relative_path.clone()?,
-                name: link.resolved_name.clone().unwrap_or_else(|| link.label.clone()),
+                name: link
+                    .resolved_name
+                    .clone()
+                    .unwrap_or_else(|| link.label.clone()),
                 source_kind: "source".to_string(),
                 label: link.label.clone(),
             })
@@ -497,7 +509,12 @@ pub(crate) fn query_context(
     let current = indexed
         .iter()
         .find(|document| document.path == current_key)
-        .ok_or_else(|| format!("Current document is not inside workspace: {}", current_path.display()))?;
+        .ok_or_else(|| {
+            format!(
+                "Current document is not inside workspace: {}",
+                current_path.display()
+            )
+        })?;
     let current_text = match current_content {
         Some(content) => content.to_string(),
         None => fs::read_to_string(current_path)
@@ -520,14 +537,9 @@ pub(crate) fn query_context(
         ("backlink", None),
         ("index_hint", Some("wiki")),
     ] {
-        for item in collect_context_candidates(
-            root,
-            &indexed,
-            current,
-            reason,
-            allowed_kind,
-            &mut seen,
-        )? {
+        for item in
+            collect_context_candidates(root, &indexed, current, reason, allowed_kind, &mut seen)?
+        {
             items.push(item);
         }
     }
@@ -539,11 +551,7 @@ pub(crate) fn query_context(
     })
 }
 
-pub(crate) fn save_wiki_draft(
-    root: &Path,
-    title: &str,
-    content: &str,
-) -> Result<String, String> {
+pub(crate) fn save_wiki_draft(root: &Path, title: &str, content: &str) -> Result<String, String> {
     let file_name = format!("{}.md", draft_file_stem(title));
     let inbox_path = root.join("wiki/inbox");
     fs::create_dir_all(&inbox_path)
@@ -600,8 +608,12 @@ pub(crate) fn load_workspace(root: &Path) -> Result<Workspace, String> {
 }
 
 pub(crate) fn initialize_knowledge_workspace(root: &Path) -> Result<Workspace, String> {
-    fs::create_dir_all(root)
-        .map_err(|error| format!("Could not create workspace root {}: {error}", root.display()))?;
+    fs::create_dir_all(root).map_err(|error| {
+        format!(
+            "Could not create workspace root {}: {error}",
+            root.display()
+        )
+    })?;
 
     let notes_path = root.join("notes");
     let sources_path = root.join("sources");
@@ -642,8 +654,12 @@ pub(crate) fn initialize_knowledge_workspace(root: &Path) -> Result<Workspace, S
 
     if !manifest_path.exists() {
         let manifest = default_manifest(root, &schema_path);
-        let manifest_text = serde_json::to_string_pretty(&manifest)
-            .map_err(|error| format!("Could not encode manifest {}: {error}", manifest_path.display()))?;
+        let manifest_text = serde_json::to_string_pretty(&manifest).map_err(|error| {
+            format!(
+                "Could not encode manifest {}: {error}",
+                manifest_path.display()
+            )
+        })?;
         fs::write(&manifest_path, format!("{manifest_text}\n"))
             .map_err(|error| format!("Could not write {}: {error}", manifest_path.display()))?;
     }
@@ -701,7 +717,10 @@ fn write_index_snapshot(root: &Path, indexed: Vec<IndexedDocument>) -> Result<()
         .map_err(|error| format!("Could not write {}: {error}", cache_path.display()))
 }
 
-fn load_or_build_index_cache(root: &Path, files: &[WorkspaceFile]) -> Result<Vec<IndexedDocument>, String> {
+fn load_or_build_index_cache(
+    root: &Path,
+    files: &[WorkspaceFile],
+) -> Result<Vec<IndexedDocument>, String> {
     if let Some(indexed) = load_knowledge_index_cache(root)? {
         return Ok(indexed);
     }
@@ -760,7 +779,10 @@ fn collect_context_candidates(
                 if seen.contains(&backlink.path) {
                     continue;
                 }
-                if let Some(document) = indexed.iter().find(|document| document.path == backlink.path) {
+                if let Some(document) = indexed
+                    .iter()
+                    .find(|document| document.path == backlink.path)
+                {
                     candidates.push(build_query_context_item(root, document, reason)?);
                     seen.insert(backlink.path);
                 }
@@ -769,7 +791,8 @@ fn collect_context_candidates(
         "index_hint" => {
             let index_path = root.join("wiki/index.md").to_string_lossy().to_string();
             if !seen.contains(&index_path) {
-                if let Some(document) = indexed.iter().find(|document| document.path == index_path) {
+                if let Some(document) = indexed.iter().find(|document| document.path == index_path)
+                {
                     candidates.push(build_query_context_item(root, document, reason)?);
                     seen.insert(index_path);
                 }
@@ -829,7 +852,11 @@ fn slugify_title(title: &str) -> String {
         slug.push(next);
     }
 
-    slug.trim_matches('-').to_string().chars().take(64).collect()
+    slug.trim_matches('-')
+        .to_string()
+        .chars()
+        .take(64)
+        .collect()
 }
 
 fn draft_file_stem(title: &str) -> String {
@@ -870,13 +897,15 @@ fn append_to_knowledge_log(root: &Path, target_path: &Path) -> Result<(), String
         .unwrap_or(target_path)
         .to_string_lossy()
         .to_string();
-    let mut log = fs::read_to_string(&log_path)
-        .unwrap_or_else(|_| "# Knowledge Log\n".to_string());
+    let mut log = fs::read_to_string(&log_path).unwrap_or_else(|_| "# Knowledge Log\n".to_string());
     if !log.ends_with('\n') {
         log.push('\n');
     }
-    log.push_str(&format!("- Saved assistant draft: [{relative_path}]({relative_path})\n"));
-    fs::write(&log_path, log).map_err(|error| format!("Could not write {}: {error}", log_path.display()))
+    log.push_str(&format!(
+        "- Saved assistant draft: [{relative_path}]({relative_path})\n"
+    ));
+    fs::write(&log_path, log)
+        .map_err(|error| format!("Could not write {}: {error}", log_path.display()))
 }
 
 fn ensure_inbox_entry_in_index(root: &Path, target_path: &Path) -> Result<(), String> {
@@ -890,9 +919,16 @@ fn ensure_inbox_entry_in_index(root: &Path, target_path: &Path) -> Result<(), St
         .unwrap_or(target_path)
         .to_string_lossy()
         .to_string();
-    let link_line = format!("- [{0}]({1})", Path::new(&relative_path).file_name().and_then(|name| name.to_str()).unwrap_or("draft"), relative_path);
-    let mut index = fs::read_to_string(&index_path)
-        .unwrap_or_else(|_| DEFAULT_INDEX_MD.to_string());
+    let link_line = format!(
+        "- [{0}]({1})",
+        Path::new(&relative_path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("draft"),
+        relative_path
+    );
+    let mut index =
+        fs::read_to_string(&index_path).unwrap_or_else(|_| DEFAULT_INDEX_MD.to_string());
     if !index.contains("## Inbox") {
         if !index.ends_with('\n') {
             index.push('\n');
@@ -1023,7 +1059,10 @@ fn parse_frontmatter(content: &str) -> (Vec<FrontmatterField>, usize) {
                     value: current_value.join("\n").trim().to_string(),
                 });
             }
-            return (normalize_frontmatter_fields(fields), offset + line_with_break);
+            return (
+                normalize_frontmatter_fields(fields),
+                offset + line_with_break,
+            );
         }
 
         if let Some(rest) = line.strip_prefix("- ") {
@@ -1038,7 +1077,11 @@ fn parse_frontmatter(content: &str) -> (Vec<FrontmatterField>, usize) {
                 });
             }
             current_key = key.trim().to_string();
-            current_value = vec![value.trim().trim_matches('"').trim_matches('\'').to_string()];
+            current_value = vec![value
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .to_string()];
         }
 
         offset += line_with_break;
@@ -1062,7 +1105,8 @@ fn collect_tags(frontmatter: &[FrontmatterField], body: &str) -> Vec<String> {
             for value in split_tag_values(&field.value) {
                 let normalized = normalize_tag(&value);
                 if !normalized.is_empty() {
-                    tags.entry(normalized.to_ascii_lowercase()).or_insert(normalized);
+                    tags.entry(normalized.to_ascii_lowercase())
+                        .or_insert(normalized);
                 }
             }
         }
@@ -1071,7 +1115,8 @@ fn collect_tags(frontmatter: &[FrontmatterField], body: &str) -> Vec<String> {
     for tag in extract_inline_tags(body) {
         let normalized = normalize_tag(&tag);
         if !normalized.is_empty() {
-            tags.entry(normalized.to_ascii_lowercase()).or_insert(normalized);
+            tags.entry(normalized.to_ascii_lowercase())
+                .or_insert(normalized);
         }
     }
 
@@ -1104,8 +1149,9 @@ fn extract_inline_tags(body: &str) -> Vec<String> {
     let mut tags = HashSet::new();
     for token in body.split_whitespace() {
         if let Some(tag) = token.strip_prefix('#') {
-            let cleaned = tag
-                .trim_matches(|character: char| !character.is_alphanumeric() && character != '-' && character != '_');
+            let cleaned = tag.trim_matches(|character: char| {
+                !character.is_alphanumeric() && character != '-' && character != '_'
+            });
             if !cleaned.is_empty() {
                 tags.insert(cleaned.to_string());
             }
@@ -1167,8 +1213,10 @@ impl LinkResolver {
 
         self.by_relative
             .insert(normalize_lookup_key(&target.relative_path), target.clone());
-        self.by_relative_without_ext
-            .insert(strip_extension(&normalize_lookup_key(&target.relative_path)), target.clone());
+        self.by_relative_without_ext.insert(
+            strip_extension(&normalize_lookup_key(&target.relative_path)),
+            target.clone(),
+        );
         self.by_stem
             .entry(strip_extension(&normalize_lookup_key(&file.name)))
             .or_default()
@@ -1182,7 +1230,11 @@ impl LinkResolver {
             .by_relative
             .get(&lookup)
             .cloned()
-            .or_else(|| self.by_relative_without_ext.get(&strip_extension(&lookup)).cloned())
+            .or_else(|| {
+                self.by_relative_without_ext
+                    .get(&strip_extension(&lookup))
+                    .cloned()
+            })
             .or_else(|| {
                 let stem = strip_extension(&lookup);
                 self.by_stem.get(&stem).and_then(|targets| {
@@ -1210,7 +1262,8 @@ impl LinkResolver {
 }
 
 fn normalize_lookup_key(value: &str) -> String {
-    value.replace('\\', "/")
+    value
+        .replace('\\', "/")
         .trim_start_matches("./")
         .trim()
         .to_ascii_lowercase()
@@ -1224,7 +1277,10 @@ fn strip_extension(value: &str) -> String {
 
         let path = Path::new(value);
         if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
-            let parent = path.parent().and_then(|parent| parent.to_str()).unwrap_or("");
+            let parent = path
+                .parent()
+                .and_then(|parent| parent.to_str())
+                .unwrap_or("");
             return if parent.is_empty() {
                 stem.to_string()
             } else {

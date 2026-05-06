@@ -1,7 +1,8 @@
 use std::{
     collections::HashMap,
+    ffi::OsStr,
     fs::{self, File},
-    path::Path,
+    path::{Component, Path, PathBuf},
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -41,10 +42,17 @@ pub(crate) struct MarkdownDocument {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SaveResult {
-    path: String,
-    byte_size: usize,
-    line_count: usize,
-    modified_ms: Option<u64>,
+    pub(crate) path: String,
+    pub(crate) byte_size: usize,
+    pub(crate) line_count: usize,
+    pub(crate) modified_ms: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AttachmentImportResult {
+    pub(crate) path: String,
+    pub(crate) markdown: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -286,5 +294,221 @@ pub(crate) fn save_markdown_file(
         byte_size: stats.byte_size,
         line_count: stats.line_count,
         modified_ms: metadata_modified_ms(&metadata),
+    })
+}
+
+fn is_markdown_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .map(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "md" | "markdown" | "mdown"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn ensure_markdown_name(name: &str) -> Result<String, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("请输入文件名。".to_string());
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') || trimmed == "." || trimmed == ".." {
+        return Err("文件名不能包含路径分隔符。".to_string());
+    }
+    let mut file_name = trimmed.to_string();
+    if Path::new(&file_name).extension().is_none() {
+        file_name.push_str(".md");
+    }
+    if !is_markdown_extension(Path::new(&file_name)) {
+        return Err("文件名必须使用 .md 或 .markdown 后缀。".to_string());
+    }
+    Ok(file_name)
+}
+
+fn ensure_inside_root(root: &Path, path: &Path) -> Result<PathBuf, String> {
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("Could not inspect {}: {error}", root.display()))?;
+    let parent = path.parent().unwrap_or(&root);
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("Could not create {}: {error}", parent.display()))?;
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|error| format!("Could not inspect {}: {error}", parent.display()))?;
+    if !canonical_parent.starts_with(&root) {
+        return Err("目标路径必须位于当前工作区内。".to_string());
+    }
+    Ok(path.to_path_buf())
+}
+
+pub(crate) fn create_markdown_file(
+    cache: &DocumentCache,
+    root: &Path,
+    directory: &str,
+    name: &str,
+    content: &str,
+) -> Result<SaveResult, String> {
+    let file_name = ensure_markdown_name(name)?;
+    let safe_directory = directory.trim().trim_matches('/');
+    if safe_directory.contains("..") || safe_directory.contains('\\') {
+        return Err("目标目录无效。".to_string());
+    }
+    let target_dir = if safe_directory.is_empty() {
+        root.to_path_buf()
+    } else {
+        root.join(safe_directory)
+    };
+    let target_path = ensure_inside_root(root, &target_dir.join(file_name))?;
+    if target_path.exists() {
+        return Err(format!("{} already exists", target_path.display()));
+    }
+    save_markdown_file(cache, &target_path, content)
+}
+
+pub(crate) fn rename_markdown_file(
+    cache: &DocumentCache,
+    path: &Path,
+    new_name: &str,
+) -> Result<SaveResult, String> {
+    if !path.is_file() {
+        return Err(format!("{} is not a file", path.display()));
+    }
+    if !is_markdown_extension(path) {
+        return Err("只能重命名 Markdown 文件。".to_string());
+    }
+    let file_name = ensure_markdown_name(new_name)?;
+    let target_path = path
+        .parent()
+        .ok_or_else(|| "无法解析当前文件目录。".to_string())?
+        .join(file_name);
+    if target_path != path && target_path.exists() {
+        return Err(format!("{} already exists", target_path.display()));
+    }
+    fs::rename(path, &target_path)
+        .map_err(|error| format!("Could not rename {}: {error}", path.display()))?;
+    cache
+        .indexed_files
+        .lock()
+        .map_err(|_| "Could not lock file index cache".to_string())?
+        .remove(&path.to_string_lossy().to_string());
+    let content = fs::read_to_string(&target_path)
+        .map_err(|error| format!("Could not read {}: {error}", target_path.display()))?;
+    save_markdown_file(cache, &target_path, &content)
+}
+
+fn unique_target_path(directory: &Path, file_name: &str) -> PathBuf {
+    let candidate = directory.join(file_name);
+    if !candidate.exists() {
+        return candidate;
+    }
+
+    let path = Path::new(file_name);
+    let stem = path
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .unwrap_or("attachment");
+    let extension = path.extension().and_then(OsStr::to_str).unwrap_or("");
+    for index in 2..10_000 {
+        let next_name = if extension.is_empty() {
+            format!("{stem}-{index}")
+        } else {
+            format!("{stem}-{index}.{extension}")
+        };
+        let next = directory.join(next_name);
+        if !next.exists() {
+            return next;
+        }
+    }
+
+    directory.join(file_name)
+}
+
+fn relative_path(from_directory: &Path, to_path: &Path) -> String {
+    let from_components = from_directory.components().collect::<Vec<_>>();
+    let to_components = to_path.components().collect::<Vec<_>>();
+    let mut common = 0usize;
+    while common < from_components.len()
+        && common < to_components.len()
+        && from_components[common] == to_components[common]
+    {
+        common += 1;
+    }
+
+    let mut parts = Vec::new();
+    for component in &from_components[common..] {
+        if matches!(component, Component::Normal(_)) {
+            parts.push("..".to_string());
+        }
+    }
+    for component in &to_components[common..] {
+        if let Component::Normal(value) = component {
+            parts.push(value.to_string_lossy().to_string());
+        }
+    }
+    if parts.is_empty() {
+        to_path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or("attachment")
+            .to_string()
+    } else {
+        parts.join("/")
+    }
+}
+
+pub(crate) fn import_attachment(
+    root: Option<&Path>,
+    current_path: Option<&Path>,
+    source_path: &Path,
+) -> Result<AttachmentImportResult, String> {
+    if !source_path.is_file() {
+        return Err(format!("{} is not a file", source_path.display()));
+    }
+
+    let base_root = if let Some(root) = root {
+        root.to_path_buf()
+    } else if let Some(current_path) = current_path.and_then(Path::parent) {
+        current_path.to_path_buf()
+    } else {
+        return Err("请先打开工作区或保存当前文档。".to_string());
+    };
+    let attachment_dir = base_root.join("attachments");
+    fs::create_dir_all(&attachment_dir)
+        .map_err(|error| format!("Could not create {}: {error}", attachment_dir.display()))?;
+    let original_name = source_path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("attachment");
+    let target_path = unique_target_path(&attachment_dir, original_name);
+    fs::copy(source_path, &target_path)
+        .map_err(|error| format!("Could not copy {}: {error}", source_path.display()))?;
+
+    let current_dir = current_path.and_then(Path::parent).unwrap_or(&base_root);
+    let link_target = relative_path(current_dir, &target_path);
+    let extension = target_path
+        .extension()
+        .and_then(OsStr::to_str)
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+    let is_image = matches!(
+        extension.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg"
+    );
+    let label = target_path
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .unwrap_or("attachment");
+    let markdown = if is_image {
+        format!("![{label}]({link_target})")
+    } else {
+        format!("[{label}]({link_target})")
+    };
+
+    Ok(AttachmentImportResult {
+        path: target_path.to_string_lossy().to_string(),
+        markdown,
     })
 }

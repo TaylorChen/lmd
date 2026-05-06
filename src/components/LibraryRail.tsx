@@ -13,6 +13,10 @@ type LibraryRailProps = {
   onOpen: () => void;
   onOpenWorkspace: () => void;
   onSave: () => void;
+  onRename: () => void;
+  onImportAttachment: () => void;
+  onCreateWikiPage: () => void;
+  onOpenCommandPalette: () => void;
   onInitializeKnowledgeWorkspace: () => void;
   onRefreshWorkspace: () => void;
   onExportHtml: () => void;
@@ -41,6 +45,10 @@ export function LibraryRail({
   onOpen,
   onOpenWorkspace,
   onSave,
+  onRename,
+  onImportAttachment,
+  onCreateWikiPage,
+  onOpenCommandPalette,
   onInitializeKnowledgeWorkspace,
   onRefreshWorkspace,
   onExportHtml,
@@ -83,6 +91,16 @@ export function LibraryRail({
                   type="button"
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
+                    onCreateWikiPage();
+                  }}
+                  disabled={busy}
+                >
+                  新建 Wiki 页面
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
                     onInitializeKnowledgeWorkspace();
                   }}
                   disabled={busy || workspace.knowledge.isInitialized}
@@ -101,6 +119,36 @@ export function LibraryRail({
                 </button>
               </>
             )}
+            <button
+              type="button"
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                onRename();
+              }}
+              disabled={busy || readOnly || isDirty}
+            >
+              重命名当前文件
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                onImportAttachment();
+              }}
+              disabled={busy || readOnly}
+            >
+              添加附件
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                onOpenCommandPalette();
+              }}
+              disabled={busy}
+            >
+              命令面板
+            </button>
             <button
               type="button"
               onClick={(event) => {

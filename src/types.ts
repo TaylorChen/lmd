@@ -17,6 +17,11 @@ export type SaveResult = {
   modifiedMs: number | null;
 };
 
+export type AttachmentImportResult = {
+  path: string;
+  markdown: string;
+};
+
 export type DocumentStats = {
   byteSize: number;
   lineCount: number;

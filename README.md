@@ -11,6 +11,7 @@ LMD is a native Markdown editor built with Tauri, React, and Rust. It is designe
 - Native macOS desktop shell powered by Tauri
 - Focused three-column layout for files, writing/preview, and AI assistance
 - Edit, Split, and Preview modes for Markdown writing
+- Front Matter-aware preview, KaTeX math, Mermaid diagrams, and syntax-highlighted code blocks
 - Workspace browsing, recent files, and full-text search
 - Local knowledge workspace with `notes/`, `sources/`, `wiki/`, and `wiki/inbox/`
 - AI assistant chat with DeepSeek, MiniMax, Kimi, 智谱 GLM, or a local external command
@@ -24,6 +25,8 @@ LMD is a native Markdown editor built with Tauri, React, and Rust. It is designe
 - Native desktop shell with Tauri
 - Markdown preview powered by `markdown-it`
 - GFM-style tables, task lists, strikethrough, images, and linkify in preview and HTML export
+- YAML Front Matter is hidden from rendered preview and export output
+- KaTeX math formulas, Mermaid diagrams, and syntax-highlighted code blocks
 - Workspace file listing and full-text search
 - Large-file mmap-backed paging for files over 5 MB
 - Real file metadata checks for external change detection
@@ -41,7 +44,7 @@ LMD is a native Markdown editor built with Tauri, React, and Rust. It is designe
 - Editor: CodeMirror 6
 - Desktop runtime: Tauri v2
 - Backend: Rust
-- Markdown rendering: `markdown-it`, `markdown-it-task-lists`
+- Markdown rendering: `markdown-it`, `markdown-it-task-lists`, `markdown-it-texmath`, KaTeX, Mermaid, highlight.js
 - UI testing: Playwright
 
 ## Project Layout

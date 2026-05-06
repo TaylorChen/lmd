@@ -1,4 +1,6 @@
+use serde::Serialize;
 use std::path::PathBuf;
+use tauri::Emitter;
 
 mod assistant;
 mod document;
@@ -13,6 +15,13 @@ struct AppState {
     documents: document::DocumentCache,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AssistantStreamDelta {
+    request_id: String,
+    delta: String,
+}
+
 #[cfg(target_os = "macos")]
 fn set_macos_application_icon() {
     use objc2::{AnyThread, MainThreadMarker};
@@ -23,9 +32,8 @@ fn set_macos_application_icon() {
         return;
     };
 
-    let icon_data = unsafe {
-        NSData::dataWithBytes_length(APP_ICON_PNG.as_ptr().cast(), APP_ICON_PNG.len())
-    };
+    let icon_data =
+        unsafe { NSData::dataWithBytes_length(APP_ICON_PNG.as_ptr().cast(), APP_ICON_PNG.len()) };
     let Some(icon) = NSImage::initWithData(NSImage::alloc(), &icon_data) else {
         return;
     };
@@ -136,6 +144,8 @@ fn query_context(
 
 #[tauri::command]
 async fn summarize_query_context(
+    app: tauri::AppHandle,
+    request_id: Option<String>,
     root_path: String,
     current_path: String,
     current_content: Option<String>,
@@ -158,20 +168,32 @@ async fn summarize_query_context(
             &PathBuf::from(&current_path),
             full_current_content.as_deref(),
         )?;
-        assistant::summarize_query_context(
-            assistant::AssistantRequest {
-                provider: provider.as_deref().unwrap_or(assistant::DEFAULT_PROVIDER),
-                model: model.as_deref().unwrap_or(assistant::DEFAULT_MODEL),
-                context: &context,
-                current_content: full_current_content.as_deref(),
-                task: task.as_deref(),
-                prompt: prompt.as_deref(),
-                api_key: api_key.as_deref(),
-                base_url: base_url.as_deref(),
-                external_command: external_command.as_deref(),
-                external_timeout_seconds,
-            },
-        )
+        let request = assistant::AssistantRequest {
+            provider: provider.as_deref().unwrap_or(assistant::DEFAULT_PROVIDER),
+            model: model.as_deref().unwrap_or(assistant::DEFAULT_MODEL),
+            context: &context,
+            current_content: full_current_content.as_deref(),
+            task: task.as_deref(),
+            prompt: prompt.as_deref(),
+            api_key: api_key.as_deref(),
+            base_url: base_url.as_deref(),
+            external_command: external_command.as_deref(),
+            external_timeout_seconds,
+        };
+        if let Some(request_id) = request_id {
+            let mut emit_delta = |delta: &str| {
+                let _ = app.emit(
+                    "assistant-stream-delta",
+                    AssistantStreamDelta {
+                        request_id: request_id.clone(),
+                        delta: delta.to_string(),
+                    },
+                );
+            };
+            assistant::summarize_query_context_stream(request, &mut emit_delta)
+        } else {
+            assistant::summarize_query_context(request)
+        }
     })
     .await
     .map_err(|error| format!("Assistant task failed: {error}"))?
@@ -179,6 +201,8 @@ async fn summarize_query_context(
 
 #[tauri::command]
 async fn summarize_editor_context(
+    app: tauri::AppHandle,
+    request_id: Option<String>,
     current_path: Option<String>,
     current_relative_path: Option<String>,
     current_content: String,
@@ -194,24 +218,37 @@ async fn summarize_editor_context(
     tauri::async_runtime::spawn_blocking(move || {
         let context = workspace::QueryContext {
             current_path: current_path.unwrap_or_else(|| "untitled.md".to_string()),
-            current_relative_path: current_relative_path.unwrap_or_else(|| "untitled.md".to_string()),
+            current_relative_path: current_relative_path
+                .unwrap_or_else(|| "untitled.md".to_string()),
             items: Vec::new(),
         };
 
-        assistant::summarize_query_context(
-            assistant::AssistantRequest {
-                provider: provider.as_deref().unwrap_or(assistant::DEFAULT_PROVIDER),
-                model: model.as_deref().unwrap_or(assistant::DEFAULT_MODEL),
-                context: &context,
-                current_content: Some(&current_content),
-                task: task.as_deref(),
-                prompt: prompt.as_deref(),
-                api_key: api_key.as_deref(),
-                base_url: base_url.as_deref(),
-                external_command: external_command.as_deref(),
-                external_timeout_seconds,
-            },
-        )
+        let request = assistant::AssistantRequest {
+            provider: provider.as_deref().unwrap_or(assistant::DEFAULT_PROVIDER),
+            model: model.as_deref().unwrap_or(assistant::DEFAULT_MODEL),
+            context: &context,
+            current_content: Some(&current_content),
+            task: task.as_deref(),
+            prompt: prompt.as_deref(),
+            api_key: api_key.as_deref(),
+            base_url: base_url.as_deref(),
+            external_command: external_command.as_deref(),
+            external_timeout_seconds,
+        };
+        if let Some(request_id) = request_id {
+            let mut emit_delta = |delta: &str| {
+                let _ = app.emit(
+                    "assistant-stream-delta",
+                    AssistantStreamDelta {
+                        request_id: request_id.clone(),
+                        delta: delta.to_string(),
+                    },
+                );
+            };
+            assistant::summarize_query_context_stream(request, &mut emit_delta)
+        } else {
+            assistant::summarize_query_context(request)
+        }
     })
     .await
     .map_err(|error| format!("Assistant task failed: {error}"))?
@@ -260,6 +297,45 @@ fn save_markdown_file(
     };
 
     document::save_markdown_file(&state.documents, &target_path, &content).map(Some)
+}
+
+#[tauri::command]
+fn create_markdown_file(
+    state: tauri::State<'_, AppState>,
+    root_path: String,
+    directory: String,
+    name: String,
+    content: String,
+) -> Result<document::SaveResult, String> {
+    document::create_markdown_file(
+        &state.documents,
+        &PathBuf::from(root_path),
+        &directory,
+        &name,
+        &content,
+    )
+}
+
+#[tauri::command]
+fn rename_markdown_file(
+    state: tauri::State<'_, AppState>,
+    path: String,
+    new_name: String,
+) -> Result<document::SaveResult, String> {
+    document::rename_markdown_file(&state.documents, &PathBuf::from(path), &new_name)
+}
+
+#[tauri::command]
+fn import_attachment(
+    root_path: Option<String>,
+    current_path: Option<String>,
+) -> Result<Option<document::AttachmentImportResult>, String> {
+    let Some(source_path) = rfd::FileDialog::new().pick_file() else {
+        return Ok(None);
+    };
+    let root = root_path.as_deref().map(PathBuf::from);
+    let current = current_path.as_deref().map(PathBuf::from);
+    document::import_attachment(root.as_deref(), current.as_deref(), &source_path).map(Some)
 }
 
 #[tauri::command]
@@ -320,7 +396,9 @@ pub fn run() {
             export_markdown_html,
             export_markdown_pdf,
             assistant_catalog,
+            create_markdown_file,
             file_metadata,
+            import_attachment,
             load_markdown_range,
             initialize_knowledge_workspace,
             knowledge_lint_report,
@@ -329,6 +407,7 @@ pub fn run() {
             open_workspace,
             query_context,
             refresh_workspace,
+            rename_markdown_file,
             save_wiki_draft,
             search_workspace,
             summarize_editor_context,
@@ -341,13 +420,13 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::document::{
-        build_index, file_metadata, open_markdown_path, read_line_range, save_markdown_file,
-        DocumentCache,
-    };
     use super::assistant::{
-        catalog as assistant_catalog_state, summarize_query_context as summarize_assistant_query_context,
-        AssistantRequest,
+        catalog as assistant_catalog_state,
+        summarize_query_context as summarize_assistant_query_context, AssistantRequest,
+    };
+    use super::document::{
+        build_index, create_markdown_file, file_metadata, import_attachment, open_markdown_path,
+        read_line_range, rename_markdown_file, save_markdown_file, DocumentCache,
     };
     use super::export::{export_html_document, export_pdf, pdf_document};
     use super::workspace::{
@@ -356,16 +435,15 @@ mod tests {
         QueryContextItem,
     };
     use serde_json::{json, to_value};
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::{
-        env,
-        fs,
+        env, fs,
         io::Write,
         path::PathBuf,
         thread,
         time::{SystemTime, UNIX_EPOCH},
     };
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
 
     fn temp_markdown_path(name: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -403,6 +481,36 @@ mod tests {
         assert_eq!(opened_json["readOnly"], false);
 
         fs::remove_file(path).expect("remove saved file");
+    }
+
+    #[test]
+    fn creates_renames_and_imports_workspace_files() {
+        let workspace = temp_workspace_path("file-workflows");
+        fs::create_dir_all(&workspace).unwrap();
+        let cache = DocumentCache::default();
+
+        let created =
+            create_markdown_file(&cache, &workspace, "notes", "daily", "# Daily\n").unwrap();
+        assert!(created.path.ends_with("notes/daily.md"));
+        assert!(PathBuf::from(&created.path).is_file());
+
+        let renamed =
+            rename_markdown_file(&cache, &PathBuf::from(&created.path), "renamed.md").unwrap();
+        assert!(renamed.path.ends_with("notes/renamed.md"));
+        assert!(!PathBuf::from(&created.path).exists());
+
+        let source = workspace.join("source.png");
+        fs::write(&source, b"png").unwrap();
+        let imported = import_attachment(
+            Some(&workspace),
+            Some(&PathBuf::from(&renamed.path)),
+            &source,
+        )
+        .unwrap();
+        assert!(PathBuf::from(&imported.path).is_file());
+        assert_eq!(imported.markdown, "![source](../attachments/source.png)");
+
+        fs::remove_dir_all(workspace).unwrap();
     }
 
     #[test]
@@ -540,7 +648,8 @@ mod tests {
     fn initializes_knowledge_workspace_protocol() {
         let root = temp_workspace_path("knowledge-init");
 
-        let workspace = initialize_knowledge_workspace(&root).expect("initialize knowledge workspace");
+        let workspace =
+            initialize_knowledge_workspace(&root).expect("initialize knowledge workspace");
         assert!(workspace.knowledge.is_initialized);
         assert!(root.join("notes").is_dir());
         assert!(root.join("sources").is_dir());
@@ -555,12 +664,12 @@ mod tests {
         assert!(root.join(".lmd/knowledge/manifest.json").is_file());
         assert!(root.join(".lmd/knowledge/index.json").is_file());
 
-        let manifest = fs::read_to_string(root.join(".lmd/knowledge/manifest.json"))
-            .expect("read manifest");
+        let manifest =
+            fs::read_to_string(root.join(".lmd/knowledge/manifest.json")).expect("read manifest");
         assert!(manifest.contains("\"indexVersion\": 1"));
         assert!(manifest.contains("\"lastCompileStatus\": \"idle\""));
-        let index_cache = fs::read_to_string(root.join(".lmd/knowledge/index.json"))
-            .expect("read index cache");
+        let index_cache =
+            fs::read_to_string(root.join(".lmd/knowledge/index.json")).expect("read index cache");
         assert!(index_cache.contains("\"documentCount\""));
         assert!(index_cache.contains("\"links\""));
 
@@ -588,26 +697,34 @@ mod tests {
         .expect("write beta");
         fs::write(root.join("sources/source doc.md"), "# Source Doc").expect("write source");
 
-        let knowledge = document_knowledge(
-            &root,
-            &root.join("notes/alpha.md"),
-            None,
-        )
-        .expect("document knowledge");
+        let knowledge = document_knowledge(&root, &root.join("notes/alpha.md"), None)
+            .expect("document knowledge");
         let knowledge_json = to_value(knowledge).expect("serialize knowledge");
 
         assert_eq!(knowledge_json["currentRelativePath"], "notes/alpha.md");
         assert_eq!(knowledge_json["tags"], json!(["draft", "focus", "writing"]));
-        assert_eq!(knowledge_json["outgoingLinks"][0]["resolvedRelativePath"], "wiki/concepts/beta.md");
+        assert_eq!(
+            knowledge_json["outgoingLinks"][0]["resolvedRelativePath"],
+            "wiki/concepts/beta.md"
+        );
         assert_eq!(knowledge_json["outgoingLinks"][0]["sourceKind"], "wiki");
         assert!(knowledge_json["sourceReferences"]
             .as_array()
             .expect("source refs")
             .iter()
             .any(|item| item["relativePath"] == "sources/source doc.md"));
-        assert_eq!(knowledge_json["unresolvedLinks"][0]["target"], "Missing Page");
-        assert_eq!(knowledge_json["backlinks"][0]["relativePath"], "wiki/concepts/beta.md");
-        assert_eq!(knowledge_json["relatedWikiPages"][0]["relativePath"], "wiki/concepts/beta.md");
+        assert_eq!(
+            knowledge_json["unresolvedLinks"][0]["target"],
+            "Missing Page"
+        );
+        assert_eq!(
+            knowledge_json["backlinks"][0]["relativePath"],
+            "wiki/concepts/beta.md"
+        );
+        assert_eq!(
+            knowledge_json["relatedWikiPages"][0]["relativePath"],
+            "wiki/concepts/beta.md"
+        );
 
         fs::remove_dir_all(root).expect("remove workspace");
     }
@@ -617,19 +734,27 @@ mod tests {
         let root = temp_workspace_path("knowledge-lint");
         fs::create_dir_all(root.join("wiki")).expect("create wiki");
         fs::write(root.join("wiki/index.md"), "# Index\n\n- [[Existing]]\n").expect("write index");
-        fs::write(root.join("wiki/existing.md"), "# Existing\n\n[[Missing Topic]]\n")
-            .expect("write existing");
+        fs::write(
+            root.join("wiki/existing.md"),
+            "# Existing\n\n[[Missing Topic]]\n",
+        )
+        .expect("write existing");
         fs::write(root.join("wiki/orphan.md"), "# Orphan\n").expect("write orphan");
 
         let report = knowledge_lint_report(&root).expect("lint report");
         let report_json = to_value(report).expect("serialize lint report");
         let issues = report_json["issues"].as_array().expect("issues array");
 
-        assert!(issues.iter().any(|issue| issue["kind"] == "unresolved_link"));
-        assert!(issues.iter().any(|issue| issue["kind"] == "orphan_wiki_page"));
         assert!(issues
             .iter()
-            .any(|issue| issue["kind"] == "not_in_index" && issue["relativePath"] == "wiki/orphan.md"));
+            .any(|issue| issue["kind"] == "unresolved_link"));
+        assert!(issues
+            .iter()
+            .any(|issue| issue["kind"] == "orphan_wiki_page"));
+        assert!(issues
+            .iter()
+            .any(|issue| issue["kind"] == "not_in_index"
+                && issue["relativePath"] == "wiki/orphan.md"));
 
         fs::remove_dir_all(root).expect("remove workspace");
     }
@@ -646,16 +771,29 @@ mod tests {
             "# Topic\n\n[[overview]]\n[[source material]]",
         )
         .expect("write topic");
-        fs::write(root.join("wiki/overview.md"), "# Overview\n\nBacklink [[topic]]").expect("write overview");
-        fs::write(root.join("sources/source material.md"), "# Source Material\n\nFacts").expect("write source");
+        fs::write(
+            root.join("wiki/overview.md"),
+            "# Overview\n\nBacklink [[topic]]",
+        )
+        .expect("write overview");
+        fs::write(
+            root.join("sources/source material.md"),
+            "# Source Material\n\nFacts",
+        )
+        .expect("write source");
 
-        let context = query_context(&root, &root.join("notes/topic.md"), None).expect("query context");
+        let context =
+            query_context(&root, &root.join("notes/topic.md"), None).expect("query context");
         let context_json = to_value(context).expect("serialize query context");
         let items = context_json["items"].as_array().expect("items");
 
-        assert!(items.iter().any(|item| item["reason"] == "current_document"));
+        assert!(items
+            .iter()
+            .any(|item| item["reason"] == "current_document"));
         assert!(items.iter().any(|item| item["reason"] == "linked_wiki"));
-        assert!(items.iter().any(|item| item["reason"] == "source_reference"));
+        assert!(items
+            .iter()
+            .any(|item| item["reason"] == "source_reference"));
         assert!(items.iter().any(|item| item["reason"] == "index_hint"));
 
         fs::remove_dir_all(root).expect("remove workspace");
@@ -670,7 +808,8 @@ mod tests {
         fs::write(root.join("wiki/log.md"), "# Knowledge Log\n").expect("write log");
         fs::write(root.join("notes/topic.md"), "# Topic\n\nBody").expect("write topic");
 
-        let context = query_context(&root, &root.join("notes/topic.md"), None).expect("query context");
+        let context =
+            query_context(&root, &root.join("notes/topic.md"), None).expect("query context");
         let script_path = temp_workspace_path("assistant-draft-command").with_extension("sh");
         let mut script = fs::File::create(&script_path).expect("create assistant command");
         writeln!(
@@ -739,8 +878,10 @@ mod tests {
         let root = temp_workspace_path("assistant-draft-names");
         fs::create_dir_all(&root).expect("create workspace root");
 
-        let chinese_path = save_wiki_draft(&root, "你好，世界", "# 你好").expect("save chinese draft");
-        let fallback_path = save_wiki_draft(&root, "!!!", "# Empty title").expect("save fallback draft");
+        let chinese_path =
+            save_wiki_draft(&root, "你好，世界", "# 你好").expect("save chinese draft");
+        let fallback_path =
+            save_wiki_draft(&root, "!!!", "# Empty title").expect("save fallback draft");
 
         assert!(chinese_path.ends_with("/wiki/inbox/你好-世界.md"));
         assert!(fallback_path.contains("/wiki/inbox/ai-draft-"));
@@ -873,14 +1014,30 @@ mod tests {
         let catalog = assistant_catalog_state();
 
         assert_eq!(catalog.default_provider, "deepseek");
-        assert!(catalog.providers.iter().any(|provider| provider.id == "deepseek"));
-        assert!(catalog.providers.iter().any(|provider| provider.id == "minimax"));
-        assert!(catalog.providers.iter().any(|provider| provider.id == "kimi"));
-        assert!(catalog.providers.iter().any(|provider| provider.id == "zhipu"));
         assert!(catalog
             .providers
             .iter()
-            .any(|provider| provider.id == "external_command" && provider.models.iter().any(|model| model == "command-json-v1")));
+            .any(|provider| provider.id == "deepseek"));
+        assert!(catalog
+            .providers
+            .iter()
+            .any(|provider| provider.id == "minimax"));
+        assert!(catalog
+            .providers
+            .iter()
+            .any(|provider| provider.id == "kimi"));
+        assert!(catalog
+            .providers
+            .iter()
+            .any(|provider| provider.id == "zhipu"));
+        assert!(catalog
+            .providers
+            .iter()
+            .any(|provider| provider.id == "external_command"
+                && provider
+                    .models
+                    .iter()
+                    .any(|model| model == "command-json-v1")));
     }
 
     #[test]

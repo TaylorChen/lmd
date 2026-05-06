@@ -12,6 +12,7 @@
     "tauri:dev": "node scripts/tauri-dev.mjs"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.1",
     "@codemirror/commands": "^6.8.1",
     "@codemirror/lang-markdown": "^6.3.3",
     "@codemirror/search": "^6.5.11",
@@ -19,8 +20,12 @@
     "@codemirror/view": "^6.36.8",
     "@tauri-apps/api": "^2.4.0",
     "@uiw/react-codemirror": "^4.23.8",
+    "highlight.js": "^11.11.1",
+    "katex": "^0.16.45",
     "markdown-it": "^14.1.1",
     "markdown-it-task-lists": "^2.1.1",
+    "markdown-it-texmath": "^1.0.0",
+    "mermaid": "^11.14.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

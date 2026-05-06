@@ -2,7 +2,7 @@ use crate::workspace::{AssistantDraft, QueryContext};
 use serde::{Deserialize, Serialize};
 use std::{
     env,
-    io::Write,
+    io::{BufRead, BufReader, Write},
     process::{Command, Stdio},
     thread,
     time::{Duration, Instant},
@@ -51,28 +51,43 @@ pub(crate) fn catalog() -> AssistantCatalog {
             AssistantProviderInfo {
                 id: "deepseek".to_string(),
                 label: "DeepSeek".to_string(),
-                models: vec!["deepseek-v4-flash".to_string(), "deepseek-v4-pro".to_string()],
+                models: vec![
+                    "deepseek-v4-flash".to_string(),
+                    "deepseek-v4-pro".to_string(),
+                ],
                 base_url: Some("https://api.deepseek.com/chat/completions".to_string()),
                 api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
             },
             AssistantProviderInfo {
                 id: "minimax".to_string(),
                 label: "MiniMax".to_string(),
-                models: vec!["MiniMax-M2.7".to_string(), "MiniMax-M2.5".to_string(), "MiniMax-M2".to_string()],
+                models: vec![
+                    "MiniMax-M2.7".to_string(),
+                    "MiniMax-M2.5".to_string(),
+                    "MiniMax-M2".to_string(),
+                ],
                 base_url: Some("https://api.minimaxi.com/v1/chat/completions".to_string()),
                 api_key_env: Some("MINIMAX_API_KEY".to_string()),
             },
             AssistantProviderInfo {
                 id: "kimi".to_string(),
                 label: "Kimi".to_string(),
-                models: vec!["kimi-k2.6".to_string(), "kimi-k2.5".to_string(), "moonshot-v1-128k".to_string()],
+                models: vec![
+                    "kimi-k2.6".to_string(),
+                    "kimi-k2.5".to_string(),
+                    "moonshot-v1-128k".to_string(),
+                ],
                 base_url: Some("https://api.moonshot.cn/v1/chat/completions".to_string()),
                 api_key_env: Some("MOONSHOT_API_KEY".to_string()),
             },
             AssistantProviderInfo {
                 id: "zhipu".to_string(),
                 label: "智谱 GLM".to_string(),
-                models: vec!["glm-5.1".to_string(), "glm-4.7".to_string(), "glm-4.5".to_string()],
+                models: vec![
+                    "glm-5.1".to_string(),
+                    "glm-4.7".to_string(),
+                    "glm-4.5".to_string(),
+                ],
                 base_url: Some("https://open.bigmodel.cn/api/paas/v4/chat/completions".to_string()),
                 api_key_env: Some("ZAI_API_KEY".to_string()),
             },
@@ -87,13 +102,40 @@ pub(crate) fn catalog() -> AssistantCatalog {
     }
 }
 
-pub(crate) fn summarize_query_context(request: AssistantRequest<'_>) -> Result<AssistantDraft, String> {
+pub(crate) fn summarize_query_context(
+    request: AssistantRequest<'_>,
+) -> Result<AssistantDraft, String> {
     validate_request(&request)?;
 
     match request.provider {
         "deepseek" | "minimax" | "kimi" | "zhipu" => openai_compatible_summary(request),
         "external_command" => external_command_summary(request),
-        _ => Err(format!("Unsupported assistant provider: {}", request.provider)),
+        _ => Err(format!(
+            "Unsupported assistant provider: {}",
+            request.provider
+        )),
+    }
+}
+
+pub(crate) fn summarize_query_context_stream(
+    request: AssistantRequest<'_>,
+    on_delta: &mut dyn FnMut(&str),
+) -> Result<AssistantDraft, String> {
+    validate_request(&request)?;
+
+    match request.provider {
+        "deepseek" | "minimax" | "kimi" | "zhipu" => {
+            openai_compatible_summary_stream(request, on_delta)
+        }
+        "external_command" => {
+            let draft = external_command_summary(request)?;
+            on_delta(&draft.content);
+            Ok(draft)
+        }
+        _ => Err(format!(
+            "Unsupported assistant provider: {}",
+            request.provider
+        )),
     }
 }
 
@@ -115,9 +157,16 @@ fn openai_compatible_summary(request: AssistantRequest<'_>) -> Result<AssistantD
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-        .or_else(|| provider.api_key_env.as_deref().and_then(|name| env::var(name).ok()))
+        .or_else(|| {
+            provider
+                .api_key_env
+                .as_deref()
+                .and_then(|name| env::var(name).ok())
+        })
         .ok_or_else(|| {
-            let env_name = provider.api_key_env.unwrap_or_else(|| "PROVIDER_API_KEY".to_string());
+            let env_name = provider
+                .api_key_env
+                .unwrap_or_else(|| "PROVIDER_API_KEY".to_string());
             format!("请在设置中填写 API Key，或设置环境变量 {env_name}")
         })?;
 
@@ -130,6 +179,7 @@ fn openai_compatible_summary(request: AssistantRequest<'_>) -> Result<AssistantD
         model: request.model,
         temperature: Some(0.3),
         max_tokens: DEFAULT_ASSISTANT_MAX_TOKENS,
+        stream: None,
         thinking,
         messages: vec![
             ChatMessage {
@@ -175,7 +225,11 @@ fn openai_compatible_summary(request: AssistantRequest<'_>) -> Result<AssistantD
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        return Err(format_assistant_api_error(output.status.to_string(), &stderr, &stdout));
+        return Err(format_assistant_api_error(
+            output.status.to_string(),
+            &stderr,
+            &stdout,
+        ));
     }
 
     let response = serde_json::from_slice::<OpenAiCompatibleResponse>(&output.stdout)
@@ -190,6 +244,157 @@ fn openai_compatible_summary(request: AssistantRequest<'_>) -> Result<AssistantD
         .map(|choice| choice.message.content.trim().to_string())
         .filter(|content| !content.is_empty())
         .ok_or_else(|| "Assistant API returned no content".to_string())?;
+
+    Ok(AssistantDraft {
+        title: suggest_draft_title(request.context, task, &content),
+        content,
+    })
+}
+
+fn openai_compatible_summary_stream(
+    request: AssistantRequest<'_>,
+    on_delta: &mut dyn FnMut(&str),
+) -> Result<AssistantDraft, String> {
+    let provider = catalog()
+        .providers
+        .into_iter()
+        .find(|provider| provider.id == request.provider)
+        .ok_or_else(|| format!("Unsupported assistant provider: {}", request.provider))?;
+    let base_url = request
+        .base_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or(provider.base_url)
+        .ok_or_else(|| format!("{} has no API endpoint configured", request.provider))?;
+    let api_key = request
+        .api_key
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            provider
+                .api_key_env
+                .as_deref()
+                .and_then(|name| env::var(name).ok())
+        })
+        .ok_or_else(|| {
+            let env_name = provider
+                .api_key_env
+                .unwrap_or_else(|| "PROVIDER_API_KEY".to_string());
+            format!("请在设置中填写 API Key，或设置环境变量 {env_name}")
+        })?;
+
+    let prompt = request.prompt.unwrap_or("").trim();
+    let task = request.task.unwrap_or("summarize").trim();
+    let user_prompt = build_llm_prompt(request.context, request.current_content, task, prompt);
+    let timeout = network_timeout(request.external_timeout_seconds);
+    let thinking = deepseek_thinking_mode(request.provider, request.model);
+    let input = serde_json::to_vec(&OpenAiCompatibleRequest {
+        model: request.model,
+        temperature: Some(0.3),
+        max_tokens: DEFAULT_ASSISTANT_MAX_TOKENS,
+        stream: Some(true),
+        thinking,
+        messages: vec![
+            ChatMessage {
+                role: "system",
+                content: "你是 LMD 的中文笔记写作助手。请只返回 Markdown 正文，不要包裹 JSON，不要解释你的工作过程。输出应适合直接插入笔记或保存为 Wiki 草稿。",
+            },
+            ChatMessage {
+                role: "user",
+                content: &user_prompt,
+            },
+        ],
+    })
+    .map_err(|error| format!("Could not encode assistant request: {error}"))?;
+
+    let mut child = Command::new("curl")
+        .arg("-sS")
+        .arg("-N")
+        .arg("--max-time")
+        .arg(timeout.as_secs().to_string())
+        .arg("--connect-timeout")
+        .arg("10")
+        .arg("--fail-with-body")
+        .arg("-X")
+        .arg("POST")
+        .arg(&base_url)
+        .arg("-H")
+        .arg("Content-Type: application/json")
+        .arg("-H")
+        .arg(format!("Authorization: Bearer {api_key}"))
+        .arg("--data-binary")
+        .arg("@-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("Could not call assistant API: {error}"))?;
+
+    {
+        let Some(mut stdin) = child.stdin.take() else {
+            return Err("Assistant API stdin is unavailable".to_string());
+        };
+        stdin
+            .write_all(&input)
+            .map_err(|error| format!("Could not write assistant API input: {error}"))?;
+    }
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Assistant API stdout is unavailable".to_string())?;
+    let mut content = String::new();
+    let mut error_message: Option<String> = None;
+
+    for line in BufReader::new(stdout).lines() {
+        let line = line.map_err(|error| format!("Could not read assistant stream: {error}"))?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with(':') {
+            continue;
+        }
+        let Some(data) = trimmed.strip_prefix("data:") else {
+            continue;
+        };
+        let data = data.trim();
+        if data == "[DONE]" {
+            break;
+        }
+        let chunk = serde_json::from_str::<OpenAiCompatibleStreamResponse>(data)
+            .map_err(|error| format!("Assistant stream returned invalid JSON: {error}"))?;
+        if let Some(error) = chunk.error {
+            error_message = Some(error.message);
+            break;
+        }
+        for choice in chunk.choices {
+            if let Some(delta) = choice.delta.content {
+                if !delta.is_empty() {
+                    on_delta(&delta);
+                    content.push_str(&delta);
+                }
+            }
+        }
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("Could not finish assistant stream: {error}"))?;
+    if let Some(error) = error_message {
+        return Err(error);
+    }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(format_assistant_api_error(
+            output.status.to_string(),
+            &stderr,
+            "",
+        ));
+    }
+    let content = content.trim().to_string();
+    if content.is_empty() {
+        return Err("Assistant API returned no content".to_string());
+    }
 
     Ok(AssistantDraft {
         title: suggest_draft_title(request.context, task, &content),
@@ -219,7 +424,10 @@ fn build_llm_prompt(
         prompt.push_str("\n\n用户补充要求：");
         prompt.push_str(user_prompt);
     }
-    if let Some(content) = current_content.map(str::trim).filter(|content| !content.is_empty()) {
+    if let Some(content) = current_content
+        .map(str::trim)
+        .filter(|content| !content.is_empty())
+    {
         prompt.push_str("\n\n当前文档全文：\n");
         prompt.push_str(&limit_chars(content, 24_000));
     }
@@ -264,7 +472,10 @@ fn format_assistant_api_error(status: String, stderr: &str, stdout: &str) -> Str
         return "AI 请求超时，请检查网络、API 地址或稍后重试。".to_string();
     }
     if !stdout.is_empty() {
-        return format!("Assistant API failed with status {status}: {}", limit_chars(stdout, 800));
+        return format!(
+            "Assistant API failed with status {status}: {}",
+            limit_chars(stdout, 800)
+        );
     }
     if !stderr.is_empty() {
         return format!("Assistant API failed: {}", limit_chars(stderr, 800));
@@ -303,7 +514,10 @@ fn validate_request(request: &AssistantRequest<'_>) -> Result<(), String> {
         .iter()
         .find(|provider| provider.id == request.provider)
     else {
-        return Err(format!("Unsupported assistant provider: {}", request.provider));
+        return Err(format!(
+            "Unsupported assistant provider: {}",
+            request.provider
+        ));
     };
 
     if provider.models.iter().any(|model| model == request.model) {
@@ -323,7 +537,9 @@ fn external_command_summary(request: AssistantRequest<'_>) -> Result<AssistantDr
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .or_else(|| env::var("LMD_ASSISTANT_COMMAND").ok())
-        .ok_or_else(|| "请在设置中填写外部命令路径，或设置环境变量 LMD_ASSISTANT_COMMAND".to_string())?;
+        .ok_or_else(|| {
+            "请在设置中填写外部命令路径，或设置环境变量 LMD_ASSISTANT_COMMAND".to_string()
+        })?;
     if command_path.trim().is_empty() {
         return Err("外部命令路径为空。".to_string());
     }
@@ -420,6 +636,8 @@ struct OpenAiCompatibleRequest<'a> {
     temperature: Option<f32>,
     max_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     thinking: Option<ThinkingMode<'a>>,
 }
 
@@ -454,4 +672,21 @@ struct OpenAiMessage {
 #[derive(Deserialize)]
 struct OpenAiError {
     message: String,
+}
+
+#[derive(Deserialize)]
+struct OpenAiCompatibleStreamResponse {
+    #[serde(default)]
+    choices: Vec<OpenAiStreamChoice>,
+    error: Option<OpenAiError>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiStreamChoice {
+    delta: OpenAiStreamDelta,
+}
+
+#[derive(Deserialize)]
+struct OpenAiStreamDelta {
+    content: Option<String>,
 }

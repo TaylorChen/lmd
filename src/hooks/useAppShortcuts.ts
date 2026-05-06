@@ -11,6 +11,7 @@ type AppShortcutsOptions = {
   onOpenWorkspace: () => void;
   onNew: () => void;
   onRefreshWorkspace: () => void;
+  onOpenCommandPalette: () => void;
 };
 
 export function useAppShortcuts({
@@ -23,6 +24,7 @@ export function useAppShortcuts({
   onOpenWorkspace,
   onNew,
   onRefreshWorkspace,
+  onOpenCommandPalette,
 }: AppShortcutsOptions) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -32,6 +34,9 @@ export function useAppShortcuts({
       if (key === "s") {
         event.preventDefault();
         if (!busy && !readOnly && isDirty) onSave();
+      } else if (key === "k") {
+        event.preventDefault();
+        onOpenCommandPalette();
       } else if (key === "o" && event.shiftKey) {
         event.preventDefault();
         if (!busy) onOpenWorkspace();
@@ -49,5 +54,5 @@ export function useAppShortcuts({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [busy, isDirty, onNew, onOpen, onOpenWorkspace, onRefreshWorkspace, onSave, readOnly, workspace]);
+  }, [busy, isDirty, onNew, onOpen, onOpenCommandPalette, onOpenWorkspace, onRefreshWorkspace, onSave, readOnly, workspace]);
 }

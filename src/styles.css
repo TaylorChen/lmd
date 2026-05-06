@@ -745,6 +745,7 @@ button:disabled {
 
 .document-heading {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px;
   min-width: 0;
   padding: 16px 20px 12px;
@@ -763,7 +764,124 @@ button:disabled {
 }
 
 .document-heading p {
+  grid-column: 1 / -1;
   margin: 0;
+  color: var(--muted);
+}
+
+.document-rename-button {
+  height: 30px;
+  padding: 0 10px;
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  padding-top: 10vh;
+  background: rgba(29, 28, 26, 0.18);
+}
+
+.name-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(29, 28, 26, 0.18);
+}
+
+.name-dialog {
+  display: grid;
+  gap: 14px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: var(--shadow);
+}
+
+.name-dialog header strong {
+  font-size: 1.05rem;
+}
+
+.name-dialog label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+}
+
+.name-dialog input {
+  height: 38px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+}
+
+.name-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.name-dialog footer button {
+  height: 34px;
+  padding: 0 13px;
+}
+
+.command-palette {
+  display: grid;
+  gap: 10px;
+  width: min(560px, calc(100vw - 32px));
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: var(--shadow);
+}
+
+.command-palette input {
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 1rem;
+}
+
+.command-list {
+  display: grid;
+  gap: 4px;
+  max-height: min(420px, 60vh);
+  overflow: auto;
+}
+
+.command-list button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  justify-content: stretch;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--body);
+  text-align: left;
+}
+
+.command-list button:not(:disabled):hover {
+  background: var(--panel-muted);
+}
+
+.command-list small {
   color: var(--muted);
 }
 
@@ -843,6 +961,21 @@ button:disabled {
   padding: 32px 36px;
   color: var(--body);
   line-height: 1.76;
+}
+
+.markdown-preview .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.markdown-preview .mermaid {
+  display: flex;
+  justify-content: center;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid var(--soft-line);
+  border-radius: 8px;
+  background: var(--panel-muted);
 }
 
 .knowledge-panel {

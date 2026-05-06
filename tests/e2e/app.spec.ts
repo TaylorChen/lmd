@@ -294,6 +294,37 @@ async function installTauriMock(page: Page) {
           };
         }
 
+        if (command === "create_markdown_file") {
+          const directory = String(args?.directory ?? "").replace(/^\/+|\/+$/g, "");
+          const name = String(args?.name ?? "untitled.md").endsWith(".md")
+            ? String(args?.name ?? "untitled.md")
+            : `${String(args?.name ?? "untitled")}.md`;
+          const targetPath = `/workspace/${directory ? `${directory}/` : ""}${name}`;
+          return {
+            path: targetPath,
+            byteSize: new TextEncoder().encode(String(args?.content ?? "")).length,
+            lineCount: 2,
+            modifiedMs: 2200,
+          };
+        }
+
+        if (command === "rename_markdown_file") {
+          const newName = String(args?.newName ?? "renamed.md");
+          return {
+            path: `/workspace/${newName.endsWith(".md") ? newName : `${newName}.md`}`,
+            byteSize: 31,
+            lineCount: 3,
+            modifiedMs: 2300,
+          };
+        }
+
+        if (command === "import_attachment") {
+          return {
+            path: "/workspace/attachments/diagram.png",
+            markdown: "![diagram](../attachments/diagram.png)",
+          };
+        }
+
         if (command === "export_markdown_html") {
           if (!String(args?.html ?? "").includes("<h1>Saved title</h1>")) {
             throw new Error("HTML export did not receive rendered markdown");
@@ -337,7 +368,7 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await page.locator(".cm-content").click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
   await page.keyboard.type(
-    "# Preview title\n\n| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n\n- [x] done item\n\nhttps://example.com",
+    "---\ntitle: Preview title\ntags: [math, diagram]\n---\n\n# Preview title\n\nInline math $a^2 + b^2 = c^2$.\n\n$$E=mc^2$$\n\n```mermaid\ngraph TD\nA-->B\n```\n\n```javascript\nconst answer = 42;\n```\n\n| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n\n- [x] done item\n\nhttps://example.com",
   );
 
   await page.getByRole("button", { name: "分屏" }).click();
@@ -349,6 +380,10 @@ test("edits markdown and renders preview modes", async ({ page }) => {
     return heading.getBoundingClientRect().top - preview.getBoundingClientRect().top;
   });
   expect(firstPreviewBlockOffset).toBeLessThan(20);
+  await expect(page.locator(".document-main .markdown-preview")).not.toContainText("tags: [math, diagram]");
+  await expect(page.locator(".document-main .markdown-preview .katex").first()).toBeVisible();
+  await expect(page.locator(".document-main .markdown-preview .mermaid svg").first()).toBeVisible();
+  await expect(page.locator(".document-main .markdown-preview pre code .hljs-keyword").first()).toHaveText("const");
   await expect(page.locator(".document-main .markdown-preview table")).toContainText("Alpha");
   await expect(page.locator(".document-main").getByRole("checkbox", { name: "done item" })).toBeChecked();
   await expect(page.locator(".document-main").getByRole("link", { name: "https://example.com" })).toBeVisible();
@@ -405,8 +440,8 @@ test("allows assistant chat without knowledge context", async ({ page }) => {
   await sendButton.click();
 
   await expect(page.getByLabel("AI 对话")).toContainText("你好");
-  await expect(page.getByText("AI 草稿已生成。")).toBeVisible();
-  await expect(page.getByText("你好，我可以帮助你整理当前 Markdown 内容。")).toBeVisible();
+  await expect(page.getByLabel("AI 对话")).toContainText("你好，我可以帮助你整理当前 Markdown 内容。");
+  await expect(page.getByText("AI 草稿已生成。")).toHaveCount(0);
 
   const chatCall = await page.evaluate(() =>
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "summarize_editor_context"),
@@ -483,6 +518,36 @@ test("opens workspace, searches, and opens a match", async ({ page }) => {
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "search_workspace"),
   );
   expect(searchCall?.args).toMatchObject({ rootPath: "/workspace", query: "needle", maxResults: 80 });
+});
+
+test("creates named notes, renames files, imports attachments, and uses command palette", async ({ page }) => {
+  await page.getByRole("button", { name: "工作区" }).click();
+
+  await page.getByRole("button", { name: "新建" }).click();
+  await expect(page.getByRole("dialog", { name: "新建 Markdown" })).toBeVisible();
+  await page.getByLabel("文件名").fill("daily.md");
+  await page.getByRole("button", { name: "创建" }).click();
+  await expect(page.locator(".document-heading").getByRole("heading", { name: "daily.md" })).toBeVisible();
+
+  await page.getByRole("button", { name: "重命名" }).click();
+  await expect(page.getByRole("dialog", { name: "重命名 Markdown" })).toBeVisible();
+  await page.getByLabel("文件名").fill("renamed.md");
+  await page.getByRole("dialog", { name: "重命名 Markdown" }).getByRole("button", { name: "重命名" }).click();
+  await expect(page.locator(".document-heading").getByRole("heading", { name: "renamed.md" })).toBeVisible();
+
+  await page.locator(".cm-content").click();
+  await page.getByText("更多").click();
+  await page.getByRole("button", { name: "添加附件" }).click();
+  await expect(page.locator(".cm-content")).toContainText("![diagram](../attachments/diagram.png)");
+
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+K" : "Control+K");
+  await expect(page.getByRole("dialog", { name: "命令面板" })).toBeVisible();
+  await page.getByLabel("搜索命令").fill("wiki");
+  await page.getByRole("button", { name: /新建 Wiki 页面/ }).click();
+  await expect(page.getByRole("dialog", { name: "新建 Wiki 页面" })).toBeVisible();
+  await page.getByLabel("页面文件名").fill("概念.md");
+  await page.getByRole("button", { name: "创建" }).click();
+  await expect(page.locator(".cm-content")).toContainText("[[概念]]");
 });
 
 test("shows a clear message when native workspace actions run in web preview", async ({ page }) => {
@@ -610,8 +675,8 @@ test("builds and saves an assistant draft", async ({ page }) => {
   await page.getByText("设置", { exact: true }).click();
 
   await page.getByRole("button", { name: "总结笔记" }).click();
-  await expect(page.getByText("AI 草稿已生成。")).toBeVisible();
   await expect(page.getByLabel("AI 对话")).toContainText("# alpha summary");
+  await expect(page.getByText("AI 草稿已生成。")).toHaveCount(0);
   await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("已请求 AI");
   await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("external_command / command-json-v1");
   await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("草稿已生成");

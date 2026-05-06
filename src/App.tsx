@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import type { EditorView } from "@codemirror/view";
+import { listen } from "@tauri-apps/api/event";
 import { AssistantPanel } from "./components/AssistantPanel";
+import { CommandPalette } from "./components/CommandPalette";
 import { EditorToolbar, type MarkdownAction } from "./components/EditorToolbar";
 import { KnowledgePanel } from "./components/KnowledgePanel";
 import { LibraryRail } from "./components/LibraryRail";
 import { MarkdownPreview } from "./components/MarkdownPreview";
+import { NameDialog, type NameDialogState } from "./components/NameDialog";
 import { NoticeStack } from "./components/NoticeStack";
 import { WorkspaceListPanel } from "./components/WorkspaceListPanel";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
@@ -14,13 +17,14 @@ import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
 import { countSearchMatches, fileName, isPathInsideRoot, localStats } from "./lib/format";
 import { renderMarkdownDocument } from "./lib/markdown";
 import { readRecentFiles, readSettings, recentFileLimit, storageKeys, writeRecentFiles, writeSettings } from "./lib/storage";
-import { invokeCommand } from "./lib/tauri";
+import { invokeCommand, isNativeRuntime } from "./lib/tauri";
 import type {
   AssistantCatalog,
   AssistantDraft,
   AssistantEvent,
   AssistantMessage,
   AssistantProvider,
+  AttachmentImportResult,
   ExternalChange,
   DocumentKnowledge,
   EditorMode,
@@ -111,6 +115,9 @@ export default function App() {
   const [assistantPrompt, setAssistantPrompt] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
+  const [nameDialog, setNameDialog] = useState<(NameDialogState & { kind: "new" | "rename" | "wiki" }) | null>(null);
   const [busy, setBusy] = useState(false);
   const [assistantBusy, setAssistantBusy] = useState(false);
 
@@ -121,7 +128,7 @@ export default function App() {
   const canPageBack = isLarge && visibleStartLine > 1;
   const canPageForward = isLarge && visibleEndLine < lineCount;
 
-  const extensions = useEditorExtensions(isLarge, readOnly, visibleStartLine);
+  const extensions = useEditorExtensions(isLarge, readOnly, visibleStartLine, workspace?.files ?? []);
   const workspaceFiles = useMemo(() => {
     if (!workspace) return [];
 
@@ -199,8 +206,6 @@ export default function App() {
     setKnowledgeLint(null);
     setQueryContext(null);
     setAssistantDraft(null);
-    setAssistantMessages([]);
-    setAssistantEvents([]);
   }
 
   function appendAssistantEvent(event: AssistantEvent) {
@@ -215,6 +220,52 @@ export default function App() {
         id: `${Date.now()}-${currentMessages.length}`,
       },
     ]);
+  }
+
+  function animateAssistantMessage(content: string) {
+    const id = `${Date.now()}-assistant-stream`;
+    setAssistantMessages((currentMessages) => [
+      ...currentMessages,
+      { id, role: "assistant", content: "" },
+    ]);
+    const chunkSize = Math.max(4, Math.ceil(content.length / 80));
+    let index = 0;
+    const intervalId = window.setInterval(() => {
+      index = Math.min(content.length, index + chunkSize);
+      setAssistantMessages((currentMessages) =>
+        currentMessages.map((message) =>
+          message.id === id ? { ...message, content: content.slice(0, index) } : message,
+        ),
+      );
+      if (index >= content.length) {
+        window.clearInterval(intervalId);
+      }
+    }, 18);
+  }
+
+  function startAssistantStreamMessage() {
+    const id = `${Date.now()}-assistant-stream`;
+    setAssistantMessages((currentMessages) => [
+      ...currentMessages,
+      { id, role: "assistant", content: "" },
+    ]);
+    return id;
+  }
+
+  function appendAssistantStreamDelta(id: string, delta: string) {
+    setAssistantMessages((currentMessages) =>
+      currentMessages.map((message) =>
+        message.id === id ? { ...message, content: `${message.content}${delta}` } : message,
+      ),
+    );
+  }
+
+  function replaceAssistantStreamMessage(id: string, content: string) {
+    setAssistantMessages((currentMessages) =>
+      currentMessages.map((message) =>
+        message.id === id ? { ...message, content } : message,
+      ),
+    );
   }
 
   function assistantTaskLabel(task: string, prompt: string) {
@@ -279,8 +330,35 @@ export default function App() {
     setNotice({ tone: "info", message: "已从最近列表移除。" });
   }
 
+  function insertTextAtCursor(insert: string, message: string) {
+    if (readOnly) return;
+    const view = editorViewRef.current;
+    if (!view) {
+      handleChange(content ? `${content.trimEnd()}\n\n${insert}\n` : `${insert}\n`);
+      setNotice({ tone: "info", message });
+      return;
+    }
+    const selection = view.state.selection.main;
+    view.dispatch({
+      changes: { from: selection.from, to: selection.to, insert },
+      selection: { anchor: selection.from + insert.length },
+    });
+    view.focus();
+    setNotice({ tone: "info", message });
+  }
+
   async function handleNew() {
     if (isDirty && !window.confirm("放弃未保存的更改？")) return;
+    if (workspace) {
+      setNameDialog({
+        kind: "new",
+        title: "新建 Markdown",
+        label: "文件名",
+        defaultValue: "未命名.md",
+        confirmLabel: "创建",
+      });
+      return;
+    }
     setContent(emptyDocument);
     setSavedContent(emptyDocument);
     setPath(null);
@@ -295,6 +373,145 @@ export default function App() {
     setSearch("");
     clearKnowledge();
     setNotice({ tone: "info", message: "新文档已就绪。" });
+  }
+
+  async function createNamedMarkdown(name: string) {
+    if (!workspace) return;
+    const directory = workspace.knowledge.isInitialized ? "notes" : "";
+    const title = name.replace(/\.(md|markdown|mdown)$/i, "");
+    const initialContent = `# ${title}\n\n`;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await invokeCommand<SaveResult>("create_markdown_file", {
+        rootPath: workspace.rootPath,
+        directory,
+        name,
+        content: initialContent,
+      });
+      const document = await invokeCommand<MarkdownDocument>("open_markdown_path", { path: result.path });
+      applyDocument(document);
+      rememberDocument(document.path);
+      await handleRefreshWorkspace(false);
+      setNotice({ tone: "info", message: `已新建 ${fileName(result.path)}。` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRenameCurrentFile() {
+    if (!path) {
+      setNotice({ tone: "error", message: "请先保存或打开一个 Markdown 文件。" });
+      return;
+    }
+    if (isDirty) {
+      setNotice({ tone: "error", message: "请先保存当前更改再重命名。" });
+      return;
+    }
+    setNameDialog({
+      kind: "rename",
+      title: "重命名 Markdown",
+      label: "文件名",
+      defaultValue: fileName(path),
+      confirmLabel: "重命名",
+    });
+  }
+
+  async function renameCurrentFile(nextName: string) {
+    if (!path) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const oldPath = path;
+      const result = await invokeCommand<SaveResult>("rename_markdown_file", {
+        path,
+        newName: nextName,
+      });
+      const document = await invokeCommand<MarkdownDocument>("open_markdown_path", { path: result.path });
+      applyDocument(document);
+      rememberDocument(document.path);
+      setRecentFiles((currentRecentFiles) => {
+        const nextRecentFiles = [
+          { path: result.path, name: fileName(result.path) },
+          ...currentRecentFiles.filter((file) => file.path !== oldPath && file.path !== result.path),
+        ].slice(0, recentFileLimit);
+        writeRecentFiles(nextRecentFiles);
+        return nextRecentFiles;
+      });
+      if (workspace) {
+        await handleRefreshWorkspace(false);
+      }
+      setNotice({ tone: "info", message: `已重命名为 ${fileName(result.path)}。` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleImportAttachment() {
+    if (readOnly) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await invokeCommand<AttachmentImportResult | null>("import_attachment", {
+        rootPath: workspace?.rootPath,
+        currentPath: path,
+      });
+      if (!result) return;
+      insertTextAtCursor(result.markdown, `已插入附件 ${fileName(result.path)}。`);
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCreateWikiPage() {
+    if (!workspace) {
+      setNotice({ tone: "error", message: "请先打开工作区。" });
+      return;
+    }
+    setNameDialog({
+      kind: "wiki",
+      title: "新建 Wiki 页面",
+      label: "页面文件名",
+      defaultValue: "新页面.md",
+      confirmLabel: "创建",
+    });
+  }
+
+  async function createWikiPage(name: string) {
+    if (!workspace) return;
+    const title = name.replace(/\.(md|markdown|mdown)$/i, "");
+    setBusy(true);
+    setNotice(null);
+    try {
+      await invokeCommand<SaveResult>("create_markdown_file", {
+        rootPath: workspace.rootPath,
+        directory: "wiki",
+        name,
+        content: `# ${title}\n\n`,
+      });
+      await handleRefreshWorkspace(false);
+      insertTextAtCursor(`[[${title}]]`, `已创建并插入 Wiki Link：${title}。`);
+      setLibrarySection("wiki");
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleNameDialogSubmit(value: string) {
+    const current = nameDialog;
+    setNameDialog(null);
+    if (!current) return;
+    if (current.kind === "new") void createNamedMarkdown(value);
+    if (current.kind === "rename") void renameCurrentFile(value);
+    if (current.kind === "wiki") void createWikiPage(value);
   }
 
   async function handleOpen() {
@@ -551,6 +768,35 @@ export default function App() {
     };
   }
 
+  async function runAssistantCommand(args: Record<string, unknown>) {
+    if (!isNativeRuntime()) {
+      return invokeCommand<AssistantDraft>(String(args.command), args.payload as Record<string, unknown>);
+    }
+
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const messageId = startAssistantStreamMessage();
+    const unlisten = await listen<{ requestId: string; delta: string }>(
+      "assistant-stream-delta",
+      (event) => {
+        if (event.payload.requestId !== requestId) return;
+        appendAssistantStreamDelta(messageId, event.payload.delta);
+      },
+    );
+    try {
+      const draft = await invokeCommand<AssistantDraft>(String(args.command), {
+        ...(args.payload as Record<string, unknown>),
+        requestId,
+      });
+      replaceAssistantStreamMessage(messageId, draft.content);
+      return draft;
+    } catch (error) {
+      replaceAssistantStreamMessage(messageId, `生成失败：${String(error)}`);
+      throw error;
+    } finally {
+      unlisten();
+    }
+  }
+
   async function handleAssistantRun(task: string, prompt = "") {
     appendAssistantMessage({ role: "user", content: assistantTaskLabel(task, prompt) });
     if (!workspace || !path) {
@@ -564,34 +810,35 @@ export default function App() {
 
     const providerConfig = assistantProviderConfig(settings.assistantProvider);
     setAssistantBusy(true);
-    setNotice({ tone: "info", message: "AI 正在生成，请稍候..." });
     appendAssistantEvent({
       label: "已请求 AI",
       detail: `${settings.assistantProvider} / ${settings.assistantModel}`,
       tone: "info",
     });
     try {
-      const draft = await invokeCommand<AssistantDraft>("summarize_query_context", {
-        rootPath: workspace.rootPath,
-        currentPath: path,
-        currentContent: isDirty ? content : undefined,
-        provider: settings.assistantProvider,
-        model: settings.assistantModel,
-        task,
-        prompt,
-        apiKey: providerConfig.apiKey,
-        baseUrl: providerConfig.baseUrl,
-        externalCommand: providerConfig.externalCommand,
-        externalTimeoutSeconds: providerConfig.externalTimeoutSeconds,
+      const draft = await runAssistantCommand({
+        command: "summarize_query_context",
+        payload: {
+          rootPath: workspace.rootPath,
+          currentPath: path,
+          currentContent: isDirty ? content : undefined,
+          provider: settings.assistantProvider,
+          model: settings.assistantModel,
+          task,
+          prompt,
+          apiKey: providerConfig.apiKey,
+          baseUrl: providerConfig.baseUrl,
+          externalCommand: providerConfig.externalCommand,
+          externalTimeoutSeconds: providerConfig.externalTimeoutSeconds,
+        },
       });
       setAssistantDraft(draft);
-      appendAssistantMessage({ role: "assistant", content: draft.content });
+      if (!isNativeRuntime()) animateAssistantMessage(draft.content);
       appendAssistantEvent({
         label: "草稿已生成",
         detail: draft.title,
         tone: "info",
       });
-      setNotice({ tone: "info", message: "AI 草稿已生成。" });
     } catch (error) {
       appendAssistantEvent({
         label: "草稿生成失败",
@@ -607,34 +854,35 @@ export default function App() {
   async function handleAssistantEditorRun(task: string, prompt = "") {
     const providerConfig = assistantProviderConfig(settings.assistantProvider);
     setAssistantBusy(true);
-    setNotice({ tone: "info", message: "AI 正在生成，请稍候..." });
     appendAssistantEvent({
       label: "已请求 AI",
       detail: `${settings.assistantProvider} / ${settings.assistantModel}`,
       tone: "info",
     });
     try {
-      const draft = await invokeCommand<AssistantDraft>("summarize_editor_context", {
-        currentPath: path,
-        currentRelativePath: fileName(path),
-        currentContent: content,
-        provider: settings.assistantProvider,
-        model: settings.assistantModel,
-        task,
-        prompt,
-        apiKey: providerConfig.apiKey,
-        baseUrl: providerConfig.baseUrl,
-        externalCommand: providerConfig.externalCommand,
-        externalTimeoutSeconds: providerConfig.externalTimeoutSeconds,
+      const draft = await runAssistantCommand({
+        command: "summarize_editor_context",
+        payload: {
+          currentPath: path,
+          currentRelativePath: fileName(path),
+          currentContent: content,
+          provider: settings.assistantProvider,
+          model: settings.assistantModel,
+          task,
+          prompt,
+          apiKey: providerConfig.apiKey,
+          baseUrl: providerConfig.baseUrl,
+          externalCommand: providerConfig.externalCommand,
+          externalTimeoutSeconds: providerConfig.externalTimeoutSeconds,
+        },
       });
       setAssistantDraft(draft);
-      appendAssistantMessage({ role: "assistant", content: draft.content });
+      if (!isNativeRuntime()) animateAssistantMessage(draft.content);
       appendAssistantEvent({
         label: "草稿已生成",
         detail: draft.title,
         tone: "info",
       });
-      setNotice({ tone: "info", message: "AI 草稿已生成。" });
     } catch (error) {
       appendAssistantEvent({
         label: "草稿生成失败",
@@ -976,6 +1224,10 @@ export default function App() {
     onOpenWorkspace: () => void handleOpenWorkspace(),
     onNew: () => void handleNew(),
     onRefreshWorkspace: () => void handleRefreshWorkspace(),
+    onOpenCommandPalette: () => {
+      setCommandPaletteQuery("");
+      setCommandPaletteOpen(true);
+    },
   });
 
   useExternalChangePolling({
@@ -990,8 +1242,93 @@ export default function App() {
     writeSettings(nextSettings);
   }
 
+  const commandItems = [
+    {
+      id: "new",
+      label: "新建 Markdown",
+      hint: "创建并命名新笔记",
+      disabled: busy,
+      run: () => void handleNew(),
+    },
+    {
+      id: "open",
+      label: "打开文件",
+      hint: "从磁盘打开 Markdown",
+      disabled: busy,
+      run: () => void handleOpen(),
+    },
+    {
+      id: "workspace",
+      label: "打开工作区",
+      hint: "选择文件夹作为笔记库",
+      disabled: busy,
+      run: () => void handleOpenWorkspace(),
+    },
+    {
+      id: "save",
+      label: "保存",
+      hint: "保存当前 Markdown",
+      disabled: busy || readOnly || !isDirty,
+      run: () => void handleSave(),
+    },
+    {
+      id: "rename",
+      label: "重命名当前文件",
+      hint: "修改当前 Markdown 文件名",
+      disabled: busy || readOnly || isDirty || !path,
+      run: () => void handleRenameCurrentFile(),
+    },
+    {
+      id: "attachment",
+      label: "添加附件",
+      hint: "复制文件到 attachments 并插入链接",
+      disabled: busy || readOnly,
+      run: () => void handleImportAttachment(),
+    },
+    {
+      id: "wiki",
+      label: "新建 Wiki 页面",
+      hint: "创建页面并插入 [[Wiki Link]]",
+      disabled: busy || !workspace,
+      run: () => void handleCreateWikiPage(),
+    },
+    {
+      id: "summarize",
+      label: "AI 总结当前笔记",
+      hint: settings.assistantModel,
+      disabled: assistantBusy,
+      run: () => void handleSummarizeContext(),
+    },
+    {
+      id: "export-html",
+      label: "导出 HTML",
+      hint: "使用当前预览渲染器",
+      disabled: busy,
+      run: () => void handleExportHtml(),
+    },
+    {
+      id: "export-pdf",
+      label: "导出 PDF",
+      hint: "导出轻量 PDF",
+      disabled: busy,
+      run: () => void handleExportPdf(),
+    },
+  ];
+
   return (
     <main className={`app-shell ${leftPanelOpen ? "left-open" : "left-closed"}`}>
+      <CommandPalette
+        open={commandPaletteOpen}
+        query={commandPaletteQuery}
+        items={commandItems}
+        onQueryChange={setCommandPaletteQuery}
+        onClose={() => setCommandPaletteOpen(false)}
+      />
+      <NameDialog
+        state={nameDialog}
+        onCancel={() => setNameDialog(null)}
+        onSubmit={handleNameDialogSubmit}
+      />
       <button
         type="button"
         className="floating-panel-toggle"
@@ -1020,6 +1357,13 @@ export default function App() {
           onOpen={() => void handleOpen()}
           onOpenWorkspace={() => void handleOpenWorkspace()}
           onSave={() => void handleSave()}
+          onRename={() => void handleRenameCurrentFile()}
+          onImportAttachment={() => void handleImportAttachment()}
+          onCreateWikiPage={() => void handleCreateWikiPage()}
+          onOpenCommandPalette={() => {
+            setCommandPaletteQuery("");
+            setCommandPaletteOpen(true);
+          }}
           onInitializeKnowledgeWorkspace={() => void handleInitializeKnowledgeWorkspace()}
           onRefreshWorkspace={() => void handleRefreshWorkspace()}
           onExportHtml={() => void handleExportHtml()}
@@ -1085,6 +1429,14 @@ export default function App() {
         <div className={`document-workspace ${editorMode}`}>
           <div className="document-heading">
             <h1>{fileName(path)}</h1>
+            <button
+              type="button"
+              className="document-rename-button"
+              onClick={() => void handleRenameCurrentFile()}
+              disabled={busy || readOnly || isDirty || !path}
+            >
+              重命名
+            </button>
             <p>
               {readOnly
                 ? `只读：第 ${visibleStartLine.toLocaleString()}-${visibleEndLine.toLocaleString()} 行`
@@ -1146,7 +1498,7 @@ export default function App() {
           />
         ) : (
           <AssistantPanel
-            busy={busy}
+            busy={assistantBusy}
             queryContext={queryContext}
             draft={assistantDraft}
             messages={assistantMessages}
