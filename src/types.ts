@@ -146,6 +146,8 @@ export type AssistantProvider =
   | "minimax"
   | "kimi"
   | "zhipu"
+  | "ollama"
+  | "lmstudio"
   | "external_command";
 
 export type AssistantProviderInfo = {

@@ -91,9 +91,10 @@ export function WorkspaceListPanel({
     selectedProvider?.id === "external_command"
       ? primaryAssistantProviders[0]
       : selectedProvider;
-  const providerNeedsKey = selectedProvider
-    ? !["external_command"].includes(selectedProvider.id)
-    : false;
+  const providerNeedsKey =
+    selectedProvider?.id !== "external_command" && Boolean(selectedProvider?.apiKeyEnv);
+  const providerHasEndpoint =
+    selectedProvider?.id !== "external_command" && Boolean(selectedProvider?.baseUrl);
   const sectionLabel = {
     inbox: "收件箱",
     "all-notes": "工作区",
@@ -366,42 +367,46 @@ export function WorkspaceListPanel({
             </select>
           </label>
 
-          {providerNeedsKey && selectedProvider && (
+          {selectedProvider?.id !== "external_command" && selectedProvider && (
             <>
-              <label>
-                <span>API Key</span>
-                <input
-                  aria-label="AI API Key"
-                  type="password"
-                  value={settings.assistantApiKeys[selectedProvider.id] ?? ""}
-                  onChange={(event) =>
-                    updateSetting({
-                      assistantApiKeys: {
-                        ...settings.assistantApiKeys,
-                        [selectedProvider.id]: event.target.value,
-                      },
-                    })
-                  }
-                  placeholder={selectedProvider.apiKeyEnv ?? "API Key"}
-                />
-              </label>
+              {providerNeedsKey && (
+                <label>
+                  <span>API Key</span>
+                  <input
+                    aria-label="AI API Key"
+                    type="password"
+                    value={settings.assistantApiKeys[selectedProvider.id] ?? ""}
+                    onChange={(event) =>
+                      updateSetting({
+                        assistantApiKeys: {
+                          ...settings.assistantApiKeys,
+                          [selectedProvider.id]: event.target.value,
+                        },
+                      })
+                    }
+                    placeholder={selectedProvider.apiKeyEnv ?? "API Key"}
+                  />
+                </label>
+              )}
 
-              <label>
-                <span>接口地址</span>
-                <input
-                  aria-label="AI 接口地址"
-                  value={settings.assistantBaseUrls[selectedProvider.id] ?? selectedProvider.baseUrl ?? ""}
-                  onChange={(event) =>
-                    updateSetting({
-                      assistantBaseUrls: {
-                        ...settings.assistantBaseUrls,
-                        [selectedProvider.id]: event.target.value,
-                      },
-                    })
-                  }
-                  placeholder={selectedProvider.baseUrl ?? "https://.../chat/completions"}
-                />
-              </label>
+              {providerHasEndpoint && (
+                <label>
+                  <span>接口地址</span>
+                  <input
+                    aria-label="AI 接口地址"
+                    value={settings.assistantBaseUrls[selectedProvider.id] ?? selectedProvider.baseUrl ?? ""}
+                    onChange={(event) =>
+                      updateSetting({
+                        assistantBaseUrls: {
+                          ...settings.assistantBaseUrls,
+                          [selectedProvider.id]: event.target.value,
+                        },
+                      })
+                    }
+                    placeholder={selectedProvider.baseUrl ?? "https://.../chat/completions"}
+                  />
+                </label>
+              )}
             </>
           )}
 

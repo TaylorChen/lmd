@@ -2,7 +2,7 @@ import MarkdownIt from "markdown-it";
 import taskLists from "markdown-it-task-lists";
 import texmath from "markdown-it-texmath";
 import katex from "katex";
-import hljs from "highlight.js/lib/common";
+import hljs from "highlight.js";
 
 const htmlEscape = new MarkdownIt().utils.escapeHtml;
 

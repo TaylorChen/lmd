@@ -47,6 +47,12 @@ const emptyDocument = `# 未命名
 开始写 Markdown。
 `;
 
+type EditableFrontmatter = {
+  title: string;
+  tags: string;
+  status: string;
+};
+
 const defaultAssistantCatalog: AssistantCatalog = {
   defaultProvider: "deepseek",
   providers: [
@@ -78,9 +84,83 @@ const defaultAssistantCatalog: AssistantCatalog = {
       baseUrl: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
       apiKeyEnv: "ZAI_API_KEY",
     },
+    {
+      id: "ollama",
+      label: "Ollama",
+      models: ["qwen2.5:7b", "llama3.2", "deepseek-r1:7b"],
+      baseUrl: "http://127.0.0.1:11434/v1/chat/completions",
+    },
+    {
+      id: "lmstudio",
+      label: "LM Studio",
+      models: ["local-model"],
+      baseUrl: "http://127.0.0.1:1234/v1/chat/completions",
+    },
     { id: "external_command", label: "外部命令", models: ["command-json-v1"] },
   ],
 };
+
+function splitFrontmatter(content: string) {
+  const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (!normalized.startsWith("---\n")) {
+    return { fields: new Map<string, string>(), body: content };
+  }
+  const closingIndex = normalized.indexOf("\n---", 4);
+  if (closingIndex === -1) {
+    return { fields: new Map<string, string>(), body: content };
+  }
+  const rawFrontmatter = normalized.slice(4, closingIndex);
+  const body = normalized.slice(closingIndex + 4).replace(/^\n/, "");
+  const fields = new Map<string, string>();
+  for (const line of rawFrontmatter.split("\n")) {
+    const [key, ...rest] = line.split(":");
+    if (!key || rest.length === 0) continue;
+    fields.set(key.trim(), rest.join(":").trim().replace(/^['"]|['"]$/g, ""));
+  }
+  return { fields, body };
+}
+
+function readEditableFrontmatter(content: string): EditableFrontmatter {
+  const { fields } = splitFrontmatter(content);
+  const title = fields.get("title") ?? "";
+  const rawTags = fields.get("tags") ?? "";
+  const tags = rawTags
+    .replace(/^\[/, "")
+    .replace(/\]$/, "")
+    .split(",")
+    .map((tag) => tag.trim().replace(/^['"]|['"]$/g, ""))
+    .filter(Boolean)
+    .join(", ");
+  return {
+    title,
+    tags,
+    status: fields.get("status") ?? "",
+  };
+}
+
+function applyEditableFrontmatter(content: string, draft: EditableFrontmatter) {
+  const { fields, body } = splitFrontmatter(content);
+  const nextFields = new Map(fields);
+  const setOrDelete = (key: string, value: string) => {
+    const trimmed = value.trim();
+    if (trimmed) nextFields.set(key, trimmed);
+    else nextFields.delete(key);
+  };
+  setOrDelete("title", draft.title);
+  setOrDelete("status", draft.status);
+  const tags = draft.tags
+    .split(",")
+    .map((tag) => tag.trim().replace(/^#/, ""))
+    .filter(Boolean);
+  if (tags.length > 0) nextFields.set("tags", `[${tags.join(", ")}]`);
+  else nextFields.delete("tags");
+
+  if (nextFields.size === 0) return body;
+  const frontmatter = Array.from(nextFields.entries())
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
+  return `---\n${frontmatter}\n---\n\n${body}`;
+}
 
 export default function App() {
   const editorViewRef = useRef<EditorView | null>(null);
@@ -127,6 +207,7 @@ export default function App() {
     visibleLineCount === 0 ? 0 : Math.min(lineCount, visibleStartLine + visibleLineCount - 1);
   const canPageBack = isLarge && visibleStartLine > 1;
   const canPageForward = isLarge && visibleEndLine < lineCount;
+  const editableFrontmatter = useMemo(() => readEditableFrontmatter(content), [content]);
 
   const extensions = useEditorExtensions(isLarge, readOnly, visibleStartLine, workspace?.files ?? []);
   const workspaceFiles = useMemo(() => {
@@ -275,6 +356,8 @@ export default function App() {
     if (task === "todos") return "提取当前笔记中的待办";
     if (task === "title") return "生成标题候选";
     if (task === "wiki") return "整理为 Wiki 草稿";
+    if (task === "outline") return "生成当前笔记大纲";
+    if (task === "continue") return "续写当前笔记";
     return "总结当前笔记";
   }
 
@@ -667,11 +750,18 @@ export default function App() {
         query,
         maxResults: settings.searchResultLimit,
       });
-      setWorkspaceMatches(matches);
+      const filteredMatches = matches.filter((match) => {
+        if (librarySection === "notes") return match.relativePath.startsWith("notes/");
+        if (librarySection === "sources") return match.relativePath.startsWith("sources/");
+        if (librarySection === "wiki") return match.relativePath.startsWith("wiki/");
+        if (librarySection === "inbox") return match.relativePath.startsWith("wiki/inbox/");
+        return true;
+      });
+      setWorkspaceMatches(filteredMatches);
       setWorkspaceSearchActive(true);
       setNotice({
         tone: "info",
-        message: `找到 ${matches.length.toLocaleString()} 条工作区匹配结果。`,
+        message: `找到 ${filteredMatches.length.toLocaleString()} 条工作区匹配结果。`,
       });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -800,11 +890,7 @@ export default function App() {
   async function handleAssistantRun(task: string, prompt = "") {
     appendAssistantMessage({ role: "user", content: assistantTaskLabel(task, prompt) });
     if (!workspace || !path) {
-      if (task === "chat") {
-        await handleAssistantEditorRun(task, prompt);
-      } else {
-        setNotice({ tone: "error", message: "请先打开知识库工作区中的文档。" });
-      }
+      await handleAssistantEditorRun(task, prompt);
       return;
     }
 
@@ -966,6 +1052,12 @@ export default function App() {
     setLineCount(stats.lineCount);
     setVisibleStartLine(stats.lineCount === 0 ? 0 : 1);
     setVisibleLineCount(stats.lineCount);
+  }
+
+  function handleApplyFrontmatter(draft: EditableFrontmatter) {
+    if (readOnly) return;
+    handleChange(applyEditableFrontmatter(content, draft));
+    setNotice({ tone: "info", message: "Front Matter 已更新。" });
   }
 
   function insertAssistantDraft() {
@@ -1491,15 +1583,18 @@ export default function App() {
             knowledge={documentKnowledge}
             lint={knowledgeLint}
             queryContext={queryContext}
+            frontmatterDraft={editableFrontmatter}
             workspaceIndexPath={workspace ? `${workspace.knowledge.wikiPath}/index.md` : null}
             workspaceLogPath={workspace ? `${workspace.knowledge.wikiPath}/log.md` : null}
             busy={assistantBusy}
             onOpenPath={(nextPath, name) => void openPath(nextPath, name)}
+            onApplyFrontmatter={handleApplyFrontmatter}
           />
         ) : (
           <AssistantPanel
             busy={assistantBusy}
             queryContext={queryContext}
+            hasCurrentContent={Boolean(content.trim())}
             draft={assistantDraft}
             messages={assistantMessages}
             events={assistantEvents}

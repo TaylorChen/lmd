@@ -92,6 +92,24 @@ pub(crate) fn catalog() -> AssistantCatalog {
                 api_key_env: Some("ZAI_API_KEY".to_string()),
             },
             AssistantProviderInfo {
+                id: "ollama".to_string(),
+                label: "Ollama".to_string(),
+                models: vec![
+                    "qwen2.5:7b".to_string(),
+                    "llama3.2".to_string(),
+                    "deepseek-r1:7b".to_string(),
+                ],
+                base_url: Some("http://127.0.0.1:11434/v1/chat/completions".to_string()),
+                api_key_env: None,
+            },
+            AssistantProviderInfo {
+                id: "lmstudio".to_string(),
+                label: "LM Studio".to_string(),
+                models: vec!["local-model".to_string()],
+                base_url: Some("http://127.0.0.1:1234/v1/chat/completions".to_string()),
+                api_key_env: None,
+            },
+            AssistantProviderInfo {
                 id: "external_command".to_string(),
                 label: "External Command".to_string(),
                 models: vec!["command-json-v1".to_string()],
@@ -108,7 +126,9 @@ pub(crate) fn summarize_query_context(
     validate_request(&request)?;
 
     match request.provider {
-        "deepseek" | "minimax" | "kimi" | "zhipu" => openai_compatible_summary(request),
+        "deepseek" | "minimax" | "kimi" | "zhipu" | "ollama" | "lmstudio" => {
+            openai_compatible_summary(request)
+        }
         "external_command" => external_command_summary(request),
         _ => Err(format!(
             "Unsupported assistant provider: {}",
@@ -124,7 +144,7 @@ pub(crate) fn summarize_query_context_stream(
     validate_request(&request)?;
 
     match request.provider {
-        "deepseek" | "minimax" | "kimi" | "zhipu" => {
+        "deepseek" | "minimax" | "kimi" | "zhipu" | "ollama" | "lmstudio" => {
             openai_compatible_summary_stream(request, on_delta)
         }
         "external_command" => {
@@ -150,25 +170,9 @@ fn openai_compatible_summary(request: AssistantRequest<'_>) -> Result<AssistantD
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-        .or(provider.base_url)
+        .or_else(|| provider.base_url.clone())
         .ok_or_else(|| format!("{} has no API endpoint configured", request.provider))?;
-    let api_key = request
-        .api_key
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            provider
-                .api_key_env
-                .as_deref()
-                .and_then(|name| env::var(name).ok())
-        })
-        .ok_or_else(|| {
-            let env_name = provider
-                .api_key_env
-                .unwrap_or_else(|| "PROVIDER_API_KEY".to_string());
-            format!("请在设置中填写 API Key，或设置环境变量 {env_name}")
-        })?;
+    let api_key = resolve_api_key(&provider, &request)?;
 
     let prompt = request.prompt.unwrap_or("").trim();
     let task = request.task.unwrap_or("summarize").trim();
@@ -194,7 +198,8 @@ fn openai_compatible_summary(request: AssistantRequest<'_>) -> Result<AssistantD
     })
     .map_err(|error| format!("Could not encode assistant request: {error}"))?;
 
-    let output = Command::new("curl")
+    let mut command = Command::new("curl");
+    command
         .arg("-sS")
         .arg("--max-time")
         .arg(timeout.as_secs().to_string())
@@ -205,9 +210,13 @@ fn openai_compatible_summary(request: AssistantRequest<'_>) -> Result<AssistantD
         .arg("POST")
         .arg(&base_url)
         .arg("-H")
-        .arg("Content-Type: application/json")
-        .arg("-H")
-        .arg(format!("Authorization: Bearer {api_key}"))
+        .arg("Content-Type: application/json");
+    if let Some(api_key) = api_key {
+        command
+            .arg("-H")
+            .arg(format!("Authorization: Bearer {api_key}"));
+    }
+    let output = command
         .arg("--data-binary")
         .arg("@-")
         .stdin(Stdio::piped())
@@ -251,6 +260,33 @@ fn openai_compatible_summary(request: AssistantRequest<'_>) -> Result<AssistantD
     })
 }
 
+fn resolve_api_key(
+    provider: &AssistantProviderInfo,
+    request: &AssistantRequest<'_>,
+) -> Result<Option<String>, String> {
+    let api_key = request
+        .api_key
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            provider
+                .api_key_env
+                .as_deref()
+                .and_then(|name| env::var(name).ok())
+        });
+
+    if api_key.is_some() || provider.api_key_env.is_none() {
+        return Ok(api_key);
+    }
+
+    let env_name = provider
+        .api_key_env
+        .as_deref()
+        .unwrap_or("PROVIDER_API_KEY");
+    Err(format!("请在设置中填写 API Key，或设置环境变量 {env_name}"))
+}
+
 fn openai_compatible_summary_stream(
     request: AssistantRequest<'_>,
     on_delta: &mut dyn FnMut(&str),
@@ -265,25 +301,9 @@ fn openai_compatible_summary_stream(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-        .or(provider.base_url)
+        .or_else(|| provider.base_url.clone())
         .ok_or_else(|| format!("{} has no API endpoint configured", request.provider))?;
-    let api_key = request
-        .api_key
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            provider
-                .api_key_env
-                .as_deref()
-                .and_then(|name| env::var(name).ok())
-        })
-        .ok_or_else(|| {
-            let env_name = provider
-                .api_key_env
-                .unwrap_or_else(|| "PROVIDER_API_KEY".to_string());
-            format!("请在设置中填写 API Key，或设置环境变量 {env_name}")
-        })?;
+    let api_key = resolve_api_key(&provider, &request)?;
 
     let prompt = request.prompt.unwrap_or("").trim();
     let task = request.task.unwrap_or("summarize").trim();
@@ -309,7 +329,8 @@ fn openai_compatible_summary_stream(
     })
     .map_err(|error| format!("Could not encode assistant request: {error}"))?;
 
-    let mut child = Command::new("curl")
+    let mut command = Command::new("curl");
+    command
         .arg("-sS")
         .arg("-N")
         .arg("--max-time")
@@ -321,9 +342,13 @@ fn openai_compatible_summary_stream(
         .arg("POST")
         .arg(&base_url)
         .arg("-H")
-        .arg("Content-Type: application/json")
-        .arg("-H")
-        .arg(format!("Authorization: Bearer {api_key}"))
+        .arg("Content-Type: application/json");
+    if let Some(api_key) = api_key {
+        command
+            .arg("-H")
+            .arg(format!("Authorization: Bearer {api_key}"));
+    }
+    let mut child = command
         .arg("--data-binary")
         .arg("@-")
         .stdin(Stdio::piped())
@@ -417,6 +442,8 @@ fn build_llm_prompt(
         "todos" => "从当前内容提取可执行待办事项。",
         "title" => "为当前笔记生成 5 个简洁标题候选。",
         "wiki" => "整理为可沉淀到知识库的 Wiki 草稿。",
+        "continue" => "基于当前笔记的语气和结构续写后续内容，只输出可直接追加到笔记中的 Markdown。",
+        "outline" => "基于当前笔记生成清晰的多级大纲，只输出 Markdown 大纲。",
         "chat" => "根据用户要求回答或改写。",
         _ => "总结当前笔记和相关上下文。",
     });
@@ -502,6 +529,8 @@ fn suggest_draft_title(context: &QueryContext, task: &str, content: &str) -> Str
         "title" => format!("{stem} 标题候选"),
         "todos" => format!("{stem} 待办"),
         "polish" => format!("{stem} 优化稿"),
+        "continue" => format!("{stem} 续写"),
+        "outline" => format!("{stem} 大纲"),
         "wiki" => format!("{stem} Wiki 草稿"),
         _ => format!("{stem} AI 草稿"),
     }

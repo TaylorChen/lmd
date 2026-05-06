@@ -4,10 +4,16 @@ type KnowledgePanelProps = {
   knowledge: DocumentKnowledge | null;
   lint: KnowledgeLintReport | null;
   queryContext: QueryContext | null;
+  frontmatterDraft: {
+    title: string;
+    tags: string;
+    status: string;
+  };
   workspaceIndexPath: string | null;
   workspaceLogPath: string | null;
   busy: boolean;
   onOpenPath: (path: string, name: string) => void;
+  onApplyFrontmatter: (draft: { title: string; tags: string; status: string }) => void;
 };
 
 function sourceKindLabel(value: Backlink["sourceKind"] | "unknown" | null) {
@@ -46,10 +52,12 @@ export function KnowledgePanel({
   knowledge,
   lint,
   queryContext,
+  frontmatterDraft,
   workspaceIndexPath,
   workspaceLogPath,
   busy,
   onOpenPath,
+  onApplyFrontmatter,
 }: KnowledgePanelProps) {
   if (!knowledge) {
     return (
@@ -111,6 +119,42 @@ export function KnowledgePanel({
             )}
           </div>
         )}
+      </section>
+
+      <section className="knowledge-section">
+        <div className="knowledge-header">
+          <span className="label">Front Matter</span>
+          <small>可编辑</small>
+        </div>
+        <form
+          key={`${frontmatterDraft.title}:${frontmatterDraft.tags}:${frontmatterDraft.status}`}
+          className="frontmatter-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            onApplyFrontmatter({
+              title: String(data.get("title") ?? ""),
+              tags: String(data.get("tags") ?? ""),
+              status: String(data.get("status") ?? ""),
+            });
+          }}
+        >
+          <label>
+            <span>标题</span>
+            <input name="title" defaultValue={frontmatterDraft.title} disabled={busy} />
+          </label>
+          <label>
+            <span>标签</span>
+            <input name="tags" defaultValue={frontmatterDraft.tags} disabled={busy} placeholder="writing, focus" />
+          </label>
+          <label>
+            <span>状态</span>
+            <input name="status" defaultValue={frontmatterDraft.status} disabled={busy} placeholder="draft" />
+          </label>
+          <button type="submit" disabled={busy}>
+            应用到笔记
+          </button>
+        </form>
       </section>
 
       <section className="knowledge-section">

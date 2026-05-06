@@ -1004,6 +1004,41 @@ button:disabled {
   gap: 8px;
 }
 
+.frontmatter-form {
+  display: grid;
+  gap: 10px;
+}
+
+.frontmatter-form label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.frontmatter-form input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--soft-line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.frontmatter-form input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.14);
+}
+
+.frontmatter-form button {
+  justify-self: start;
+  height: 30px;
+  padding: 0 12px;
+}
+
 .assistant-prompt {
   display: grid;
   gap: 8px;

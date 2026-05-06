@@ -30,6 +30,8 @@ function isAssistantProvider(value: unknown): value is AssistantProvider {
     value === "minimax" ||
     value === "kimi" ||
     value === "zhipu" ||
+    value === "ollama" ||
+    value === "lmstudio" ||
     value === "external_command"
   );
 }

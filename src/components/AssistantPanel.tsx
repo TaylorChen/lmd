@@ -3,6 +3,7 @@ import type { AppSettings, AssistantDraft, AssistantEvent, AssistantMessage, Que
 type AssistantPanelProps = {
   busy: boolean;
   queryContext: QueryContext | null;
+  hasCurrentContent: boolean;
   draft: AssistantDraft | null;
   messages: AssistantMessage[];
   events: AssistantEvent[];
@@ -20,6 +21,7 @@ type AssistantPanelProps = {
 export function AssistantPanel({
   busy,
   queryContext,
+  hasCurrentContent,
   draft,
   messages,
   events,
@@ -34,7 +36,7 @@ export function AssistantPanel({
   onReplaceSelection,
 }: AssistantPanelProps) {
   const canChat = !busy;
-  const canRunWithContext = !busy && Boolean(queryContext && queryContext.items.length > 0);
+  const canRunWithContext = !busy && (hasCurrentContent || Boolean(queryContext && queryContext.items.length > 0));
   const canUseDraft = !busy && Boolean(draft);
 
   return (
@@ -85,6 +87,12 @@ export function AssistantPanel({
           </button>
           <button type="button" onClick={() => onRunTask("title")} disabled={!canRunWithContext}>
             生成标题
+          </button>
+          <button type="button" onClick={() => onRunTask("outline")} disabled={!canRunWithContext}>
+            生成大纲
+          </button>
+          <button type="button" onClick={() => onRunTask("continue")} disabled={!canRunWithContext}>
+            续写
           </button>
         </div>
 

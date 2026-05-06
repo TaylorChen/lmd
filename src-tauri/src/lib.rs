@@ -1033,6 +1033,14 @@ mod tests {
         assert!(catalog
             .providers
             .iter()
+            .any(|provider| provider.id == "ollama" && provider.api_key_env.is_none()));
+        assert!(catalog
+            .providers
+            .iter()
+            .any(|provider| provider.id == "lmstudio" && provider.api_key_env.is_none()));
+        assert!(catalog
+            .providers
+            .iter()
             .any(|provider| provider.id == "external_command"
                 && provider
                     .models

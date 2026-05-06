@@ -222,6 +222,18 @@ async function installTauriMock(page: Page) {
                 apiKeyEnv: "ZAI_API_KEY",
               },
               {
+                id: "ollama",
+                label: "Ollama",
+                models: ["qwen2.5:7b", "llama3.2", "deepseek-r1:7b"],
+                baseUrl: "http://127.0.0.1:11434/v1/chat/completions",
+              },
+              {
+                id: "lmstudio",
+                label: "LM Studio",
+                models: ["local-model"],
+                baseUrl: "http://127.0.0.1:1234/v1/chat/completions",
+              },
+              {
                 id: "external_command",
                 label: "External Command",
                 models: ["command-json-v1"],
@@ -654,6 +666,17 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
     rootPath: "/workspace",
     currentPath: "/workspace/alpha.md",
   });
+
+  const frontmatterForm = page.locator(".frontmatter-form");
+  await frontmatterForm.getByLabel("标题").fill("Alpha Note");
+  await frontmatterForm.getByLabel("标签").fill("writing, focus, draft");
+  await frontmatterForm.getByLabel("状态").fill("active");
+  await frontmatterForm.getByRole("button", { name: "应用到笔记" }).click();
+
+  await expect(page.getByText("Front Matter 已更新。")).toBeVisible();
+  await expect(page.locator(".cm-content")).toContainText("title: Alpha Note");
+  await expect(page.locator(".cm-content")).toContainText("tags: [writing, focus, draft]");
+  await expect(page.locator(".cm-content")).toContainText("status: active");
 });
 
 test("builds and saves an assistant draft", async ({ page }) => {
