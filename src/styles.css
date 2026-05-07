@@ -435,6 +435,7 @@ button:disabled {
 }
 
 .recent-panel,
+.history-panel,
 .settings-panel,
 .large-file-card {
   display: grid;
@@ -976,6 +977,36 @@ button:disabled {
   border: 1px solid var(--soft-line);
   border-radius: 8px;
   background: var(--panel-muted);
+}
+
+.plantuml-block {
+  margin: 0 0 1em;
+  padding: 12px;
+  border: 1px solid var(--soft-line);
+  border-radius: 8px;
+  background: var(--panel-muted);
+}
+
+.plantuml-block figcaption {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.plantuml-block pre {
+  margin: 0;
+}
+
+.block-anchor {
+  color: var(--muted);
+  font-size: 0.78em;
+  font-family: "SF Mono", Consolas, monospace;
+}
+
+.wiki-link {
+  color: var(--accent-strong);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(95, 126, 113, 0.35);
 }
 
 .knowledge-panel {

@@ -17,6 +17,13 @@ export type SaveResult = {
   modifiedMs: number | null;
 };
 
+export type HistorySnapshot = {
+  path: string;
+  name: string;
+  modifiedMs: number | null;
+  byteSize: number;
+};
+
 export type AttachmentImportResult = {
   path: string;
   markdown: string;
@@ -71,6 +78,8 @@ export type FrontmatterField = {
 export type KnowledgeLink = {
   target: string;
   label: string;
+  anchor: string | null;
+  isBlockReference: boolean;
   resolvedPath: string | null;
   resolvedRelativePath: string | null;
   resolvedName: string | null;
@@ -170,6 +179,11 @@ export type SearchMatch = {
   lineText: string;
   matchStart: number;
   matchEnd: number;
+};
+
+export type TagRenameResult = {
+  filesChanged: number;
+  replacements: number;
 };
 
 export type RecentFile = {

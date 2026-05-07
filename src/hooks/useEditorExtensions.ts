@@ -11,6 +11,7 @@ export function useEditorExtensions(
   readOnly: boolean,
   visibleStartLine: number,
   workspaceFiles: WorkspaceFile[],
+  blockIds: string[],
 ) {
   return useMemo(
     () => [
@@ -25,6 +26,25 @@ export function useEditorExtensions(
           (context: CompletionContext) => {
             const before = context.matchBefore(/\[\[[^\]\n]*/);
             if (!before) return null;
+            const blockMarkerIndex = before.text.lastIndexOf("#^");
+            if (blockMarkerIndex !== -1) {
+              const query = before.text.slice(blockMarkerIndex + 2).toLowerCase();
+              const options = blockIds
+                .filter((blockId) => blockId.toLowerCase().includes(query))
+                .slice(0, 40)
+                .map((blockId) => ({
+                  label: blockId,
+                  detail: "块引用",
+                  apply: `${blockId}]]`,
+                  type: "reference",
+                }));
+              return {
+                from: before.from + blockMarkerIndex + 2,
+                options,
+                validFor: /^[A-Za-z0-9_-]*$/,
+              };
+            }
+
             const query = before.text.slice(2).toLowerCase();
             const options = workspaceFiles
               .filter((file) => file.relativePath.toLowerCase().includes(query))
@@ -50,6 +70,6 @@ export function useEditorExtensions(
       EditorView.lineWrapping,
       EditorView.editable.of(!readOnly),
     ],
-    [isLarge, readOnly, visibleStartLine, workspaceFiles],
+    [isLarge, readOnly, visibleStartLine, workspaceFiles, blockIds],
   );
 }

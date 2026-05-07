@@ -83,10 +83,22 @@ async function installTauriMock(page: Page) {
               {
                 target: "Beta",
                 label: "Beta",
+                anchor: null,
+                isBlockReference: false,
                 resolvedPath: "/workspace/wiki/beta.md",
                 resolvedRelativePath: "wiki/beta.md",
                 resolvedName: "beta.md",
                 sourceKind: "wiki",
+              },
+              {
+                target: "alpha#^block-alpha",
+                label: "Alpha block",
+                anchor: "^block-alpha",
+                isBlockReference: true,
+                resolvedPath: "/workspace/alpha.md",
+                resolvedRelativePath: "alpha.md",
+                resolvedName: "alpha.md",
+                sourceKind: "note",
               },
             ],
             backlinks: [
@@ -102,6 +114,8 @@ async function installTauriMock(page: Page) {
               {
                 target: "Missing Topic",
                 label: "Missing Topic",
+                anchor: null,
+                isBlockReference: false,
                 resolvedPath: null,
                 resolvedRelativePath: null,
                 resolvedName: null,
@@ -246,6 +260,17 @@ async function installTauriMock(page: Page) {
           return "/workspace/wiki/inbox/alpha-summary.md";
         }
 
+        if (command === "list_history_snapshots") {
+          return [
+            {
+              path: "/workspace/.lmd/history/alpha.md/1000.md",
+              name: "1000",
+              modifiedMs: 1000,
+              byteSize: 42,
+            },
+          ];
+        }
+
         if (command === "initialize_knowledge_workspace") {
           knowledgeInitialized = true;
           return {
@@ -351,6 +376,14 @@ async function installTauriMock(page: Page) {
           return "/tmp/untitled.pdf";
         }
 
+        if (command === "export_markdown_docx") {
+          return "/tmp/untitled.docx";
+        }
+
+        if (command === "rename_workspace_tag") {
+          return { filesChanged: 2, replacements: 4 };
+        }
+
         throw new Error(`Unhandled test command: ${command}`);
       },
     };
@@ -380,7 +413,7 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await page.locator(".cm-content").click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
   await page.keyboard.type(
-    "---\ntitle: Preview title\ntags: [math, diagram]\n---\n\n# Preview title\n\nInline math $a^2 + b^2 = c^2$.\n\n$$E=mc^2$$\n\n```mermaid\ngraph TD\nA-->B\n```\n\n```javascript\nconst answer = 42;\n```\n\n| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n\n- [x] done item\n\nhttps://example.com",
+    "---\ntitle: Preview title\ntags: [math, diagram]\n---\n\n# Preview title\n\nInline math $a^2 + b^2 = c^2$.\n\n$$E=mc^2$$\n\n```mermaid\ngraph TD\nA-->B\n```\n\n```plantuml\n@startuml\nAlice -> Bob: Hi\n@enduml\n```\n\n```javascript\nconst answer = 42;\n```\n\n| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n\n- [x] done item\n\nhttps://example.com",
   );
 
   await page.getByRole("button", { name: "分屏" }).click();
@@ -395,6 +428,7 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await expect(page.locator(".document-main .markdown-preview")).not.toContainText("tags: [math, diagram]");
   await expect(page.locator(".document-main .markdown-preview .katex").first()).toBeVisible();
   await expect(page.locator(".document-main .markdown-preview .mermaid svg").first()).toBeVisible();
+  await expect(page.locator(".document-main .markdown-preview .plantuml-block")).toContainText("Alice -> Bob");
   await expect(page.locator(".document-main .markdown-preview pre code .hljs-keyword").first()).toHaveText("const");
   await expect(page.locator(".document-main .markdown-preview table")).toContainText("Alpha");
   await expect(page.locator(".document-main").getByRole("checkbox", { name: "done item" })).toBeChecked();
@@ -417,6 +451,22 @@ test("applies markdown toolbar shortcuts to the editor", async ({ page }) => {
   await page.getByLabel("Markdown 快捷格式").getByRole("button", { name: "B" }).click();
 
   await expect(page.locator(".cm-content")).toContainText("**Toolbar text**");
+
+  await page.keyboard.press("End");
+  await page.getByLabel("Markdown 快捷格式").getByRole("button", { name: "表格", exact: true }).click();
+  await expect(page.locator(".cm-content")).toContainText("| 列 1 | 列 2 | 列 3 |");
+
+  await page.keyboard.type("\n\nBlock target");
+  await page.getByLabel("Markdown 快捷格式").getByRole("button", { name: "块 ID" }).click();
+  await expect(page.locator(".cm-content")).toContainText("^block-");
+  await page.getByRole("button", { name: "分屏" }).click();
+  await expect(page.locator(".document-main .markdown-preview .block-anchor").first()).toContainText("^block-");
+
+  await page.getByRole("button", { name: "编辑" }).click();
+  await page.getByLabel("Markdown 快捷格式").getByRole("button", { name: "块引用" }).click();
+  await expect(page.locator(".cm-content")).toContainText("[[当前笔记#^block-");
+  await page.getByRole("button", { name: "分屏" }).click();
+  await expect(page.locator(".document-main .markdown-preview .wiki-link").first()).toContainText("当前笔记#^block-");
 });
 
 test("persists settings across reload", async ({ page }) => {
@@ -484,9 +534,18 @@ test("saves and exports the current document", async ({ page }) => {
   await page.getByRole("button", { name: "导出 PDF" }).click();
   await expect(page.getByText("已导出 PDF 到 untitled.pdf。")).toBeVisible();
 
+  await page.getByText("更多").click();
+  await page.getByRole("button", { name: "导出 DOCX" }).click();
+  await expect(page.getByText("已导出 DOCX 到 untitled.docx。")).toBeVisible();
+
   const calls = await page.evaluate(() => window.__LMD_TEST_CALLS__);
   expect(calls.map((call) => call.command)).toEqual(
-    expect.arrayContaining(["save_markdown_file", "export_markdown_html", "export_markdown_pdf"]),
+    expect.arrayContaining([
+      "save_markdown_file",
+      "export_markdown_html",
+      "export_markdown_pdf",
+      "export_markdown_docx",
+    ]),
   );
 });
 
@@ -530,6 +589,29 @@ test("opens workspace, searches, and opens a match", async ({ page }) => {
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "search_workspace"),
   );
   expect(searchCall?.args).toMatchObject({ rootPath: "/workspace", query: "needle", maxResults: 80 });
+});
+
+test("renames tags across the workspace", async ({ page }) => {
+  await page.getByRole("button", { name: "工作区" }).click();
+  await page.getByText("更多").click();
+  await page.getByRole("button", { name: "命令面板" }).click();
+  await page.getByLabel("搜索命令").fill("重命名标签");
+  await page.getByRole("button", { name: /重命名标签/ }).click();
+
+  await expect(page.getByRole("dialog", { name: "重命名标签" })).toBeVisible();
+  await page.getByLabel("原标签").fill("focus");
+  await page.getByLabel("新标签").fill("deep-work");
+  await page.getByRole("dialog", { name: "重命名标签" }).getByRole("button", { name: "重命名" }).click();
+
+  await expect(page.getByText("已将 #focus 重命名为 #deep-work，更新 2 个文件、4 处。")).toBeVisible();
+  const renameCall = await page.evaluate(() =>
+    window.__LMD_TEST_CALLS__?.find((call) => call.command === "rename_workspace_tag"),
+  );
+  expect(renameCall?.args).toMatchObject({
+    rootPath: "/workspace",
+    oldTag: "focus",
+    newTag: "deep-work",
+  });
 });
 
 test("creates named notes, renames files, imports attachments, and uses command palette", async ({ page }) => {
@@ -637,6 +719,9 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
   await page.getByLabel("检查器标签").getByRole("button", { name: "知识" }).click();
 
   await expect(page.locator(".knowledge-link-item span").filter({ hasText: "wiki/overview.md" }).first()).toBeVisible();
+  const blockReferenceSection = page.locator(".knowledge-section").filter({ hasText: "块引用" }).first();
+  await expect(blockReferenceSection).toBeVisible();
+  await expect(blockReferenceSection.locator(".knowledge-link-item").filter({ hasText: "alpha.md#^block-alpha" })).toBeVisible();
   await expect(page.getByText("#writing")).toBeVisible();
   await expect(page.locator(".knowledge-link-item.unresolved strong").first()).toHaveText("Missing Topic");
   await expect(page.getByText("sources/source-doc.md")).toBeVisible();
@@ -711,6 +796,10 @@ test("builds and saves an assistant draft", async ({ page }) => {
   await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("草稿已保存");
   await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("alpha-summary.md");
 
+  await page.getByRole("button", { name: "保存对话" }).click();
+  await expect(page.getByText("已将 AI 对话保存到 alpha-summary.md。")).toBeVisible();
+  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("对话已保存");
+
   const summarizeCall = await page.evaluate(() =>
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "summarize_query_context"),
   );
@@ -730,4 +819,8 @@ test("builds and saves an assistant draft", async ({ page }) => {
     rootPath: "/workspace",
     title: "alpha summary",
   });
+  const saveDraftCalls = await page.evaluate(() =>
+    window.__LMD_TEST_CALLS__?.filter((call) => call.command === "save_wiki_draft"),
+  );
+  expect(saveDraftCalls?.some((call) => String(call.args?.title ?? "").startsWith("AI 对话"))).toBe(true);
 });

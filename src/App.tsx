@@ -10,13 +10,22 @@ import { LibraryRail } from "./components/LibraryRail";
 import { MarkdownPreview } from "./components/MarkdownPreview";
 import { NameDialog, type NameDialogState } from "./components/NameDialog";
 import { NoticeStack } from "./components/NoticeStack";
+import { TagRenameDialog } from "./components/TagRenameDialog";
 import { WorkspaceListPanel } from "./components/WorkspaceListPanel";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { useEditorExtensions } from "./hooks/useEditorExtensions";
 import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
 import { countSearchMatches, fileName, isPathInsideRoot, localStats } from "./lib/format";
 import { renderMarkdownDocument } from "./lib/markdown";
-import { readRecentFiles, readSettings, recentFileLimit, storageKeys, writeRecentFiles, writeSettings } from "./lib/storage";
+import {
+  readRecentFiles,
+  readSettings,
+  recentFileLimit,
+  storageKeys,
+  writeRecentFiles,
+  writeSettings,
+  writeSettingsWithoutApiKeys,
+} from "./lib/storage";
 import { invokeCommand, isNativeRuntime } from "./lib/tauri";
 import type {
   AssistantCatalog,
@@ -28,6 +37,7 @@ import type {
   ExternalChange,
   DocumentKnowledge,
   EditorMode,
+  HistorySnapshot,
   KnowledgeLintReport,
   LibrarySection,
   LineRange,
@@ -37,6 +47,7 @@ import type {
   SaveResult,
   SearchMatch,
   QueryContext,
+  TagRenameResult,
   Workspace,
   WorkspaceFile,
 } from "./types";
@@ -162,6 +173,65 @@ function applyEditableFrontmatter(content: string, draft: EditableFrontmatter) {
   return `---\n${frontmatter}\n---\n\n${body}`;
 }
 
+function createBlockId() {
+  const timestamp = Date.now().toString(36);
+  return `^block-${timestamp}`;
+}
+
+function markdownTableTemplate() {
+  return "| 列 1 | 列 2 | 列 3 |\n| --- | --- | --- |\n| 内容 | 内容 | 内容 |\n";
+}
+
+function formatMarkdownTable(input: string) {
+  const lines = input
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.includes("|"));
+  if (lines.length < 2) return input;
+
+  const rows = lines.map((line) => {
+    const cells = line.replace(/^\|/, "").replace(/\|$/, "").split("|");
+    return cells.map((cell) => cell.trim());
+  });
+  const columnCount = Math.max(...rows.map((row) => row.length));
+  const normalizedRows = rows.map((row) => [
+    ...row,
+    ...Array.from({ length: columnCount - row.length }, () => ""),
+  ]);
+  const widths = Array.from({ length: columnCount }, (_, column) =>
+    Math.max(3, ...normalizedRows.map((row) => row[column].length)),
+  );
+  const formatRow = (row: string[]) =>
+    `| ${row.map((cell, column) => cell.padEnd(widths[column], " ")).join(" | ")} |`;
+
+  const header = formatRow(normalizedRows[0]);
+  const divider = `| ${widths.map((width) => "-".repeat(width)).join(" | ")} |`;
+  const body = normalizedRows.slice(2).map(formatRow);
+  return [header, divider, ...body].join("\n");
+}
+
+function currentLinkTarget(documentPath: string | null) {
+  return documentPath ? fileName(documentPath).replace(/\.(md|markdown|mdown)$/i, "") : "当前笔记";
+}
+
+function extractBlockIds(content: string) {
+  const ids = new Set<string>();
+  for (const match of content.matchAll(/\^([A-Za-z0-9_-]+)/g)) {
+    ids.add(match[1]);
+  }
+  return Array.from(ids).sort((left, right) => left.localeCompare(right));
+}
+
+function formatAssistantChatArchive(messages: AssistantMessage[]) {
+  const body = messages
+    .map((message) => {
+      const speaker = message.role === "user" ? "用户" : "AI";
+      return `## ${speaker}\n\n${message.content.trim()}`;
+    })
+    .join("\n\n");
+  return `# AI 对话记录\n\n${body}\n`;
+}
+
 export default function App() {
   const editorViewRef = useRef<EditorView | null>(null);
   const [content, setContent] = useState(emptyDocument);
@@ -178,6 +248,7 @@ export default function App() {
   const [workspaceMatches, setWorkspaceMatches] = useState<SearchMatch[]>([]);
   const [workspaceSearchActive, setWorkspaceSearchActive] = useState(false);
   const [librarySection, setLibrarySection] = useState<LibrarySection>("all-notes");
+  const [historySnapshots, setHistorySnapshots] = useState<HistorySnapshot[]>([]);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => readRecentFiles());
   const [settings, setSettings] = useState(() => readSettings());
   const [assistantCatalog, setAssistantCatalog] = useState<AssistantCatalog>(defaultAssistantCatalog);
@@ -198,6 +269,7 @@ export default function App() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
   const [nameDialog, setNameDialog] = useState<(NameDialogState & { kind: "new" | "rename" | "wiki" }) | null>(null);
+  const [tagRenameOpen, setTagRenameOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [assistantBusy, setAssistantBusy] = useState(false);
 
@@ -208,8 +280,9 @@ export default function App() {
   const canPageBack = isLarge && visibleStartLine > 1;
   const canPageForward = isLarge && visibleEndLine < lineCount;
   const editableFrontmatter = useMemo(() => readEditableFrontmatter(content), [content]);
+  const blockIds = useMemo(() => extractBlockIds(content), [content]);
 
-  const extensions = useEditorExtensions(isLarge, readOnly, visibleStartLine, workspace?.files ?? []);
+  const extensions = useEditorExtensions(isLarge, readOnly, visibleStartLine, workspace?.files ?? [], blockIds);
   const workspaceFiles = useMemo(() => {
     if (!workspace) return [];
 
@@ -280,6 +353,7 @@ export default function App() {
     setVisibleStartLine(document.visibleStartLine);
     setVisibleLineCount(document.visibleLineCount);
     setSearch("");
+    setHistorySnapshots([]);
   }
 
   function clearKnowledge() {
@@ -411,6 +485,32 @@ export default function App() {
       window.localStorage.removeItem(storageKeys.lastDocumentPath);
     }
     setNotice({ tone: "info", message: "已从最近列表移除。" });
+  }
+
+  async function handleLoadHistorySnapshots(showNotice = true) {
+    if (!path) {
+      setHistorySnapshots([]);
+      if (showNotice) setNotice({ tone: "error", message: "请先保存或打开一个 Markdown 文件。" });
+      return;
+    }
+    try {
+      const snapshots = await invokeCommand<HistorySnapshot[]>("list_history_snapshots", {
+        path,
+        rootPath: workspace?.rootPath,
+        limit: 8,
+      });
+      setHistorySnapshots(snapshots);
+      if (showNotice) {
+        setNotice({
+          tone: "info",
+          message: snapshots.length
+            ? `找到 ${snapshots.length.toLocaleString()} 个保存快照。`
+            : "当前文件暂无保存快照。",
+        });
+      }
+    } catch (error) {
+      if (showNotice) setNotice({ tone: "error", message: String(error) });
+    }
   }
 
   function insertTextAtCursor(insert: string, message: string) {
@@ -698,6 +798,33 @@ export default function App() {
     }
   }
 
+  async function handleRenameWorkspaceTag(oldTag: string, newTag: string) {
+    if (!workspace) {
+      setNotice({ tone: "error", message: "请先打开工作区。" });
+      return;
+    }
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await invokeCommand<TagRenameResult>("rename_workspace_tag", {
+        rootPath: workspace.rootPath,
+        oldTag,
+        newTag,
+      });
+      await handleRefreshWorkspace(false);
+      setTagRenameOpen(false);
+      setNotice({
+        tone: "info",
+        message: `已将 #${oldTag} 重命名为 #${newTag}，更新 ${result.filesChanged.toLocaleString()} 个文件、${result.replacements.toLocaleString()} 处。`,
+      });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function openPath(pathToOpen: string, displayName: string) {
     if (pathToOpen === path) return;
     if (isDirty && !window.confirm("放弃未保存的更改？")) return;
@@ -727,6 +854,10 @@ export default function App() {
 
   async function handleOpenSearchMatch(match: SearchMatch) {
     await openPath(match.path, `${match.relativePath}:${match.lineNumber}`);
+  }
+
+  async function handleOpenHistorySnapshot(snapshot: HistorySnapshot) {
+    await openPath(snapshot.path, `快照 ${snapshot.name}`);
   }
 
   async function handleWorkspaceSearch() {
@@ -793,6 +924,7 @@ export default function App() {
     try {
       const result = await invokeCommand<SaveResult | null>("save_markdown_file", {
         path,
+        rootPath: workspace?.rootPath,
         content,
       });
       if (!result) return;
@@ -806,6 +938,7 @@ export default function App() {
       if (workspace && isPathInsideRoot(result.path, workspace.rootPath)) {
         void handleRefreshWorkspace(false);
       }
+      void handleLoadHistorySnapshots(false);
       setNotice({ tone: "info", message: `已保存 ${fileName(result.path)}。` });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -841,6 +974,23 @@ export default function App() {
       });
       if (!exportedPath) return;
       setNotice({ tone: "info", message: `已导出 PDF 到 ${fileName(exportedPath)}。` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleExportDocx() {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const exportedPath = await invokeCommand<string | null>("export_markdown_docx", {
+        path,
+        content,
+      });
+      if (!exportedPath) return;
+      setNotice({ tone: "info", message: `已导出 DOCX 到 ${fileName(exportedPath)}。` });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -1044,6 +1194,40 @@ export default function App() {
     }
   }
 
+  async function handleSaveAssistantChat() {
+    if (!workspace || assistantMessages.length === 0) {
+      setNotice({ tone: "error", message: "请先打开工作区并开始一段 AI 对话。" });
+      return;
+    }
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const savedPath = await invokeCommand<string>("save_wiki_draft", {
+        rootPath: workspace.rootPath,
+        title: `AI 对话 ${new Date().toISOString().slice(0, 10)}`,
+        content: formatAssistantChatArchive(assistantMessages),
+      });
+      appendAssistantEvent({
+        label: "对话已保存",
+        detail: fileName(savedPath),
+        tone: "info",
+      });
+      await handleRefreshWorkspace(false);
+      setLibrarySection("inbox");
+      setNotice({ tone: "info", message: `已将 AI 对话保存到 ${fileName(savedPath)}。` });
+    } catch (error) {
+      appendAssistantEvent({
+        label: "保存失败",
+        detail: String(error),
+        tone: "error",
+      });
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function handleChange(nextContent: string) {
     if (readOnly) return;
     setContent(nextContent);
@@ -1113,6 +1297,12 @@ export default function App() {
     if (!view) {
       const fallback = action === "h1" ? "# " : action === "h2" ? "## " : "";
       if (fallback) handleChange(`${fallback}${content}`);
+      if (action === "table") handleChange(`${content.trimEnd()}\n\n${markdownTableTemplate()}`);
+      if (action === "block-id") handleChange(`${content.trimEnd()} ${createBlockId()}\n`);
+      if (action === "block-ref") {
+        const id = createBlockId();
+        handleChange(`${content.trimEnd()}\n\n[[${currentLinkTarget(path)}#${id}]]\n`);
+      }
       return;
     }
 
@@ -1128,6 +1318,74 @@ export default function App() {
         selection: { anchor: line.from + nextLine.length },
       });
       view.focus();
+      return;
+    }
+
+    if (action === "table") {
+      const insert = selectedText || markdownTableTemplate();
+      view.dispatch({
+        changes: { from: selection.from, to: selection.to, insert },
+        selection: { anchor: selection.from + insert.length },
+      });
+      view.focus();
+      setNotice({ tone: "info", message: "已插入 Markdown 表格。" });
+      return;
+    }
+
+    if (action === "format-table") {
+      const fromLine = view.state.doc.lineAt(selection.from);
+      const toLine = view.state.doc.lineAt(selection.to);
+      let from = selection.from;
+      let to = selection.to;
+      let source = selectedText;
+      if (!source) {
+        let startLineNumber = fromLine.number;
+        let endLineNumber = toLine.number;
+        while (startLineNumber > 1 && view.state.doc.line(startLineNumber - 1).text.includes("|")) {
+          startLineNumber -= 1;
+        }
+        while (endLineNumber < view.state.doc.lines && view.state.doc.line(endLineNumber + 1).text.includes("|")) {
+          endLineNumber += 1;
+        }
+        const startLine = view.state.doc.line(startLineNumber);
+        const endLine = view.state.doc.line(endLineNumber);
+        from = startLine.from;
+        to = endLine.to;
+        source = view.state.doc.sliceString(from, to);
+      }
+      const insert = formatMarkdownTable(source);
+      view.dispatch({
+        changes: { from, to, insert },
+        selection: { anchor: from + insert.length },
+      });
+      view.focus();
+      setNotice({ tone: "info", message: "Markdown 表格已对齐。" });
+      return;
+    }
+
+    if (action === "block-id") {
+      const line = view.state.doc.lineAt(selection.from);
+      const id = createBlockId();
+      const prefix = line.text.trim() ? " " : "";
+      view.dispatch({
+        changes: { from: line.to, to: line.to, insert: `${prefix}${id}` },
+        selection: { anchor: line.to + prefix.length + id.length },
+      });
+      view.focus();
+      setNotice({ tone: "info", message: `已插入块 ID ${id}。` });
+      return;
+    }
+
+    if (action === "block-ref") {
+      const id = selectedText.trim().replace(/^#?/, "") || createBlockId();
+      const blockId = id.startsWith("^") ? id : `^${id}`;
+      const insert = `[[${currentLinkTarget(path)}#${blockId}]]`;
+      view.dispatch({
+        changes: { from: selection.from, to: selection.to, insert },
+        selection: { anchor: selection.from + insert.length },
+      });
+      view.focus();
+      setNotice({ tone: "info", message: `已插入块引用 ${blockId}。` });
       return;
     }
 
@@ -1306,6 +1564,35 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isNativeRuntime()) return;
+    let cancelled = false;
+
+    async function loadKeys() {
+      const entries = await Promise.all(
+        assistantCatalog.providers
+          .filter((provider) => provider.apiKeyEnv)
+          .map(async (provider) => {
+            const apiKey = await invokeCommand<string | null>("load_assistant_api_key", {
+              provider: provider.id,
+            }).catch(() => null);
+            return [provider.id, apiKey] as const;
+          }),
+      );
+      if (cancelled) return;
+      const assistantApiKeys = Object.fromEntries(
+        entries.filter((entry): entry is readonly [AssistantProvider, string] => Boolean(entry[1])),
+      ) as Partial<Record<AssistantProvider, string>>;
+      if (Object.keys(assistantApiKeys).length === 0) return;
+      setSettings((currentSettings) => ({ ...currentSettings, assistantApiKeys }));
+    }
+
+    void loadKeys();
+    return () => {
+      cancelled = true;
+    };
+  }, [assistantCatalog]);
+
   useAppShortcuts({
     busy,
     readOnly,
@@ -1329,8 +1616,34 @@ export default function App() {
     onExternalChange: setExternalChange,
   });
 
+  useEffect(() => {
+    if (!path) {
+      setHistorySnapshots([]);
+      return;
+    }
+    void handleLoadHistorySnapshots(false);
+  }, [path, workspace?.rootPath]);
+
   function handleSettingsChange(nextSettings: typeof settings) {
+    const previousApiKeys = settings.assistantApiKeys;
     setSettings(nextSettings);
+    if (isNativeRuntime()) {
+      writeSettingsWithoutApiKeys(nextSettings);
+      for (const provider of assistantCatalog.providers) {
+        if (!provider.apiKeyEnv) continue;
+        const nextKey = nextSettings.assistantApiKeys[provider.id] ?? "";
+        const previousKey = previousApiKeys[provider.id] ?? "";
+        if (nextKey === previousKey) continue;
+        const command = nextKey.trim() ? "save_assistant_api_key" : "delete_assistant_api_key";
+        void invokeCommand(command, {
+          provider: provider.id,
+          apiKey: nextKey,
+        }).catch((error) => {
+          setNotice({ tone: "error", message: String(error) });
+        });
+      }
+      return;
+    }
     writeSettings(nextSettings);
   }
 
@@ -1378,6 +1691,27 @@ export default function App() {
       run: () => void handleImportAttachment(),
     },
     {
+      id: "block-ref",
+      label: "插入块引用",
+      hint: "[[note#^block-id]]",
+      disabled: busy || readOnly,
+      run: () => applyMarkdownAction("block-ref"),
+    },
+    {
+      id: "history",
+      label: "查看保存快照",
+      hint: "列出当前文件最近保存前版本",
+      disabled: busy || !path,
+      run: () => void handleLoadHistorySnapshots(),
+    },
+    {
+      id: "rename-tag",
+      label: "重命名标签",
+      hint: "级联更新工作区内 #tag 和 Front Matter tags",
+      disabled: busy || !workspace,
+      run: () => setTagRenameOpen(true),
+    },
+    {
       id: "wiki",
       label: "新建 Wiki 页面",
       hint: "创建页面并插入 [[Wiki Link]]",
@@ -1405,6 +1739,13 @@ export default function App() {
       disabled: busy,
       run: () => void handleExportPdf(),
     },
+    {
+      id: "export-docx",
+      label: "导出 DOCX",
+      hint: "需要本机 pandoc",
+      disabled: busy,
+      run: () => void handleExportDocx(),
+    },
   ];
 
   return (
@@ -1420,6 +1761,12 @@ export default function App() {
         state={nameDialog}
         onCancel={() => setNameDialog(null)}
         onSubmit={handleNameDialogSubmit}
+      />
+      <TagRenameDialog
+        open={tagRenameOpen}
+        busy={busy}
+        onCancel={() => setTagRenameOpen(false)}
+        onSubmit={(oldTag, newTag) => void handleRenameWorkspaceTag(oldTag, newTag)}
       />
       <button
         type="button"
@@ -1460,6 +1807,7 @@ export default function App() {
           onRefreshWorkspace={() => void handleRefreshWorkspace()}
           onExportHtml={() => void handleExportHtml()}
           onExportPdf={() => void handleExportPdf()}
+          onExportDocx={() => void handleExportDocx()}
         />
 
         <WorkspaceListPanel
@@ -1470,6 +1818,7 @@ export default function App() {
           workspaceQuery={workspaceQuery}
           workspaceMatches={workspaceMatches}
           workspaceSearchActive={workspaceSearchActive}
+          historySnapshots={historySnapshots}
           recentFiles={recentFiles}
           path={path}
           isLarge={isLarge}
@@ -1487,6 +1836,8 @@ export default function App() {
           onWorkspaceSearch={() => void handleWorkspaceSearch()}
           onOpenWorkspaceFile={(file) => void handleOpenWorkspaceFile(file)}
           onOpenSearchMatch={(match) => void handleOpenSearchMatch(match)}
+          onRefreshHistorySnapshots={() => void handleLoadHistorySnapshots()}
+          onOpenHistorySnapshot={(snapshot) => void handleOpenHistorySnapshot(snapshot)}
           onOpenRecentFile={(recentPath, name) => void openPath(recentPath, name)}
           onRemoveRecentFile={handleRemoveRecentFile}
           onSettingsChange={handleSettingsChange}
@@ -1605,6 +1956,7 @@ export default function App() {
             onRunTask={(task) => void handleAssistantRun(task)}
             onSubmitPrompt={(prompt) => void handleAssistantPromptSubmit(prompt)}
             onSaveDraft={() => void handleSaveAssistantDraft()}
+            onSaveChat={() => void handleSaveAssistantChat()}
             onInsertDraft={insertAssistantDraft}
             onReplaceSelection={replaceSelectionWithAssistantDraft}
           />

@@ -3,6 +3,7 @@ import type {
   AppSettings,
   AssistantCatalog,
   EditorMode,
+  HistorySnapshot,
   LibrarySection,
   RecentFile,
   SearchMatch,
@@ -18,6 +19,7 @@ type WorkspaceListPanelProps = {
   workspaceQuery: string;
   workspaceMatches: SearchMatch[];
   workspaceSearchActive: boolean;
+  historySnapshots: HistorySnapshot[];
   recentFiles: RecentFile[];
   path: string | null;
   isLarge: boolean;
@@ -29,6 +31,8 @@ type WorkspaceListPanelProps = {
   onWorkspaceSearch: () => void;
   onOpenWorkspaceFile: (file: WorkspaceFile) => void;
   onOpenSearchMatch: (match: SearchMatch) => void;
+  onRefreshHistorySnapshots: () => void;
+  onOpenHistorySnapshot: (snapshot: HistorySnapshot) => void;
   onOpenRecentFile: (path: string, name: string) => void;
   onRemoveRecentFile: (path: string) => void;
   onSettingsChange: (settings: AppSettings) => void;
@@ -59,6 +63,7 @@ export function WorkspaceListPanel({
   workspaceQuery,
   workspaceMatches,
   workspaceSearchActive,
+  historySnapshots,
   recentFiles,
   path,
   isLarge,
@@ -70,6 +75,8 @@ export function WorkspaceListPanel({
   onWorkspaceSearch,
   onOpenWorkspaceFile,
   onOpenSearchMatch,
+  onRefreshHistorySnapshots,
+  onOpenHistorySnapshot,
   onOpenRecentFile,
   onRemoveRecentFile,
   onSettingsChange,
@@ -173,7 +180,7 @@ export function WorkspaceListPanel({
                 aria-label="搜索工作区"
                 value={workspaceQuery}
                 onChange={(event) => onWorkspaceQueryChange(event.target.value)}
-                placeholder="搜索工作区"
+                placeholder="搜索工作区，支持 #标签 path:wiki"
                 disabled={busy}
               />
               <button type="submit" disabled={busy || !workspaceQuery.trim()}>
@@ -270,6 +277,39 @@ export function WorkspaceListPanel({
           </div>
         </div>
       )}
+
+      <details className="history-panel">
+        <summary className="settings-summary">
+          <span className="label">保存快照</span>
+          <small>{historySnapshots.length.toLocaleString()}</small>
+        </summary>
+        <div className="recent-list" aria-label="保存快照">
+          <button
+            type="button"
+            className="knowledge-action-button"
+            onClick={onRefreshHistorySnapshots}
+            disabled={busy || !path}
+          >
+            刷新快照
+          </button>
+          {historySnapshots.length > 0 ? (
+            historySnapshots.map((snapshot) => (
+              <button
+                type="button"
+                key={snapshot.path}
+                className="recent-item"
+                onClick={() => onOpenHistorySnapshot(snapshot)}
+                disabled={busy}
+                title={snapshot.path}
+              >
+                {snapshot.name}
+              </button>
+            ))
+          ) : (
+            <p className="empty-workspace">暂无快照。</p>
+          )}
+        </div>
+      </details>
 
       <details className="settings-panel">
         <summary className="settings-summary">

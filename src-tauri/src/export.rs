@@ -1,4 +1,10 @@
-use std::{fs, path::Path};
+use std::{
+    fs,
+    io::Write,
+    path::Path,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 const PDF_PAGE_WIDTH: f32 = 612.0;
 const PDF_PAGE_HEIGHT: f32 = 792.0;
@@ -50,6 +56,49 @@ impl PdfLine {
 pub(crate) fn export_html_document(target_path: &Path, html: &str) -> Result<String, String> {
     fs::write(target_path, html)
         .map_err(|error| format!("Could not export {}: {error}", target_path.display()))?;
+    Ok(target_path.to_string_lossy().to_string())
+}
+
+pub(crate) fn export_docx_document(target_path: &Path, content: &str) -> Result<String, String> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("Could not create DOCX temp file name: {error}"))?
+        .as_nanos();
+    let input_path = std::env::temp_dir().join(format!("lmd-docx-{timestamp}.md"));
+    {
+        let mut input = fs::File::create(&input_path)
+            .map_err(|error| format!("Could not create {}: {error}", input_path.display()))?;
+        input
+            .write_all(content.as_bytes())
+            .map_err(|error| format!("Could not write {}: {error}", input_path.display()))?;
+    }
+
+    let output = Command::new("pandoc")
+        .arg(&input_path)
+        .arg("-f")
+        .arg("markdown")
+        .arg("-t")
+        .arg("docx")
+        .arg("-o")
+        .arg(target_path)
+        .output()
+        .map_err(|error| {
+            format!(
+                "无法调用 pandoc 导出 DOCX：{error}。请先安装 pandoc，例如 `brew install pandoc`。"
+            )
+        });
+    let _ = fs::remove_file(&input_path);
+    let output = output?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "pandoc 导出 DOCX 失败。".to_string()
+        } else {
+            format!("pandoc 导出 DOCX 失败：{stderr}")
+        });
+    }
+
     Ok(target_path.to_string_lossy().to_string())
 }
 

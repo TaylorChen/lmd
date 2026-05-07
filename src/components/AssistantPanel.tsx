@@ -14,6 +14,7 @@ type AssistantPanelProps = {
   onRunTask: (task: string) => void;
   onSubmitPrompt: (prompt: string) => void;
   onSaveDraft: () => void;
+  onSaveChat: () => void;
   onInsertDraft: () => void;
   onReplaceSelection: () => void;
 };
@@ -32,12 +33,14 @@ export function AssistantPanel({
   onRunTask,
   onSubmitPrompt,
   onSaveDraft,
+  onSaveChat,
   onInsertDraft,
   onReplaceSelection,
 }: AssistantPanelProps) {
   const canChat = !busy;
   const canRunWithContext = !busy && (hasCurrentContent || Boolean(queryContext && queryContext.items.length > 0));
   const canUseDraft = !busy && Boolean(draft);
+  const canSaveChat = !busy && messages.length > 0;
 
   return (
     <aside className="assistant-chat-panel" aria-label="AI 助手面板">
@@ -106,6 +109,14 @@ export function AssistantPanel({
             </button>
             <button type="button" onClick={onSaveDraft} disabled={!canUseDraft}>
               保存为 Wiki 页面
+            </button>
+          </div>
+        )}
+
+        {messages.length > 0 && (
+          <div className="assistant-draft-actions" aria-label="对话存档操作">
+            <button type="button" onClick={onSaveChat} disabled={!canSaveChat}>
+              保存对话
             </button>
           </div>
         )}

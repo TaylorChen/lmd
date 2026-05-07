@@ -213,6 +213,44 @@ export function KnowledgePanel({
         </section>
       )}
 
+      {knowledge.outgoingLinks.some((link) => link.isBlockReference) && (
+        <section className="knowledge-section">
+          <div className="knowledge-header">
+            <span className="label">块引用</span>
+            <small>{knowledge.outgoingLinks.filter((link) => link.isBlockReference).length.toLocaleString()}</small>
+          </div>
+          <div className="knowledge-link-list">
+            {knowledge.outgoingLinks
+              .filter((link) => link.isBlockReference)
+              .map((link, index) =>
+                link.resolvedPath ? (
+                  <button
+                    type="button"
+                    key={`${link.target}:${index}`}
+                    className="knowledge-link-item"
+                    onClick={() => onOpenPath(link.resolvedPath!, link.resolvedName ?? link.label)}
+                    disabled={busy}
+                    title={link.resolvedRelativePath ?? link.target}
+                  >
+                    <strong>{link.label}</strong>
+                    <span>
+                      {link.resolvedRelativePath ?? link.target}
+                      {link.anchor ? `#${link.anchor}` : ""}
+                    </span>
+                    <small>块引用</small>
+                  </button>
+                ) : (
+                  <div key={`${link.target}:${index}`} className="knowledge-link-item unresolved">
+                    <strong>{link.label}</strong>
+                    <span>{link.target}</span>
+                    <small>未解析</small>
+                  </div>
+                ),
+              )}
+          </div>
+        </section>
+      )}
+
       {knowledge.outgoingLinks.length > 0 && (
         <section className="knowledge-section">
           <div className="knowledge-header">
@@ -231,8 +269,11 @@ export function KnowledgePanel({
                   title={link.resolvedRelativePath ?? link.target}
                 >
                   <strong>{link.label}</strong>
-                  <span>{link.resolvedRelativePath ?? link.target}</span>
-                  <small>{sourceKindLabel(link.sourceKind)}</small>
+                  <span>
+                    {link.resolvedRelativePath ?? link.target}
+                    {link.anchor ? `#${link.anchor}` : ""}
+                  </span>
+                  <small>{link.isBlockReference ? "块引用" : sourceKindLabel(link.sourceKind)}</small>
                 </button>
               ) : (
                 <div key={`${link.target}:${index}`} className="knowledge-link-item unresolved">

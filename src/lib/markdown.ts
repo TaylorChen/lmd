@@ -72,11 +72,37 @@ markdown.renderer.rules.fence = (tokens, index, options, env, self) => {
   if (language === "mermaid") {
     return `<pre class="mermaid">${markdown.utils.escapeHtml(token.content)}</pre>`;
   }
+  if (language === "plantuml" || language === "puml") {
+    return `<figure class="plantuml-block"><figcaption>PlantUML</figcaption><pre><code>${markdown.utils.escapeHtml(token.content)}</code></pre></figure>`;
+  }
   return defaultFence(tokens, index, options, env, self);
 };
 
+function withBlockAnchors(html: string) {
+  return html
+    .replace(/<p>\^([A-Za-z0-9_-]+)<\/p>/g, '<span id="$1" class="block-anchor">^$1</span>')
+    .replace(
+      /<p>(.*?)\s+\^([A-Za-z0-9_-]+)<\/p>/g,
+      '<p id="$2">$1 <span class="block-anchor">^$2</span></p>',
+    );
+}
+
+function normalizeInternalAnchor(anchor: string) {
+  return anchor.trim().replace(/^\^/, "");
+}
+
+function withWikiLinks(html: string) {
+  return html.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_match, rawTarget: string, rawLabel?: string) => {
+    const target = rawTarget.trim();
+    const label = (rawLabel ?? target).trim();
+    const [, anchor] = target.split("#");
+    const href = anchor ? `#${normalizeInternalAnchor(anchor)}` : "#";
+    return `<a class="wiki-link" href="${markdown.utils.escapeHtml(href)}">${markdown.utils.escapeHtml(label)}</a>`;
+  });
+}
+
 export function renderMarkdownBody(content: string) {
-  return markdown.render(stripFrontmatter(content));
+  return withWikiLinks(withBlockAnchors(markdown.render(stripFrontmatter(content))));
 }
 
 export function renderMarkdownDocument(title: string, content: string) {
@@ -103,6 +129,9 @@ export function renderMarkdownDocument(title: string, content: string) {
     .task-list-item-checkbox { margin-right: 8px; }
     .katex-display { overflow-x: auto; overflow-y: hidden; }
     .mermaid { display: flex; justify-content: center; padding: 18px; background: #f6faf8; border: 1px solid #dce7e2; border-radius: 8px; }
+    .plantuml-block { margin: 0 0 1em; padding: 12px; background: #f6faf8; border: 1px solid #dce7e2; border-radius: 8px; }
+    .plantuml-block figcaption { margin-bottom: 8px; color: #6f7f78; font-size: 0.85em; }
+    .plantuml-block pre { margin: 0; }
   </style>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.25/dist/katex.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github.min.css">

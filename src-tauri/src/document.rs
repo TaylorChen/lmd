@@ -50,6 +50,15 @@ pub(crate) struct SaveResult {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct HistorySnapshot {
+    pub(crate) path: String,
+    pub(crate) name: String,
+    pub(crate) modified_ms: Option<u64>,
+    pub(crate) byte_size: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AttachmentImportResult {
     pub(crate) path: String,
     pub(crate) markdown: String,
@@ -277,7 +286,9 @@ pub(crate) fn save_markdown_file(
     cache: &DocumentCache,
     target_path: &Path,
     content: &str,
+    root_path: Option<&Path>,
 ) -> Result<SaveResult, String> {
+    write_history_snapshot(target_path, root_path, content)?;
     fs::write(target_path, content)
         .map_err(|error| format!("Could not save {}: {error}", target_path.display()))?;
     let metadata = fs::metadata(target_path)
@@ -295,6 +306,105 @@ pub(crate) fn save_markdown_file(
         line_count: stats.line_count,
         modified_ms: metadata_modified_ms(&metadata),
     })
+}
+
+fn history_root_for(target_path: &Path, root_path: Option<&Path>) -> PathBuf {
+    root_path
+        .map(|root| root.join(".lmd/history"))
+        .or_else(|| {
+            target_path
+                .parent()
+                .map(|parent| parent.join(".lmd/history"))
+        })
+        .unwrap_or_else(|| PathBuf::from(".lmd/history"))
+}
+
+fn history_key_for(target_path: &Path, root_path: Option<&Path>) -> String {
+    let relative = root_path
+        .and_then(|root| target_path.strip_prefix(root).ok())
+        .unwrap_or(target_path);
+    let key = relative.to_string_lossy().replace('\\', "/");
+    key.chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn write_history_snapshot(
+    target_path: &Path,
+    root_path: Option<&Path>,
+    next_content: &str,
+) -> Result<(), String> {
+    if !target_path.exists() {
+        return Ok(());
+    }
+
+    let previous_content = fs::read_to_string(target_path).map_err(|error| {
+        format!(
+            "Could not read previous version of {}: {error}",
+            target_path.display()
+        )
+    })?;
+    if previous_content == next_content {
+        return Ok(());
+    }
+
+    let key = history_key_for(target_path, root_path);
+    let snapshot_dir = history_root_for(target_path, root_path).join(key);
+    fs::create_dir_all(&snapshot_dir)
+        .map_err(|error| format!("Could not create {}: {error}", snapshot_dir.display()))?;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("Could not create history timestamp: {error}"))?
+        .as_millis();
+    let snapshot_path = snapshot_dir.join(format!("{timestamp}.md"));
+    fs::write(&snapshot_path, previous_content)
+        .map_err(|error| format!("Could not write {}: {error}", snapshot_path.display()))?;
+    Ok(())
+}
+
+pub(crate) fn list_history_snapshots(
+    target_path: &Path,
+    root_path: Option<&Path>,
+    limit: usize,
+) -> Result<Vec<HistorySnapshot>, String> {
+    let key = history_key_for(target_path, root_path);
+    let snapshot_dir = history_root_for(target_path, root_path).join(key);
+    if !snapshot_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut snapshots = Vec::new();
+    for entry in fs::read_dir(&snapshot_dir)
+        .map_err(|error| format!("Could not read {}: {error}", snapshot_dir.display()))?
+    {
+        let entry = entry.map_err(|error| format!("Could not read history entry: {error}"))?;
+        let path = entry.path();
+        if !is_markdown_extension(&path) {
+            continue;
+        }
+        let metadata = entry
+            .metadata()
+            .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
+        snapshots.push(HistorySnapshot {
+            name: path
+                .file_stem()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_else(|| "snapshot".to_string()),
+            path: path.to_string_lossy().to_string(),
+            modified_ms: metadata_modified_ms(&metadata),
+            byte_size: metadata.len(),
+        });
+    }
+
+    snapshots.sort_by(|left, right| right.name.cmp(&left.name));
+    snapshots.truncate(limit);
+    Ok(snapshots)
 }
 
 fn is_markdown_extension(path: &Path) -> bool {
@@ -364,7 +474,7 @@ pub(crate) fn create_markdown_file(
     if target_path.exists() {
         return Err(format!("{} already exists", target_path.display()));
     }
-    save_markdown_file(cache, &target_path, content)
+    save_markdown_file(cache, &target_path, content, Some(root))
 }
 
 pub(crate) fn rename_markdown_file(
@@ -395,7 +505,7 @@ pub(crate) fn rename_markdown_file(
         .remove(&path.to_string_lossy().to_string());
     let content = fs::read_to_string(&target_path)
         .map_err(|error| format!("Could not read {}: {error}", target_path.display()))?;
-    save_markdown_file(cache, &target_path, &content)
+    save_markdown_file(cache, &target_path, &content, None)
 }
 
 fn unique_target_path(directory: &Path, file_name: &str) -> PathBuf {

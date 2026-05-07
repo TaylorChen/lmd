@@ -88,6 +88,13 @@ pub(crate) struct SearchMatch {
     pub(crate) match_end: usize,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TagRenameResult {
+    pub(crate) files_changed: usize,
+    pub(crate) replacements: usize,
+}
+
 #[derive(Debug)]
 pub(crate) struct WorkspaceKnowledge {
     pub(crate) is_initialized: bool,
@@ -110,6 +117,8 @@ pub(crate) struct FrontmatterField {
 pub(crate) struct KnowledgeLink {
     pub(crate) target: String,
     pub(crate) label: String,
+    pub(crate) anchor: Option<String>,
+    pub(crate) is_block_reference: bool,
     pub(crate) resolved_path: Option<String>,
     pub(crate) resolved_relative_path: Option<String>,
     pub(crate) resolved_name: Option<String>,
@@ -205,6 +214,8 @@ struct KnowledgeIndexSnapshot {
 struct ResolvedLink {
     target: String,
     label: String,
+    anchor: Option<String>,
+    is_block_reference: bool,
     resolved_path: Option<String>,
     resolved_relative_path: Option<String>,
     resolved_name: Option<String>,
@@ -1022,6 +1033,8 @@ fn to_knowledge_link(link: &ResolvedLink) -> KnowledgeLink {
     KnowledgeLink {
         target: link.target.clone(),
         label: link.label.clone(),
+        anchor: link.anchor.clone(),
+        is_block_reference: link.is_block_reference,
         resolved_path: link.resolved_path.clone(),
         resolved_relative_path: link.resolved_relative_path.clone(),
         resolved_name: link.resolved_name.clone(),
@@ -1224,7 +1237,7 @@ impl LinkResolver {
     }
 
     fn resolve_link(&self, target: &str, label: &str) -> ResolvedLink {
-        let target_without_anchor = target.split('#').next().unwrap_or(target).trim();
+        let (target_without_anchor, anchor) = split_link_anchor(target);
         let lookup = normalize_lookup_key(target_without_anchor);
         let resolved = self
             .by_relative
@@ -1253,6 +1266,10 @@ impl LinkResolver {
             } else {
                 label.to_string()
             },
+            anchor: anchor.map(ToOwned::to_owned),
+            is_block_reference: anchor
+                .map(|value| value.trim_start_matches('#').starts_with('^'))
+                .unwrap_or(false),
             resolved_path: resolved.as_ref().map(|item| item.path.clone()),
             resolved_relative_path: resolved.as_ref().map(|item| item.relative_path.clone()),
             resolved_name: resolved.as_ref().map(|item| item.name.clone()),
@@ -1267,6 +1284,13 @@ fn normalize_lookup_key(value: &str) -> String {
         .trim_start_matches("./")
         .trim()
         .to_ascii_lowercase()
+}
+
+fn split_link_anchor(target: &str) -> (&str, Option<&str>) {
+    target
+        .split_once('#')
+        .map(|(path, anchor)| (path.trim(), Some(anchor.trim())))
+        .unwrap_or((target.trim(), None))
 }
 
 fn strip_extension(value: &str) -> String {
@@ -1302,25 +1326,90 @@ pub(crate) fn search_workspace_files(
         return Ok(Vec::new());
     }
 
-    let needle = query.to_ascii_lowercase();
+    let mut content_terms = Vec::new();
+    let mut tag_filters = Vec::new();
+    let mut path_filters = Vec::new();
+    for token in query.split_whitespace() {
+        if let Some(path_filter) = token
+            .strip_prefix("path:")
+            .filter(|value| !value.is_empty())
+        {
+            path_filters.push(path_filter.to_ascii_lowercase());
+        } else if let Some(block_filter) = token
+            .strip_prefix("block:")
+            .filter(|value| !value.is_empty())
+        {
+            let block = block_filter.trim_start_matches('^');
+            content_terms.push(format!("^{block}").to_ascii_lowercase());
+        } else if token.starts_with('#') && token.len() > 1 {
+            tag_filters.push(token.trim_start_matches('#').to_ascii_lowercase());
+        } else {
+            content_terms.push(token.to_ascii_lowercase());
+        }
+    }
     let mut matches = Vec::new();
 
     for file in scan_workspace(root)? {
+        let relative_path = file.relative_path.to_ascii_lowercase();
+        if path_filters
+            .iter()
+            .any(|path_filter| !relative_path.contains(path_filter))
+        {
+            continue;
+        }
+
         let path = PathBuf::from(&file.path);
         let bytes = fs::read(&path)
             .map_err(|error| format!("Could not search {}: {error}", path.display()))?;
         let content = String::from_utf8_lossy(&bytes);
+        let normalized_content = content.to_ascii_lowercase();
+        if tag_filters.iter().any(|tag| {
+            let hash_tag = format!("#{tag}");
+            let frontmatter_tag = format!(" {tag}");
+            !normalized_content.contains(&hash_tag)
+                && !normalized_content.contains(&frontmatter_tag)
+        }) {
+            continue;
+        }
+
+        if content_terms.is_empty() {
+            let line_text = content
+                .lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(240)
+                .collect();
+            matches.push(SearchMatch {
+                path: file.path.clone(),
+                relative_path: file.relative_path.clone(),
+                line_number: 1,
+                line_text,
+                match_start: 0,
+                match_end: 0,
+            });
+
+            if matches.len() >= max_results {
+                return Ok(matches);
+            }
+            continue;
+        }
 
         for (line_index, line) in content.lines().enumerate() {
             let haystack = line.to_ascii_lowercase();
-            if let Some(match_start) = haystack.find(&needle) {
+            if content_terms.iter().all(|term| haystack.contains(term)) {
+                let match_start = content_terms
+                    .first()
+                    .and_then(|term| haystack.find(term))
+                    .unwrap_or(0);
                 matches.push(SearchMatch {
                     path: file.path.clone(),
                     relative_path: file.relative_path.clone(),
                     line_number: line_index + 1,
                     line_text: line.chars().take(240).collect(),
                     match_start,
-                    match_end: match_start + query.len(),
+                    match_end: match_start
+                        + content_terms.first().map(|term| term.len()).unwrap_or(0),
                 });
 
                 if matches.len() >= max_results {
@@ -1331,4 +1420,192 @@ pub(crate) fn search_workspace_files(
     }
 
     Ok(matches)
+}
+
+pub(crate) fn rename_workspace_tag(
+    root: &Path,
+    old_tag: &str,
+    new_tag: &str,
+) -> Result<TagRenameResult, String> {
+    let old_tag = normalize_tag(old_tag);
+    let new_tag = normalize_tag(new_tag);
+    if old_tag.is_empty() || new_tag.is_empty() {
+        return Err("标签不能为空。".to_string());
+    }
+    if old_tag.eq_ignore_ascii_case(&new_tag) {
+        return Ok(TagRenameResult {
+            files_changed: 0,
+            replacements: 0,
+        });
+    }
+
+    let mut files_changed = 0usize;
+    let mut replacements = 0usize;
+    for file in scan_workspace(root)? {
+        let path = PathBuf::from(&file.path);
+        let content = fs::read_to_string(&path)
+            .map_err(|error| format!("Could not read {}: {error}", path.display()))?;
+        let (next_content, count) = replace_tag_occurrences(&content, &old_tag, &new_tag);
+        if count == 0 {
+            continue;
+        }
+        fs::write(&path, next_content)
+            .map_err(|error| format!("Could not write {}: {error}", path.display()))?;
+        files_changed += 1;
+        replacements += count;
+    }
+
+    Ok(TagRenameResult {
+        files_changed,
+        replacements,
+    })
+}
+
+fn replace_tag_occurrences(content: &str, old_tag: &str, new_tag: &str) -> (String, usize) {
+    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+    let (frontmatter, body_start) = parse_frontmatter(&normalized);
+    let mut replacements = 0usize;
+    let mut output = String::new();
+
+    if body_start > 0 {
+        let frontmatter_text = &normalized[..body_start];
+        let (next_frontmatter, count) = replace_frontmatter_tag(frontmatter_text, old_tag, new_tag);
+        output.push_str(&next_frontmatter);
+        replacements += count;
+    }
+
+    let body = &normalized[body_start..];
+    let (next_body, count) = replace_inline_tag(body, old_tag, new_tag);
+    output.push_str(&next_body);
+    replacements += count;
+
+    if frontmatter.is_empty() && body_start == 0 {
+        return (next_body, replacements);
+    }
+    (output, replacements)
+}
+
+fn replace_frontmatter_tag(content: &str, old_tag: &str, new_tag: &str) -> (String, usize) {
+    let mut replacements = 0usize;
+    let mut in_tags_block = false;
+    let mut lines = Vec::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("---") {
+            in_tags_block = false;
+            lines.push(line.to_string());
+            continue;
+        }
+
+        if let Some((key, value)) = trimmed.split_once(':') {
+            in_tags_block = key.trim().eq_ignore_ascii_case("tags") && value.trim().is_empty();
+            if key.trim().eq_ignore_ascii_case("tags") && !value.trim().is_empty() {
+                let (next_value, count) = replace_tag_value_list(value, old_tag, new_tag);
+                replacements += count;
+                let prefix = line.split_once(':').map(|(left, _)| left).unwrap_or("tags");
+                lines.push(format!("{prefix}:{next_value}"));
+                continue;
+            }
+        }
+
+        if in_tags_block && trimmed.starts_with('-') {
+            let value = trimmed.trim_start_matches('-').trim();
+            if normalize_tag(value).eq_ignore_ascii_case(old_tag) {
+                let indent = line
+                    .chars()
+                    .take_while(|character| character.is_whitespace())
+                    .collect::<String>();
+                lines.push(format!("{indent}- {new_tag}"));
+                replacements += 1;
+                continue;
+            }
+        }
+
+        lines.push(line.to_string());
+    }
+
+    let mut output = lines.join("\n");
+    if content.ends_with('\n') {
+        output.push('\n');
+    }
+    (output, replacements)
+}
+
+fn replace_tag_value_list(value: &str, old_tag: &str, new_tag: &str) -> (String, usize) {
+    let mut replacements = 0usize;
+    let next = value
+        .split(',')
+        .map(|part| {
+            let leading = part
+                .chars()
+                .take_while(|character| character.is_whitespace())
+                .collect::<String>();
+            let trailing = part
+                .chars()
+                .rev()
+                .take_while(|character| character.is_whitespace())
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect::<String>();
+            let core = part.trim();
+            let prefix = core
+                .chars()
+                .take_while(|character| matches!(character, '[' | '"' | '\'' | '#'))
+                .collect::<String>();
+            let suffix = core
+                .chars()
+                .rev()
+                .take_while(|character| matches!(character, ']' | '"' | '\''))
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect::<String>();
+            let tag = core
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .trim_matches('"')
+                .trim_matches('\'');
+            if normalize_tag(tag).eq_ignore_ascii_case(old_tag) {
+                replacements += 1;
+                format!("{leading}{prefix}{new_tag}{suffix}{trailing}")
+            } else {
+                part.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    (next, replacements)
+}
+
+fn replace_inline_tag(content: &str, old_tag: &str, new_tag: &str) -> (String, usize) {
+    let mut output = String::new();
+    let mut replacements = 0usize;
+    let chars = content.chars().collect::<Vec<_>>();
+    let mut index = 0usize;
+
+    while index < chars.len() {
+        if chars[index] == '#' {
+            let start = index + 1;
+            let mut end = start;
+            while end < chars.len()
+                && (chars[end].is_alphanumeric() || matches!(chars[end], '-' | '_' | '/'))
+            {
+                end += 1;
+            }
+            let tag = chars[start..end].iter().collect::<String>();
+            if normalize_tag(&tag).eq_ignore_ascii_case(old_tag) {
+                output.push('#');
+                output.push_str(new_tag);
+                replacements += 1;
+                index = end;
+                continue;
+            }
+        }
+        output.push(chars[index]);
+        index += 1;
+    }
+
+    (output, replacements)
 }

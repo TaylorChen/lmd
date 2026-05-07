@@ -22,6 +22,8 @@ struct AssistantStreamDelta {
     delta: String,
 }
 
+const KEYCHAIN_SERVICE: &str = "org.lmd.assistant";
+
 #[cfg(target_os = "macos")]
 fn set_macos_application_icon() {
     use objc2::{AnyThread, MainThreadMarker};
@@ -45,6 +47,111 @@ fn set_macos_application_icon() {
 
 #[cfg(not(target_os = "macos"))]
 fn set_macos_application_icon() {}
+
+#[cfg(target_os = "macos")]
+fn keychain_command(args: &[&str]) -> Result<std::process::Output, String> {
+    std::process::Command::new("security")
+        .args(args)
+        .output()
+        .map_err(|error| format!("无法访问 macOS Keychain：{error}"))
+}
+
+#[tauri::command]
+fn save_assistant_api_key(provider: String, api_key: String) -> Result<(), String> {
+    let provider = provider.trim();
+    if provider.is_empty() {
+        return Err("Provider is required.".to_string());
+    }
+    if api_key.trim().is_empty() {
+        return delete_assistant_api_key(provider.to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let output = keychain_command(&[
+            "add-generic-password",
+            "-a",
+            provider,
+            "-s",
+            KEYCHAIN_SERVICE,
+            "-w",
+            api_key.trim(),
+            "-U",
+        ])?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "无法保存 API Key 到 Keychain。".to_string()
+        } else {
+            format!("无法保存 API Key 到 Keychain：{stderr}")
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("当前平台暂不支持系统 Keychain。".to_string())
+    }
+}
+
+#[tauri::command]
+fn load_assistant_api_key(provider: String) -> Result<Option<String>, String> {
+    let provider = provider.trim();
+    if provider.is_empty() {
+        return Ok(None);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let output = keychain_command(&[
+            "find-generic-password",
+            "-a",
+            provider,
+            "-s",
+            KEYCHAIN_SERVICE,
+            "-w",
+        ])?;
+        if output.status.success() {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            return Ok((!value.is_empty()).then_some(value));
+        }
+        return Ok(None);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+fn delete_assistant_api_key(provider: String) -> Result<(), String> {
+    let provider = provider.trim();
+    if provider.is_empty() {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let output = keychain_command(&[
+            "delete-generic-password",
+            "-a",
+            provider,
+            "-s",
+            KEYCHAIN_SERVICE,
+        ])?;
+        if output.status.success() {
+            return Ok(());
+        }
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(())
+    }
+}
 
 #[tauri::command]
 fn document_stats(content: String) -> document::DocumentStats {
@@ -109,6 +216,15 @@ fn search_workspace(
         .unwrap_or(workspace::MAX_SEARCH_RESULTS)
         .clamp(1, workspace::MAX_SEARCH_RESULTS);
     workspace::search_workspace_files(&PathBuf::from(root_path), &query, max_results)
+}
+
+#[tauri::command]
+fn rename_workspace_tag(
+    root_path: String,
+    old_tag: String,
+    new_tag: String,
+) -> Result<workspace::TagRenameResult, String> {
+    workspace::rename_workspace_tag(&PathBuf::from(root_path), &old_tag, &new_tag)
 }
 
 #[tauri::command]
@@ -280,6 +396,7 @@ fn load_markdown_range(
 fn save_markdown_file(
     state: tauri::State<'_, AppState>,
     path: Option<String>,
+    root_path: Option<String>,
     content: String,
 ) -> Result<Option<document::SaveResult>, String> {
     let target_path = match path {
@@ -296,7 +413,19 @@ fn save_markdown_file(
         }
     };
 
-    document::save_markdown_file(&state.documents, &target_path, &content).map(Some)
+    let root = root_path.as_deref().map(PathBuf::from);
+    document::save_markdown_file(&state.documents, &target_path, &content, root.as_deref())
+        .map(Some)
+}
+
+#[tauri::command]
+fn list_history_snapshots(
+    path: String,
+    root_path: Option<String>,
+    limit: usize,
+) -> Result<Vec<document::HistorySnapshot>, String> {
+    let root = root_path.as_deref().map(PathBuf::from);
+    document::list_history_snapshots(&PathBuf::from(path), root.as_deref(), limit)
 }
 
 #[tauri::command]
@@ -382,6 +511,28 @@ fn export_markdown_pdf(path: Option<String>, content: String) -> Result<Option<S
     export::export_pdf(&target_path, &content).map(Some)
 }
 
+#[tauri::command]
+fn export_markdown_docx(path: Option<String>, content: String) -> Result<Option<String>, String> {
+    let default_name = path
+        .as_deref()
+        .and_then(|path| {
+            PathBuf::from(path)
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().to_string())
+        })
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "untitled".to_string());
+    let Some(target_path) = rfd::FileDialog::new()
+        .add_filter("Word Document", &["docx"])
+        .set_file_name(format!("{default_name}.docx"))
+        .save_file()
+    else {
+        return Ok(None);
+    };
+
+    export::export_docx_document(&target_path, &content).map(Some)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -393,12 +544,16 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             document_stats,
             document_knowledge,
+            export_markdown_docx,
             export_markdown_html,
             export_markdown_pdf,
             assistant_catalog,
             create_markdown_file,
+            delete_assistant_api_key,
             file_metadata,
             import_attachment,
+            list_history_snapshots,
+            load_assistant_api_key,
             load_markdown_range,
             initialize_knowledge_workspace,
             knowledge_lint_report,
@@ -408,8 +563,10 @@ pub fn run() {
             query_context,
             refresh_workspace,
             rename_markdown_file,
+            rename_workspace_tag,
             save_wiki_draft,
             search_workspace,
+            save_assistant_api_key,
             summarize_editor_context,
             summarize_query_context,
             save_markdown_file
@@ -431,8 +588,8 @@ mod tests {
     use super::export::{export_html_document, export_pdf, pdf_document};
     use super::workspace::{
         document_knowledge, initialize_knowledge_workspace, knowledge_lint_report, load_workspace,
-        query_context, save_wiki_draft, scan_workspace, search_workspace_files, QueryContext,
-        QueryContextItem,
+        query_context, rename_workspace_tag, save_wiki_draft, scan_workspace,
+        search_workspace_files, QueryContext, QueryContextItem,
     };
     use serde_json::{json, to_value};
     #[cfg(unix)]
@@ -467,7 +624,7 @@ mod tests {
         let path = temp_markdown_path("save-open");
         let content = "# Saved\n\nBody text";
 
-        let save_result = save_markdown_file(&cache, &path, content).expect("save markdown");
+        let save_result = save_markdown_file(&cache, &path, content, None).expect("save markdown");
         let save_json = to_value(save_result).expect("serialize save result");
         assert_eq!(fs::read_to_string(&path).expect("read saved file"), content);
         assert_eq!(save_json["path"], path.to_string_lossy().to_string());
@@ -481,6 +638,66 @@ mod tests {
         assert_eq!(opened_json["readOnly"], false);
 
         fs::remove_file(path).expect("remove saved file");
+    }
+
+    #[test]
+    fn writes_history_snapshot_before_overwriting_markdown() {
+        let cache = DocumentCache::default();
+        let root = temp_workspace_path("history");
+        fs::create_dir_all(&root).expect("create history workspace");
+        let path = root.join("note.md");
+
+        save_markdown_file(&cache, &path, "# First", Some(&root)).expect("initial save");
+        save_markdown_file(&cache, &path, "# Second", Some(&root)).expect("second save");
+
+        let snapshots =
+            super::document::list_history_snapshots(&path, Some(&root), 8).expect("list snapshots");
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(
+            fs::read_to_string(&snapshots[0].path).expect("read snapshot"),
+            "# First"
+        );
+
+        fs::remove_dir_all(root).expect("remove history workspace");
+    }
+
+    #[test]
+    fn searches_workspace_by_block_id() {
+        let root = temp_workspace_path("block-search");
+        fs::create_dir_all(root.join("notes")).expect("create notes dir");
+        fs::write(
+            root.join("notes/topic.md"),
+            "# Topic\n\nImportant paragraph ^block-alpha\n",
+        )
+        .expect("write topic");
+
+        let matches =
+            search_workspace_files(&root, "block:^block-alpha", 8).expect("search block id");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].relative_path, "notes/topic.md");
+
+        fs::remove_dir_all(root).expect("remove block workspace");
+    }
+
+    #[test]
+    fn renames_workspace_tags_in_frontmatter_and_body() {
+        let root = temp_workspace_path("rename-tag");
+        fs::create_dir_all(root.join("notes")).expect("create notes dir");
+        let path = root.join("notes/topic.md");
+        fs::write(
+            &path,
+            "---\ntags: [focus, draft]\n---\n# Topic\n\n#focus #other\n",
+        )
+        .expect("write topic");
+
+        let result = rename_workspace_tag(&root, "focus", "deep-work").expect("rename tag");
+        assert_eq!(result.files_changed, 1);
+        assert_eq!(result.replacements, 2);
+        let content = fs::read_to_string(&path).expect("read renamed content");
+        assert!(content.contains("tags: [deep-work, draft]"));
+        assert!(content.contains("#deep-work #other"));
+
+        fs::remove_dir_all(root).expect("remove rename workspace");
     }
 
     #[test]

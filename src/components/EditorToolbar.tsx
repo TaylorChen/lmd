@@ -1,6 +1,16 @@
 import type { EditorMode } from "../types";
 
-export type MarkdownAction = "h1" | "h2" | "bold" | "italic" | "code" | "link";
+export type MarkdownAction =
+  | "h1"
+  | "h2"
+  | "bold"
+  | "italic"
+  | "code"
+  | "link"
+  | "table"
+  | "format-table"
+  | "block-id"
+  | "block-ref";
 
 type EditorToolbarProps = {
   isLarge: boolean;
@@ -53,6 +63,18 @@ export function EditorToolbar({
         </button>
         <button type="button" onClick={() => onMarkdownAction("link")} disabled={!canFormat}>
           链接
+        </button>
+        <button type="button" onClick={() => onMarkdownAction("table")} disabled={!canFormat}>
+          表格
+        </button>
+        <button type="button" onClick={() => onMarkdownAction("format-table")} disabled={!canFormat}>
+          对齐表格
+        </button>
+        <button type="button" onClick={() => onMarkdownAction("block-id")} disabled={!canFormat}>
+          块 ID
+        </button>
+        <button type="button" onClick={() => onMarkdownAction("block-ref")} disabled={!canFormat}>
+          块引用
         </button>
       </div>
 

@@ -126,3 +126,7 @@ export function readSettings(): AppSettings {
 export function writeSettings(settings: AppSettings) {
   window.localStorage.setItem(storageKeys.settings, JSON.stringify(settings));
 }
+
+export function writeSettingsWithoutApiKeys(settings: AppSettings) {
+  window.localStorage.setItem(storageKeys.settings, JSON.stringify({ ...settings, assistantApiKeys: {} }));
+}

@@ -21,6 +21,7 @@ type LibraryRailProps = {
   onRefreshWorkspace: () => void;
   onExportHtml: () => void;
   onExportPdf: () => void;
+  onExportDocx: () => void;
 };
 
 const libraryItems: Array<{ id: LibrarySection; label: string; requiresWorkspace: boolean }> = [
@@ -53,6 +54,7 @@ export function LibraryRail({
   onRefreshWorkspace,
   onExportHtml,
   onExportPdf,
+  onExportDocx,
 }: LibraryRailProps) {
   return (
     <aside className="library-rail" aria-label="资料库">
@@ -168,6 +170,16 @@ export function LibraryRail({
               disabled={busy}
             >
               导出 PDF
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                onExportDocx();
+              }}
+              disabled={busy}
+            >
+              导出 DOCX
             </button>
           </div>
         </details>
