@@ -13,6 +13,7 @@ type LibraryRailProps = {
   onOpen: () => void;
   onOpenWorkspace: () => void;
   onSave: () => void;
+  onOpenDailyNote: () => void;
   onRename: () => void;
   onImportAttachment: () => void;
   onCreateWikiPage: () => void;
@@ -46,6 +47,7 @@ export function LibraryRail({
   onOpen,
   onOpenWorkspace,
   onSave,
+  onOpenDailyNote,
   onRename,
   onImportAttachment,
   onCreateWikiPage,
@@ -83,6 +85,9 @@ export function LibraryRail({
         </button>
         <button type="button" onClick={onSave} disabled={busy || readOnly || !isDirty}>
           保存
+        </button>
+        <button type="button" onClick={onOpenDailyNote} disabled={busy || !workspace}>
+          今日笔记
         </button>
         <details className="sidebar-more">
           <summary>更多</summary>

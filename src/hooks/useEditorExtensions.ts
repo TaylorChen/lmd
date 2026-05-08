@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { autocompletion, type CompletionContext } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
+import { foldGutter, foldKeymap } from "@codemirror/language";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import type { WorkspaceFile } from "../types";
@@ -18,6 +19,7 @@ export function useEditorExtensions(
       lineNumbers({
         formatNumber: (lineNo) => String(isLarge ? visibleStartLine + lineNo - 1 : lineNo),
       }),
+      foldGutter(),
       history(),
       markdown(),
       highlightSelectionMatches(),
@@ -66,7 +68,7 @@ export function useEditorExtensions(
           },
         ],
       }),
-      keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+      keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...foldKeymap]),
       EditorView.lineWrapping,
       EditorView.editable.of(!readOnly),
     ],

@@ -24,7 +24,7 @@ export function MarkdownPreview({ content }: MarkdownPreviewProps) {
     return () => {
       cancelled = true;
     };
-  }, [content]);
+  });
 
   return (
     <article ref={previewRef} className="markdown-preview" aria-label="Markdown 预览">

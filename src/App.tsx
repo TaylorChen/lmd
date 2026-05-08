@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import type { EditorView } from "@codemirror/view";
+import { foldAll, foldCode, unfoldAll, unfoldCode } from "@codemirror/language";
+import { EditorSelection } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import { listen } from "@tauri-apps/api/event";
 import { AssistantPanel } from "./components/AssistantPanel";
 import { CommandPalette } from "./components/CommandPalette";
@@ -15,7 +17,7 @@ import { WorkspaceListPanel } from "./components/WorkspaceListPanel";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { useEditorExtensions } from "./hooks/useEditorExtensions";
 import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
-import { countSearchMatches, fileName, isPathInsideRoot, localStats } from "./lib/format";
+import { fileName, isPathInsideRoot, localStats } from "./lib/format";
 import { renderMarkdownDocument } from "./lib/markdown";
 import {
   readRecentFiles,
@@ -37,6 +39,7 @@ import type {
   ExternalChange,
   DocumentKnowledge,
   EditorMode,
+  GitStatus,
   HistorySnapshot,
   KnowledgeLintReport,
   LibrarySection,
@@ -62,6 +65,27 @@ type EditableFrontmatter = {
   title: string;
   tags: string;
   status: string;
+};
+
+type DocumentTab = {
+  id: string;
+  content: string;
+  savedContent: string;
+  path: string | null;
+  byteSize: number;
+  lineCount: number;
+  knownModifiedMs: number | null;
+  isLarge: boolean;
+  readOnly: boolean;
+  visibleStartLine: number;
+  visibleLineCount: number;
+  search: string;
+};
+
+type TabContextMenuState = {
+  tabId: string;
+  x: number;
+  y: number;
 };
 
 const defaultAssistantCatalog: AssistantCatalog = {
@@ -110,6 +134,40 @@ const defaultAssistantCatalog: AssistantCatalog = {
     { id: "external_command", label: "外部命令", models: ["command-json-v1"] },
   ],
 };
+
+function createUntitledTab(): DocumentTab {
+  return {
+    id: `untitled-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    content: emptyDocument,
+    savedContent: emptyDocument,
+    path: null,
+    byteSize: emptyDocument.length,
+    lineCount: 3,
+    knownModifiedMs: null,
+    isLarge: false,
+    readOnly: false,
+    visibleStartLine: 1,
+    visibleLineCount: 3,
+    search: "",
+  };
+}
+
+function tabFromDocument(document: MarkdownDocument): DocumentTab {
+  return {
+    id: document.path,
+    content: document.content,
+    savedContent: document.content,
+    path: document.path,
+    byteSize: document.byteSize,
+    lineCount: document.lineCount,
+    knownModifiedMs: document.modifiedMs,
+    isLarge: document.isLarge,
+    readOnly: document.readOnly,
+    visibleStartLine: document.visibleStartLine,
+    visibleLineCount: document.visibleLineCount,
+    search: "",
+  };
+}
 
 function splitFrontmatter(content: string) {
   const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -182,6 +240,35 @@ function markdownTableTemplate() {
   return "| 列 1 | 列 2 | 列 3 |\n| --- | --- | --- |\n| 内容 | 内容 | 内容 |\n";
 }
 
+function todayIsoDate() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function csvToMarkdownTable(input: string) {
+  const rows = input
+    .trim()
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.split(",").map((cell) => cell.trim()))
+    .filter((row) => row.length > 0 && row.some(Boolean));
+  if (rows.length === 0) return markdownTableTemplate();
+  const columnCount = Math.max(...rows.map((row) => row.length));
+  const normalized = rows.map((row) => [
+    ...row,
+    ...Array.from({ length: columnCount - row.length }, () => ""),
+  ]);
+  const header = normalized[0];
+  const body = normalized.slice(1);
+  return [
+    `| ${header.join(" | ")} |`,
+    `| ${Array.from({ length: columnCount }, () => "---").join(" | ")} |`,
+    ...body.map((row) => `| ${row.join(" | ")} |`),
+  ].join("\n");
+}
+
 function formatMarkdownTable(input: string) {
   const lines = input
     .split(/\r\n|\r|\n/)
@@ -210,6 +297,43 @@ function formatMarkdownTable(input: string) {
   return [header, divider, ...body].join("\n");
 }
 
+function addMarkdownTableRow(input: string) {
+  const formatted = formatMarkdownTable(input);
+  const lines = formatted.split(/\r\n|\r|\n/);
+  const firstRow = lines[0] ?? "";
+  const columnCount = firstRow.replace(/^\|/, "").replace(/\|$/, "").split("|").length;
+  return [...lines, `| ${Array.from({ length: columnCount }, () => "").join(" | ")} |`].join("\n");
+}
+
+function addMarkdownTableColumn(input: string) {
+  const lines = input
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.includes("|"));
+  if (lines.length < 2) return input;
+  const next = lines.map((line, index) => {
+    const cells = line.replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+    cells.push(index === 1 ? "---" : "");
+    return `| ${cells.join(" | ")} |`;
+  });
+  return formatMarkdownTable(next.join("\n"));
+}
+
+function findSearchRanges(content: string, query: string) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+  const haystack = content.toLowerCase();
+  const ranges: Array<{ from: number; to: number }> = [];
+  let index = 0;
+  while (index <= haystack.length) {
+    const found = haystack.indexOf(needle, index);
+    if (found === -1) break;
+    ranges.push({ from: found, to: found + needle.length });
+    index = found + Math.max(needle.length, 1);
+  }
+  return ranges;
+}
+
 function currentLinkTarget(documentPath: string | null) {
   return documentPath ? fileName(documentPath).replace(/\.(md|markdown|mdown)$/i, "") : "当前笔记";
 }
@@ -234,6 +358,15 @@ function formatAssistantChatArchive(messages: AssistantMessage[]) {
 
 export default function App() {
   const editorViewRef = useRef<EditorView | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const markdownActionRef = useRef<(action: MarkdownAction) => void>(() => {});
+  const appMenuActionRef = useRef<(action: string) => void>(() => {});
+  const initialTabRef = useRef<DocumentTab | null>(null);
+  if (!initialTabRef.current) {
+    initialTabRef.current = createUntitledTab();
+  }
+  const [tabs, setTabs] = useState<DocumentTab[]>(() => [initialTabRef.current as DocumentTab]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(() => (initialTabRef.current as DocumentTab).id);
   const [content, setContent] = useState(emptyDocument);
   const [savedContent, setSavedContent] = useState(emptyDocument);
   const [path, setPath] = useState<string | null>(null);
@@ -249,12 +382,15 @@ export default function App() {
   const [workspaceSearchActive, setWorkspaceSearchActive] = useState(false);
   const [librarySection, setLibrarySection] = useState<LibrarySection>("all-notes");
   const [historySnapshots, setHistorySnapshots] = useState<HistorySnapshot[]>([]);
+  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => readRecentFiles());
   const [settings, setSettings] = useState(() => readSettings());
   const [assistantCatalog, setAssistantCatalog] = useState<AssistantCatalog>(defaultAssistantCatalog);
   const [knownModifiedMs, setKnownModifiedMs] = useState<number | null>(null);
   const [externalChange, setExternalChange] = useState<ExternalChange | null>(null);
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [activeSearchMatch, setActiveSearchMatch] = useState(0);
   const [editorMode, setEditorMode] = useState<EditorMode>(() => settings.defaultEditorMode);
   const [inspectorTab, setInspectorTab] = useState<"knowledge" | "assistant">("assistant");
   const [documentKnowledge, setDocumentKnowledge] = useState<DocumentKnowledge | null>(null);
@@ -266,15 +402,22 @@ export default function App() {
   const [assistantPrompt, setAssistantPrompt] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [featureAreaOpen, setFeatureAreaOpen] = useState(true);
+  const [splitOrientation, setSplitOrientation] = useState<"vertical" | "horizontal">("vertical");
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
-  const [nameDialog, setNameDialog] = useState<(NameDialogState & { kind: "new" | "rename" | "wiki" }) | null>(null);
+  const [tabContextMenu, setTabContextMenu] = useState<TabContextMenuState | null>(null);
+  const [nameDialog, setNameDialog] = useState<(NameDialogState & { kind: "new" | "rename" | "wiki" | "git" }) | null>(null);
   const [tagRenameOpen, setTagRenameOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [assistantBusy, setAssistantBusy] = useState(false);
 
   const isDirty = !readOnly && content !== savedContent;
-  const matches = useMemo(() => countSearchMatches(content, search), [content, search]);
+  const hasOpenTab = activeTabId !== null;
+  const nativeRuntime = isNativeRuntime();
+  const searchRanges = useMemo(() => findSearchRanges(content, search), [content, search]);
+  const matches = searchRanges.length;
   const visibleEndLine =
     visibleLineCount === 0 ? 0 : Math.min(lineCount, visibleStartLine + visibleLineCount - 1);
   const canPageBack = isLarge && visibleStartLine > 1;
@@ -340,20 +483,117 @@ export default function App() {
     }
   }, [assistantCatalog, settings]);
 
-  function applyDocument(document: MarkdownDocument) {
-    setContent(document.content);
-    setSavedContent(document.content);
-    setPath(document.path);
-    setByteSize(document.byteSize);
-    setLineCount(document.lineCount);
-    setKnownModifiedMs(document.modifiedMs);
+  function applyTab(tab: DocumentTab) {
+    setContent(tab.content);
+    setSavedContent(tab.savedContent);
+    setPath(tab.path);
+    setByteSize(tab.byteSize);
+    setLineCount(tab.lineCount);
+    setKnownModifiedMs(tab.knownModifiedMs);
     setExternalChange(null);
-    setIsLarge(document.isLarge);
-    setReadOnly(document.readOnly);
-    setVisibleStartLine(document.visibleStartLine);
-    setVisibleLineCount(document.visibleLineCount);
-    setSearch("");
+    setIsLarge(tab.isLarge);
+    setReadOnly(tab.readOnly);
+    setVisibleStartLine(tab.visibleStartLine);
+    setVisibleLineCount(tab.visibleLineCount);
+    setSearch(tab.search);
+    setSearchOpen(Boolean(tab.search.trim()));
     setHistorySnapshots([]);
+  }
+
+  function openTab(tab: DocumentTab) {
+    setTabs((currentTabs) => {
+      const existing = tab.path
+        ? currentTabs.find((item) => item.path === tab.path)
+        : currentTabs.find((item) => item.id === tab.id);
+      if (existing) {
+        setActiveTabId(existing.id);
+        applyTab(existing);
+        return currentTabs;
+      }
+      setActiveTabId(tab.id);
+      applyTab(tab);
+      return [...currentTabs, tab];
+    });
+  }
+
+  function applyDocument(document: MarkdownDocument) {
+    openTab(tabFromDocument(document));
+  }
+
+  function replaceActiveTabWithDocument(document: MarkdownDocument) {
+    const nextTab = { ...tabFromDocument(document), search };
+    setActiveTabId(nextTab.id);
+    applyTab(nextTab);
+    setTabs((currentTabs) => {
+      const nextTabs = currentTabs
+        .filter((tab) => tab.id !== nextTab.id || tab.id === activeTabId)
+        .map((tab) => (tab.id === activeTabId ? nextTab : tab));
+      return nextTabs.some((tab) => tab.id === nextTab.id) ? nextTabs : [...nextTabs, nextTab];
+    });
+  }
+
+  function handleSelectTab(tabId: string) {
+    setTabContextMenu(null);
+    if (tabId === activeTabId) return;
+    const tab = tabs.find((item) => item.id === tabId);
+    if (!tab) return;
+    setActiveTabId(tab.id);
+    applyTab(tab);
+  }
+
+  function handleCloseTab(tabId: string) {
+    setTabContextMenu(null);
+    const tab = tabs.find((item) => item.id === tabId);
+    if (!tab) return;
+    const isOnlyTab = tabs.length === 1;
+    const isBlankUntitled =
+      !tab.path && tab.content === emptyDocument && tab.savedContent === emptyDocument;
+    const shouldConfirm = !isBlankUntitled && !tab.readOnly && tab.content !== tab.savedContent;
+    if (shouldConfirm && !window.confirm(`关闭未保存的标签 ${fileName(tab.path)}？`)) {
+      return;
+    }
+
+    if (isOnlyTab) {
+      const nextTab = createUntitledTab();
+      setActiveTabId(null);
+      applyTab(nextTab);
+      setTabs([]);
+      return;
+    }
+
+    setTabs((currentTabs) => {
+      const index = currentTabs.findIndex((item) => item.id === tabId);
+      const nextTabs = currentTabs.filter((item) => item.id !== tabId);
+      if (tabId !== activeTabId) return nextTabs;
+
+      const nextActiveTab = nextTabs[index] ?? nextTabs[index - 1] ?? createUntitledTab();
+      if (nextTabs.length === 0) {
+        setActiveTabId(nextActiveTab.id);
+        applyTab(nextActiveTab);
+        return [nextActiveTab];
+      }
+      setActiveTabId(nextActiveTab.id);
+      applyTab(nextActiveTab);
+      return nextTabs;
+    });
+  }
+
+  function handleTabContextMenu(event: MouseEvent, tabId: string) {
+    event.preventDefault();
+    setTabContextMenu({ tabId, x: event.clientX, y: event.clientY });
+  }
+
+  function handleRenameTab(tabId: string) {
+    const tab = tabs.find((item) => item.id === tabId);
+    setTabContextMenu(null);
+    if (!tab) return;
+    if (tab.id !== activeTabId) {
+      setActiveTabId(tab.id);
+      applyTab(tab);
+    }
+    window.setTimeout(() => {
+      void handleRenameCurrentFile();
+    }, 0);
   }
 
   function clearKnowledge() {
@@ -362,6 +602,56 @@ export default function App() {
     setQueryContext(null);
     setAssistantDraft(null);
   }
+
+  useEffect(() => {
+    setTabs((currentTabs) => {
+      let changed = false;
+      const nextTabs = currentTabs.map((tab) => {
+        if (!activeTabId || tab.id !== activeTabId) return tab;
+        const nextTab = {
+          ...tab,
+          content,
+          savedContent,
+          path,
+          byteSize,
+          lineCount,
+          knownModifiedMs,
+          isLarge,
+          readOnly,
+          visibleStartLine,
+          visibleLineCount,
+          search,
+        };
+        changed =
+          tab.content !== nextTab.content ||
+          tab.savedContent !== nextTab.savedContent ||
+          tab.path !== nextTab.path ||
+          tab.byteSize !== nextTab.byteSize ||
+          tab.lineCount !== nextTab.lineCount ||
+          tab.knownModifiedMs !== nextTab.knownModifiedMs ||
+          tab.isLarge !== nextTab.isLarge ||
+          tab.readOnly !== nextTab.readOnly ||
+          tab.visibleStartLine !== nextTab.visibleStartLine ||
+          tab.visibleLineCount !== nextTab.visibleLineCount ||
+          tab.search !== nextTab.search;
+        return changed ? nextTab : tab;
+      });
+      return changed ? nextTabs : currentTabs;
+    });
+  }, [
+    activeTabId,
+    content,
+    savedContent,
+    path,
+    byteSize,
+    lineCount,
+    knownModifiedMs,
+    isLarge,
+    readOnly,
+    visibleStartLine,
+    visibleLineCount,
+    search,
+  ]);
 
   function appendAssistantEvent(event: AssistantEvent) {
     setAssistantEvents((currentEvents) => [...currentEvents, event].slice(-8));
@@ -531,7 +821,6 @@ export default function App() {
   }
 
   async function handleNew() {
-    if (isDirty && !window.confirm("放弃未保存的更改？")) return;
     if (workspace) {
       setNameDialog({
         kind: "new",
@@ -542,18 +831,7 @@ export default function App() {
       });
       return;
     }
-    setContent(emptyDocument);
-    setSavedContent(emptyDocument);
-    setPath(null);
-    setByteSize(emptyDocument.length);
-    setLineCount(3);
-    setKnownModifiedMs(null);
-    setExternalChange(null);
-    setIsLarge(false);
-    setReadOnly(false);
-    setVisibleStartLine(1);
-    setVisibleLineCount(3);
-    setSearch("");
+    openTab(createUntitledTab());
     clearKnowledge();
     setNotice({ tone: "info", message: "新文档已就绪。" });
   }
@@ -613,7 +891,7 @@ export default function App() {
         newName: nextName,
       });
       const document = await invokeCommand<MarkdownDocument>("open_markdown_path", { path: result.path });
-      applyDocument(document);
+      replaceActiveTabWithDocument(document);
       rememberDocument(document.path);
       setRecentFiles((currentRecentFiles) => {
         const nextRecentFiles = [
@@ -695,11 +973,10 @@ export default function App() {
     if (current.kind === "new") void createNamedMarkdown(value);
     if (current.kind === "rename") void renameCurrentFile(value);
     if (current.kind === "wiki") void createWikiPage(value);
+    if (current.kind === "git") void commitGitWithMessage(value);
   }
 
   async function handleOpen() {
-    if (isDirty && !window.confirm("放弃未保存的更改？")) return;
-
     setBusy(true);
     setNotice(null);
     try {
@@ -825,9 +1102,74 @@ export default function App() {
     }
   }
 
+  async function handleRefreshGitStatus(showNotice = true) {
+    if (!workspace) {
+      setGitStatus(null);
+      if (showNotice) setNotice({ tone: "error", message: "请先打开工作区。" });
+      return;
+    }
+
+    try {
+      const status = await invokeCommand<GitStatus>("git_workspace_status", {
+        rootPath: workspace.rootPath,
+        currentPath: path,
+      });
+      setGitStatus(status);
+      if (showNotice) {
+        setNotice({
+          tone: status.isRepository ? "info" : "error",
+          message: status.isRepository
+            ? `Git 状态已刷新，${status.changes.length.toLocaleString()} 个改动。`
+            : "当前工作区不是 Git 仓库。",
+        });
+      }
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    }
+  }
+
+  async function handleGitCommit() {
+    if (!workspace) {
+      setNotice({ tone: "error", message: "请先打开工作区。" });
+      return;
+    }
+    setNameDialog({
+      kind: "git",
+      title: "提交 Git 改动",
+      label: "提交信息",
+      defaultValue: "Update notes",
+      confirmLabel: "提交",
+    });
+  }
+
+  async function commitGitWithMessage(message: string) {
+    if (!workspace) return;
+    if (!message?.trim()) return;
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const status = await invokeCommand<GitStatus>("git_commit_workspace", {
+        rootPath: workspace.rootPath,
+        message,
+      });
+      setGitStatus(status);
+      setNotice({ tone: "info", message: "Git 提交已完成。" });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function openPath(pathToOpen: string, displayName: string) {
     if (pathToOpen === path) return;
-    if (isDirty && !window.confirm("放弃未保存的更改？")) return;
+    const existingTab = tabs.find((tab) => tab.path === pathToOpen);
+    if (existingTab) {
+      setActiveTabId(existingTab.id);
+      applyTab(existingTab);
+      return;
+    }
 
     setBusy(true);
     setNotice(null);
@@ -850,6 +1192,31 @@ export default function App() {
 
   async function handleOpenWorkspaceFile(file: WorkspaceFile) {
     await openPath(file.path, file.name);
+  }
+
+  async function handleOpenDailyNote() {
+    if (!workspace) {
+      setNotice({ tone: "error", message: "请先打开工作区。" });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      const date = todayIsoDate();
+      const document = await invokeCommand<MarkdownDocument>("open_daily_note", {
+        rootPath: workspace.rootPath,
+        date,
+      });
+      applyDocument(document);
+      rememberDocument(document.path);
+      await handleRefreshWorkspace(false);
+      setLibrarySection("all-notes");
+      setNotice({ tone: "info", message: `已打开今日笔记 ${date}.md。` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleOpenSearchMatch(match: SearchMatch) {
@@ -928,6 +1295,20 @@ export default function App() {
         content,
       });
       if (!result) return;
+      if (!activeTabId) {
+        const savedTab: DocumentTab = {
+          ...createUntitledTab(),
+          id: result.path,
+          path: result.path,
+          content,
+          savedContent: content,
+          byteSize: result.byteSize,
+          lineCount: result.lineCount,
+          knownModifiedMs: result.modifiedMs,
+        };
+        setTabs([savedTab]);
+        setActiveTabId(savedTab.id);
+      }
       setPath(result.path);
       setSavedContent(content);
       setByteSize(result.byteSize);
@@ -1230,6 +1611,11 @@ export default function App() {
 
   function handleChange(nextContent: string) {
     if (readOnly) return;
+    if (!activeTabId) {
+      const nextTab = { ...createUntitledTab(), content: nextContent };
+      setTabs([nextTab]);
+      setActiveTabId(nextTab.id);
+    }
     setContent(nextContent);
     const stats = localStats(nextContent);
     setByteSize(stats.byteSize);
@@ -1309,13 +1695,55 @@ export default function App() {
     const selection = view.state.selection.main;
     const selectedText = view.state.doc.sliceString(selection.from, selection.to);
 
-    if (action === "h1" || action === "h2") {
+    if (action === "fold-all") {
+      foldAll(view);
+      view.focus();
+      return;
+    }
+    if (action === "unfold-all") {
+      unfoldAll(view);
+      view.focus();
+      return;
+    }
+    if (action === "fold-current") {
+      foldCode(view);
+      view.focus();
+      return;
+    }
+    if (action === "unfold-current") {
+      unfoldCode(view);
+      view.focus();
+      return;
+    }
+
+    if (["h1", "h2", "h3", "h4", "h5", "h6", "no-heading"].includes(action)) {
       const line = view.state.doc.lineAt(selection.from);
-      const marker = action === "h1" ? "# " : "## ";
+      const level = action === "no-heading" ? 0 : Number(action.slice(1));
+      const marker = level > 0 ? `${"#".repeat(level)} ` : "";
       const nextLine = `${marker}${line.text.replace(/^#{1,6}\s+/, "")}`;
       view.dispatch({
         changes: { from: line.from, to: line.to, insert: nextLine },
         selection: { anchor: line.from + nextLine.length },
+      });
+      view.focus();
+      return;
+    }
+
+    if (action === "unordered-list" || action === "ordered-list" || action === "task-list") {
+      const fromLine = view.state.doc.lineAt(selection.from);
+      const toLine = view.state.doc.lineAt(selection.to);
+      const lines = view.state.doc.sliceString(fromLine.from, toLine.to).split(/\r\n|\r|\n/);
+      const insert = lines
+        .map((line, index) => {
+          const stripped = line.replace(/^\s*(?:[-*+]\s+|\d+\.\s+|\[[ xX]\]\s+)/, "");
+          if (action === "ordered-list") return `${index + 1}. ${stripped || "列表项"}`;
+          if (action === "task-list") return `- [ ] ${stripped || "待办"}`;
+          return `- ${stripped || "列表项"}`;
+        })
+        .join("\n");
+      view.dispatch({
+        changes: { from: fromLine.from, to: toLine.to, insert },
+        selection: { anchor: fromLine.from + insert.length },
       });
       view.focus();
       return;
@@ -1329,6 +1757,41 @@ export default function App() {
       });
       view.focus();
       setNotice({ tone: "info", message: "已插入 Markdown 表格。" });
+      return;
+    }
+
+    if (action === "math-block") {
+      const insert = `$$\n${selectedText || "a^2 + b^2 = c^2"}\n$$`;
+      view.dispatch({
+        changes: { from: selection.from, to: selection.to, insert },
+        selection: { anchor: selection.from + insert.length },
+      });
+      view.focus();
+      setNotice({ tone: "info", message: "已插入数学块。" });
+      return;
+    }
+
+    if (action === "footnote") {
+      const insert = selectedText || "[^1]\n\n[^1]: 脚注内容";
+      view.dispatch({
+        changes: { from: selection.from, to: selection.to, insert },
+        selection: { anchor: selection.from + insert.length },
+      });
+      view.focus();
+      setNotice({ tone: "info", message: "已插入脚注。" });
+      return;
+    }
+
+    if (action === "fold-block") {
+      const insert = `<details>\n<summary>${selectedText ? "标题" : "折叠标题"}</summary>\n\n${
+        selectedText || "折叠内容"
+      }\n\n</details>`;
+      view.dispatch({
+        changes: { from: selection.from, to: selection.to, insert },
+        selection: { anchor: selection.from + insert.length },
+      });
+      view.focus();
+      setNotice({ tone: "info", message: "已插入折叠块。" });
       return;
     }
 
@@ -1360,6 +1823,50 @@ export default function App() {
       });
       view.focus();
       setNotice({ tone: "info", message: "Markdown 表格已对齐。" });
+      return;
+    }
+
+    if (action === "table-row" || action === "table-column" || action === "csv-table") {
+      const fromLine = view.state.doc.lineAt(selection.from);
+      const toLine = view.state.doc.lineAt(selection.to);
+      let from = selection.from;
+      let to = selection.to;
+      let source = selectedText;
+      if (!source) {
+        let startLineNumber = fromLine.number;
+        let endLineNumber = toLine.number;
+        while (startLineNumber > 1 && view.state.doc.line(startLineNumber - 1).text.includes("|")) {
+          startLineNumber -= 1;
+        }
+        while (endLineNumber < view.state.doc.lines && view.state.doc.line(endLineNumber + 1).text.includes("|")) {
+          endLineNumber += 1;
+        }
+        const startLine = view.state.doc.line(startLineNumber);
+        const endLine = view.state.doc.line(endLineNumber);
+        from = startLine.from;
+        to = endLine.to;
+        source = view.state.doc.sliceString(from, to);
+      }
+      const insert =
+        action === "table-row"
+          ? addMarkdownTableRow(source)
+          : action === "table-column"
+            ? addMarkdownTableColumn(source)
+            : csvToMarkdownTable(source);
+      view.dispatch({
+        changes: { from, to, insert },
+        selection: { anchor: from + insert.length },
+      });
+      view.focus();
+      setNotice({
+        tone: "info",
+        message:
+          action === "table-row"
+            ? "已添加表格行。"
+            : action === "table-column"
+              ? "已添加表格列。"
+              : "已将 CSV 转为 Markdown 表格。",
+      });
       return;
     }
 
@@ -1403,11 +1910,183 @@ export default function App() {
 
     if (action === "bold") wrapSelection("**", "**", "加粗文本");
     if (action === "italic") wrapSelection("*", "*", "斜体文本");
-    if (action === "code") {
-      if (selectedText.includes("\n")) wrapSelection("```markdown\n", "\n```", selectedText || "code");
-      else wrapSelection("`", "`", "代码");
+    if (action === "highlight" || action === "annotation") wrapSelection("==", "==", "高亮文本");
+    if (action === "strikethrough") wrapSelection("~~", "~~", "删除线文本");
+    if (action === "math-inline") wrapSelection("$", "$", "x");
+    if (action === "comment") wrapSelection("<!-- ", " -->", "注释");
+    if (action === "code" || action === "code-block") {
+      if (action === "code-block" || selectedText.includes("\n")) {
+        wrapSelection("```markdown\n", "\n```", selectedText || "code");
+      } else {
+        wrapSelection("`", "`", "代码");
+      }
     }
-    if (action === "link") wrapSelection("[", "](https://example.com)", "链接文本");
+    if (action === "link" || action === "markdown-link") {
+      wrapSelection("[", "](https://example.com)", "链接文本");
+    }
+  }
+
+  function handleAppMenuAction(action: string) {
+    if (action === "insert-attachment") {
+      void handleImportAttachment();
+      return;
+    }
+    if (action === "focus-document-search") {
+      setSearchOpen(true);
+      return;
+    }
+    if (action === "view-preview") {
+      setEditorMode("preview");
+      return;
+    }
+    if (action === "view-source") {
+      setEditorMode("edit");
+      return;
+    }
+    if (action === "toggle-left-panel") {
+      setLeftPanelOpen((open) => !open);
+      return;
+    }
+    if (action === "toggle-right-panel") {
+      setRightPanelOpen((open) => !open);
+      return;
+    }
+    if (action === "toggle-feature-area") {
+      setFeatureAreaOpen((open) => !open);
+      return;
+    }
+    if (action === "split-vertical") {
+      setSplitOrientation("vertical");
+      setEditorMode("split");
+      return;
+    }
+    if (action === "split-horizontal") {
+      setSplitOrientation("horizontal");
+      setEditorMode("split");
+      return;
+    }
+    if (action === "navigate-back") {
+      if (canPageBack) handlePreviousWindow();
+      return;
+    }
+    if (action === "navigate-forward") {
+      if (canPageForward) handleNextWindow();
+      return;
+    }
+    if (action === "reload") {
+      window.location.reload();
+      return;
+    }
+    if (action === "toggle-developer-tools") {
+      setNotice({ tone: "info", message: "开发者工具请通过 Tauri/WebView 调试入口打开。" });
+    }
+  }
+
+  useEffect(() => {
+    markdownActionRef.current = applyMarkdownAction;
+    appMenuActionRef.current = handleAppMenuAction;
+  });
+
+  useEffect(() => {
+    if (!nativeRuntime) return;
+    let cancelled = false;
+    const disposers: Array<() => void> = [];
+
+    void listen<string>("lmd://markdown-action", (event) => {
+      markdownActionRef.current(event.payload as MarkdownAction);
+    }).then((dispose) => {
+      if (cancelled) {
+        dispose();
+        return;
+      }
+      disposers.push(dispose);
+    });
+
+    void listen<string>("lmd://app-menu-action", (event) => {
+      appMenuActionRef.current(event.payload);
+    }).then((dispose) => {
+      if (cancelled) {
+        dispose();
+        return;
+      }
+      disposers.push(dispose);
+    });
+
+    return () => {
+      cancelled = true;
+      disposers.forEach((dispose) => dispose());
+    };
+  }, [nativeRuntime]);
+
+  useEffect(() => {
+    if (!nativeRuntime) return;
+    void invokeCommand("update_native_menu_state", {
+      state: {
+        editorMode,
+        leftPanelOpen,
+        rightPanelOpen,
+        featureAreaOpen,
+        splitOrientation,
+      },
+    }).catch(() => {
+      // Menu synchronization is best-effort; editing must not fail if the native menu is unavailable.
+    });
+  }, [editorMode, featureAreaOpen, leftPanelOpen, nativeRuntime, rightPanelOpen, splitOrientation]);
+
+  useEffect(() => {
+    if (!tabContextMenu) return;
+    function closeContextMenu() {
+      setTabContextMenu(null);
+    }
+    window.addEventListener("click", closeContextMenu);
+    window.addEventListener("keydown", closeContextMenu);
+    window.addEventListener("resize", closeContextMenu);
+    return () => {
+      window.removeEventListener("click", closeContextMenu);
+      window.removeEventListener("keydown", closeContextMenu);
+      window.removeEventListener("resize", closeContextMenu);
+    };
+  }, [tabContextMenu]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [searchOpen]);
+
+  useEffect(() => {
+    if (activeSearchMatch >= matches) setActiveSearchMatch(Math.max(0, matches - 1));
+  }, [activeSearchMatch, matches]);
+
+  function closeDocumentSearch() {
+    setSearchOpen(false);
+    setSearch("");
+    setActiveSearchMatch(0);
+    editorViewRef.current?.focus();
+  }
+
+  function goToSearchMatch(direction: "previous" | "next") {
+    if (matches === 0) return;
+    const nextIndex =
+      direction === "next"
+        ? (activeSearchMatch + 1) % matches
+        : (activeSearchMatch - 1 + matches) % matches;
+    setActiveSearchMatch(nextIndex);
+    const range = searchRanges[nextIndex];
+    if (!range) return;
+    if (editorMode === "preview") setEditorMode("edit");
+    window.setTimeout(() => {
+      const view = editorViewRef.current;
+      if (!view) return;
+      view.dispatch({
+        selection: EditorSelection.range(range.from, range.to),
+        effects: EditorView.scrollIntoView(range.from, { y: "center" }),
+      });
+      view.focus();
+    }, 0);
   }
 
   async function loadRange(startLine: number) {
@@ -1607,6 +2286,10 @@ export default function App() {
       setCommandPaletteQuery("");
       setCommandPaletteOpen(true);
     },
+    onFocusDocumentSearch: () => {
+      setSearchOpen(true);
+    },
+    onSetEditorMode: setEditorMode,
   });
 
   useExternalChangePolling({
@@ -1623,6 +2306,14 @@ export default function App() {
     }
     void handleLoadHistorySnapshots(false);
   }, [path, workspace?.rootPath]);
+
+  useEffect(() => {
+    if (!workspace) {
+      setGitStatus(null);
+      return;
+    }
+    void handleRefreshGitStatus(false);
+  }, [workspace?.rootPath, path]);
 
   function handleSettingsChange(nextSettings: typeof settings) {
     const previousApiKeys = settings.assistantApiKeys;
@@ -1677,6 +2368,13 @@ export default function App() {
       run: () => void handleSave(),
     },
     {
+      id: "daily",
+      label: "打开今日笔记",
+      hint: "创建或打开 daily/YYYY-MM-DD.md",
+      disabled: busy || !workspace,
+      run: () => void handleOpenDailyNote(),
+    },
+    {
       id: "rename",
       label: "重命名当前文件",
       hint: "修改当前 Markdown 文件名",
@@ -1703,6 +2401,13 @@ export default function App() {
       hint: "列出当前文件最近保存前版本",
       disabled: busy || !path,
       run: () => void handleLoadHistorySnapshots(),
+    },
+    {
+      id: "git-status",
+      label: "刷新 Git 状态",
+      hint: "查看改动、diff 和最近提交",
+      disabled: busy || !workspace,
+      run: () => void handleRefreshGitStatus(),
     },
     {
       id: "rename-tag",
@@ -1749,7 +2454,11 @@ export default function App() {
   ];
 
   return (
-    <main className={`app-shell ${leftPanelOpen ? "left-open" : "left-closed"}`}>
+    <main
+      className={`app-shell ${leftPanelOpen ? "left-open" : "left-closed"} ${
+        rightPanelOpen ? "right-open" : "right-closed"
+      }`}
+    >
       <CommandPalette
         open={commandPaletteOpen}
         query={commandPaletteQuery}
@@ -1796,6 +2505,7 @@ export default function App() {
           onOpen={() => void handleOpen()}
           onOpenWorkspace={() => void handleOpenWorkspace()}
           onSave={() => void handleSave()}
+          onOpenDailyNote={() => void handleOpenDailyNote()}
           onRename={() => void handleRenameCurrentFile()}
           onImportAttachment={() => void handleImportAttachment()}
           onCreateWikiPage={() => void handleCreateWikiPage()}
@@ -1819,6 +2529,7 @@ export default function App() {
           workspaceMatches={workspaceMatches}
           workspaceSearchActive={workspaceSearchActive}
           historySnapshots={historySnapshots}
+          gitStatus={gitStatus}
           recentFiles={recentFiles}
           path={path}
           isLarge={isLarge}
@@ -1838,6 +2549,8 @@ export default function App() {
           onOpenSearchMatch={(match) => void handleOpenSearchMatch(match)}
           onRefreshHistorySnapshots={() => void handleLoadHistorySnapshots()}
           onOpenHistorySnapshot={(snapshot) => void handleOpenHistorySnapshot(snapshot)}
+          onRefreshGitStatus={() => void handleRefreshGitStatus()}
+          onGitCommit={() => void handleGitCommit()}
           onOpenRecentFile={(recentPath, name) => void openPath(recentPath, name)}
           onRemoveRecentFile={handleRemoveRecentFile}
           onSettingsChange={handleSettingsChange}
@@ -1845,73 +2558,200 @@ export default function App() {
       </div>
 
       <section className="editor-pane">
-        <EditorToolbar
-          isLarge={isLarge}
-          canFormat={!readOnly && !busy}
-          busy={busy}
-          canPageBack={canPageBack}
-          canPageForward={canPageForward}
-          search={search}
-          matches={matches}
-          mode={editorMode}
-          onPreviousWindow={handlePreviousWindow}
-          onNextWindow={handleNextWindow}
-          onSearchChange={setSearch}
-          onModeChange={setEditorMode}
-          onMarkdownAction={applyMarkdownAction}
-        />
-
-        <NoticeStack
-          notice={notice}
-          externalChange={externalChange}
-          busy={busy}
-          onDismissNotice={() => setNotice(null)}
-          onReloadCurrentFile={() => void handleReloadCurrentFile()}
-        />
-
-        <div className={`document-workspace ${editorMode}`}>
-          <div className="document-heading">
-            <h1>{fileName(path)}</h1>
-            <button
-              type="button"
-              className="document-rename-button"
-              onClick={() => void handleRenameCurrentFile()}
-              disabled={busy || readOnly || isDirty || !path}
-            >
-              重命名
-            </button>
-            <p>
-              {readOnly
-                ? `只读：第 ${visibleStartLine.toLocaleString()}-${visibleEndLine.toLocaleString()} 行`
-                : isDirty
-                  ? "有未保存的更改"
-                  : "所有更改已保存"}
-            </p>
+        {tabs.length > 0 && (
+          <div className="document-tabs" role="tablist" aria-label="打开的笔记">
+            {tabs.map((tab) => {
+                const dirty = !tab.readOnly && tab.content !== tab.savedContent;
+                return (
+                  <div
+                    key={tab.id}
+                    className={`document-tab ${tab.id === activeTabId ? "active" : ""} ${dirty ? "dirty" : ""}`}
+                    role="presentation"
+                    onContextMenu={(event) => handleTabContextMenu(event, tab.id)}
+                  >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={tab.id === activeTabId}
+                    onClick={() => handleSelectTab(tab.id)}
+                    title={tab.path ?? "未命名"}
+                  >
+                    <span>{fileName(tab.path)}</span>
+                    {dirty && <strong aria-label="未保存">*</strong>}
+                  </button>
+                  <button
+                    type="button"
+                    className="tab-close-button"
+                    onClick={() => handleCloseTab(tab.id)}
+                    aria-label={`关闭 ${fileName(tab.path)}`}
+                    title="关闭"
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
           </div>
-          <div className={`document-main ${editorMode}`}>
-            {editorMode !== "preview" && (
-              <div className="editor-frame">
-                <CodeMirror
-                  value={content}
-                  height="100%"
-                  basicSetup={false}
-                  extensions={extensions}
-                  onChange={handleChange}
-                  onCreateEditor={(view) => {
-                    editorViewRef.current = view;
-                  }}
-                  theme="light"
-                />
+        )}
+
+        {tabContextMenu && (
+          <div
+            className="tab-context-menu"
+            role="menu"
+            aria-label="标签页菜单"
+            style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            {(() => {
+              const tab = tabs.find((item) => item.id === tabContextMenu.tabId);
+              const canRename = Boolean(
+                tab?.path && !tab.readOnly && tab.content === tab.savedContent && !busy,
+              );
+              return (
+                <>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => handleRenameTab(tabContextMenu.tabId)}
+                    disabled={!canRename}
+                  >
+                    重命名
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => handleCloseTab(tabContextMenu.tabId)}
+                  >
+                    关闭
+                  </button>
+                </>
+              );
+            })()}
+          </div>
+        )}
+
+        {!hasOpenTab ? (
+          <div className="empty-editor-state" aria-label="缺省页">
+            <div>
+              <h1>没有打开的笔记</h1>
+              <p>新建或打开一个 Markdown 文件开始记录。</p>
+            </div>
+            <div className="empty-editor-actions">
+              <button type="button" onClick={() => void handleNew()} disabled={busy}>
+                新建
+              </button>
+              <button type="button" onClick={() => void handleOpen()} disabled={busy}>
+                打开
+              </button>
+              <button type="button" onClick={() => void handleOpenDailyNote()} disabled={busy || !workspace}>
+                今日笔记
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {featureAreaOpen && (!nativeRuntime || isLarge) && (
+              <EditorToolbar
+                isLarge={isLarge}
+                canFormat={!readOnly && !busy}
+                showInlineFormat={!nativeRuntime}
+                busy={busy}
+                canPageBack={canPageBack}
+                canPageForward={canPageForward}
+                onPreviousWindow={handlePreviousWindow}
+                onNextWindow={handleNextWindow}
+                onMarkdownAction={applyMarkdownAction}
+              />
+            )}
+
+            {searchOpen && (
+              <div className="document-findbar" role="search" aria-label="文档查找">
+                <label className="document-findbar-input">
+                  <span>查找</span>
+                  <input
+                    ref={searchInputRef}
+                    value={search}
+                    onChange={(event) => {
+                      setSearch(event.target.value);
+                      setActiveSearchMatch(0);
+                    }}
+                    placeholder="查找..."
+                  />
+                </label>
+                <span className="document-findbar-count" aria-label="匹配数量">
+                  {search.trim() ? `${matches === 0 ? 0 : activeSearchMatch + 1}/${matches}` : "0"}
+                </span>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => goToSearchMatch("previous")}
+                  disabled={matches === 0}
+                  aria-label="上一个匹配"
+                  title="上一个匹配"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => goToSearchMatch("next")}
+                  disabled={matches === 0}
+                  aria-label="下一个匹配"
+                  title="下一个匹配"
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={closeDocumentSearch}
+                  aria-label="关闭查找"
+                  title="关闭查找"
+                >
+                  ×
+                </button>
               </div>
             )}
 
-            {editorMode !== "edit" && <MarkdownPreview content={content} />}
-          </div>
+            <NoticeStack
+              notice={notice}
+              externalChange={externalChange}
+              busy={busy}
+              onDismissNotice={() => setNotice(null)}
+              onReloadCurrentFile={() => void handleReloadCurrentFile()}
+            />
 
-        </div>
+            <div className={`document-workspace ${editorMode}`}>
+              {readOnly && (
+                <div className="document-status-strip" role="status">
+                  只读：第 {visibleStartLine.toLocaleString()}-{visibleEndLine.toLocaleString()} 行
+                </div>
+              )}
+              <div className={`document-main ${editorMode} split-${splitOrientation}`}>
+                {editorMode !== "preview" && (
+                  <div className="editor-frame">
+                    <CodeMirror
+                      value={content}
+                      height="100%"
+                      basicSetup={false}
+                      extensions={extensions}
+                      onChange={handleChange}
+                      onCreateEditor={(view) => {
+                        editorViewRef.current = view;
+                      }}
+                      theme="light"
+                    />
+                  </div>
+                )}
+
+                {editorMode !== "edit" && <MarkdownPreview content={content} />}
+              </div>
+            </div>
+          </>
+        )}
       </section>
 
-      <aside className="right-companion inspector-rail" aria-label="检查器">
+      <aside className="right-companion inspector-rail" aria-label="检查器" aria-hidden={!rightPanelOpen}>
         <div className="companion-tabs mode-switch" aria-label="检查器标签">
           <button
             type="button"
@@ -1945,7 +2785,7 @@ export default function App() {
           <AssistantPanel
             busy={assistantBusy}
             queryContext={queryContext}
-            hasCurrentContent={Boolean(content.trim())}
+            hasCurrentContent={hasOpenTab && Boolean(content.trim())}
             draft={assistantDraft}
             messages={assistantMessages}
             events={assistantEvents}

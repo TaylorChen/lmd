@@ -121,6 +121,20 @@ export function AssistantPanel({
           </div>
         )}
 
+        {queryContext && queryContext.items.length > 0 && (
+          <details className="assistant-sources" open>
+            <summary>引用来源 {queryContext.items.length.toLocaleString()}</summary>
+            <ol>
+              {queryContext.items.slice(0, 6).map((item) => (
+                <li key={`${item.reason}:${item.path}`}>
+                  <strong>{item.relativePath}</strong>
+                  <span>{item.excerpt}</span>
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
+
         <form
           className="assistant-composer"
           onSubmit={(event) => {

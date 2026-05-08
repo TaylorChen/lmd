@@ -181,6 +181,26 @@ export type SearchMatch = {
   matchEnd: number;
 };
 
+export type GitFileChange = {
+  status: string;
+  path: string;
+};
+
+export type GitCommit = {
+  hash: string;
+  subject: string;
+  author: string;
+  date: string;
+};
+
+export type GitStatus = {
+  isRepository: boolean;
+  branch: string | null;
+  changes: GitFileChange[];
+  currentFileDiff: string;
+  recentCommits: GitCommit[];
+};
+
 export type TagRenameResult = {
   filesChanged: number;
   replacements: number;

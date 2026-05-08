@@ -1,18 +1,32 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tauri::Emitter;
+use std::sync::Mutex;
+use tauri::{
+    menu::{CheckMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu},
+    Emitter, Manager,
+};
 
 mod assistant;
 mod document;
 mod export;
+mod git;
 mod workspace;
 
 #[cfg(target_os = "macos")]
 const APP_ICON_PNG: &[u8] = include_bytes!("../icons/icon.png");
 
-#[derive(Default)]
 struct AppState {
     documents: document::DocumentCache,
+    zoom_factor: Mutex<f64>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            documents: document::DocumentCache::default(),
+            zoom_factor: Mutex::new(1.0),
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -22,7 +36,255 @@ struct AssistantStreamDelta {
     delta: String,
 }
 
+const MARKDOWN_MENU_EVENT: &str = "lmd://markdown-action";
+const APP_MENU_EVENT: &str = "lmd://app-menu-action";
+
 const KEYCHAIN_SERVICE: &str = "org.lmd.assistant";
+
+fn markdown_menu_item(
+    app: &tauri::AppHandle,
+    action: &str,
+    label: &str,
+    accelerator: Option<&str>,
+) -> tauri::Result<MenuItem<tauri::Wry>> {
+    MenuItem::with_id(app, format!("markdown:{action}"), label, true, accelerator)
+}
+
+fn app_menu_item(
+    app: &tauri::AppHandle,
+    action: &str,
+    label: &str,
+    accelerator: Option<&str>,
+) -> tauri::Result<MenuItem<tauri::Wry>> {
+    MenuItem::with_id(app, format!("app:{action}"), label, true, accelerator)
+}
+
+fn checked_app_menu_item(
+    app: &tauri::AppHandle,
+    action: &str,
+    label: &str,
+    accelerator: Option<&str>,
+) -> tauri::Result<CheckMenuItem<tauri::Wry>> {
+    CheckMenuItem::with_id(
+        app,
+        format!("app:{action}"),
+        label,
+        true,
+        false,
+        accelerator,
+    )
+}
+
+fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let menu = Menu::default(app)?;
+    let insert_menu = Submenu::with_items(
+        app,
+        "Insert",
+        true,
+        &[
+            &markdown_menu_item(app, "link", "链接", None)?,
+            &markdown_menu_item(app, "markdown-link", "Markdown 链接", Some("CmdOrCtrl+K"))?,
+            &markdown_menu_item(app, "annotation", "标注", None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &markdown_menu_item(app, "code-block", "代码块", None)?,
+            &markdown_menu_item(app, "math-block", "数学块", None)?,
+            &markdown_menu_item(app, "footnote", "脚注", None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &Submenu::with_items(
+                app,
+                "表格",
+                true,
+                &[
+                    &markdown_menu_item(app, "table", "插入表格", None)?,
+                    &markdown_menu_item(app, "format-table", "对齐表格", None)?,
+                    &markdown_menu_item(app, "table-row", "加行", None)?,
+                    &markdown_menu_item(app, "table-column", "加列", None)?,
+                    &markdown_menu_item(app, "csv-table", "CSV 表格", None)?,
+                ],
+            )?,
+            &PredefinedMenuItem::separator(app)?,
+            &markdown_menu_item(app, "unordered-list", "无序列表", None)?,
+            &markdown_menu_item(app, "ordered-list", "有序列表", None)?,
+            &markdown_menu_item(app, "task-list", "任务列表", Some("CmdOrCtrl+L"))?,
+            &PredefinedMenuItem::separator(app)?,
+            &markdown_menu_item(app, "block-id", "块 ID", None)?,
+            &markdown_menu_item(app, "block-ref", "块引用", None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &app_menu_item(app, "insert-attachment", "插入附件...", None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &Submenu::with_items(
+                app,
+                "折叠",
+                true,
+                &[
+                    &markdown_menu_item(app, "fold-all", "折叠全部", None)?,
+                    &markdown_menu_item(app, "unfold-all", "展开全部", None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &markdown_menu_item(app, "fold-current", "折叠", None)?,
+                    &markdown_menu_item(app, "unfold-current", "展开", None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &markdown_menu_item(app, "fold-block", "插入折叠块", None)?,
+                ],
+            )?,
+        ],
+    )?;
+    let format_menu = Submenu::with_items(
+        app,
+        "Format",
+        true,
+        &[
+            &markdown_menu_item(app, "h1", "小标题 1", Some("CmdOrCtrl+1"))?,
+            &markdown_menu_item(app, "h2", "小标题 2", Some("CmdOrCtrl+2"))?,
+            &markdown_menu_item(app, "h3", "小标题 3", Some("CmdOrCtrl+3"))?,
+            &markdown_menu_item(app, "h4", "小标题 4", Some("CmdOrCtrl+4"))?,
+            &markdown_menu_item(app, "h5", "小标题 5", Some("CmdOrCtrl+5"))?,
+            &markdown_menu_item(app, "h6", "小标题 6", Some("CmdOrCtrl+6"))?,
+            &markdown_menu_item(app, "no-heading", "无小标题", None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &markdown_menu_item(app, "bold", "加粗", Some("CmdOrCtrl+B"))?,
+            &markdown_menu_item(app, "italic", "斜体", Some("CmdOrCtrl+I"))?,
+            &markdown_menu_item(app, "code-block", "代码块", None)?,
+            &markdown_menu_item(app, "highlight", "高亮", None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &markdown_menu_item(app, "strikethrough", "删除线", None)?,
+            &markdown_menu_item(app, "math-inline", "数学", None)?,
+            &markdown_menu_item(app, "comment", "注释", None)?,
+        ],
+    )?;
+    menu.insert(&insert_menu, 3)?;
+    menu.insert(&format_menu, 4)?;
+    for item in menu.items()? {
+        if let MenuItemKind::Submenu(submenu) = item {
+            if submenu.text()? == "Edit" {
+                submenu.append_items(&[
+                    &PredefinedMenuItem::separator(app)?,
+                    &app_menu_item(
+                        app,
+                        "focus-document-search",
+                        "在文档中查找",
+                        Some("CmdOrCtrl+F"),
+                    )?,
+                ])?;
+            } else if submenu.text()? == "View" {
+                submenu.prepend_items(&[
+                    &checked_app_menu_item(app, "view-preview", "阅读视图", Some("CmdOrCtrl+E"))?,
+                    &checked_app_menu_item(app, "view-source", "源码模式", None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &checked_app_menu_item(app, "toggle-left-panel", "折叠/展开左侧边栏", None)?,
+                    &checked_app_menu_item(app, "toggle-right-panel", "折叠/展开右侧边栏", None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &checked_app_menu_item(app, "toggle-feature-area", "显示/隐藏功能区", None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &checked_app_menu_item(app, "split-vertical", "左右分屏", None)?,
+                    &checked_app_menu_item(app, "split-horizontal", "上下分屏", None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &app_menu_item(app, "navigate-back", "后退", Some("Alt+CmdOrCtrl+Left"))?,
+                    &app_menu_item(app, "navigate-forward", "前进", Some("Alt+CmdOrCtrl+Right"))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &app_menu_item(app, "zoom-actual", "Actual Size", Some("CmdOrCtrl+0"))?,
+                    &app_menu_item(app, "zoom-in", "Zoom In", Some("CmdOrCtrl+="))?,
+                    &app_menu_item(app, "zoom-out", "Zoom Out", Some("CmdOrCtrl+-"))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &app_menu_item(app, "reload", "Force Reload", Some("CmdOrCtrl+R"))?,
+                    &app_menu_item(
+                        app,
+                        "toggle-developer-tools",
+                        "Toggle Developer Tools",
+                        Some("Alt+CmdOrCtrl+I"),
+                    )?,
+                    &PredefinedMenuItem::separator(app)?,
+                ])?;
+            }
+        }
+    }
+    Ok(menu)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeMenuState {
+    editor_mode: String,
+    left_panel_open: bool,
+    right_panel_open: bool,
+    feature_area_open: bool,
+    split_orientation: String,
+}
+
+fn find_check_menu_item(
+    items: Vec<MenuItemKind<tauri::Wry>>,
+    id: &str,
+) -> Option<CheckMenuItem<tauri::Wry>> {
+    for item in items {
+        if item.id().0.as_str() == id {
+            if let MenuItemKind::Check(check_item) = item {
+                return Some(check_item);
+            }
+            return None;
+        }
+        if let MenuItemKind::Submenu(submenu) = item {
+            if let Ok(items) = submenu.items() {
+                if let Some(check_item) = find_check_menu_item(items, id) {
+                    return Some(check_item);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn set_checked_menu_item(app: &tauri::AppHandle, action: &str, checked: bool) -> tauri::Result<()> {
+    let Some(menu) = app.menu() else {
+        return Ok(());
+    };
+    let id = format!("app:{action}");
+    if let Some(item) = find_check_menu_item(menu.items()?, &id) {
+        item.set_checked(checked)?;
+    }
+    Ok(())
+}
+
+fn active_webview(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+    app.get_webview_window("main")
+        .or_else(|| app.webview_windows().into_values().next())
+}
+
+fn handle_native_view_menu(app: &tauri::AppHandle, action: &str) -> tauri::Result<bool> {
+    let Some(webview) = active_webview(app) else {
+        return Ok(false);
+    };
+
+    if action == "reload" {
+        webview.reload()?;
+        return Ok(true);
+    }
+
+    if action == "toggle-developer-tools" {
+        if webview.is_devtools_open() {
+            webview.close_devtools();
+        } else {
+            webview.open_devtools();
+        }
+        return Ok(true);
+    }
+
+    if matches!(action, "zoom-actual" | "zoom-in" | "zoom-out") {
+        let state = app.state::<AppState>();
+        let mut zoom = state
+            .zoom_factor
+            .lock()
+            .map_err(|_| tauri::Error::FailedToReceiveMessage)?;
+        *zoom = match action {
+            "zoom-actual" => 1.0,
+            "zoom-in" => (*zoom + 0.1).min(2.0),
+            "zoom-out" => (*zoom - 0.1).max(0.5),
+            _ => *zoom,
+        };
+        webview.set_zoom(*zoom)?;
+        return Ok(true);
+    }
+
+    Ok(false)
+}
 
 #[cfg(target_os = "macos")]
 fn set_macos_application_icon() {
@@ -199,6 +461,20 @@ fn open_workspace() -> Result<Option<workspace::Workspace>, String> {
 fn refresh_workspace(root_path: String) -> Result<workspace::Workspace, String> {
     let root_path = PathBuf::from(root_path);
     workspace::load_workspace(&root_path)
+}
+
+#[tauri::command]
+fn git_workspace_status(
+    root_path: String,
+    current_path: Option<String>,
+) -> Result<git::GitStatus, String> {
+    let current = current_path.as_deref().map(PathBuf::from);
+    git::workspace_status(&PathBuf::from(root_path), current.as_deref())
+}
+
+#[tauri::command]
+fn git_commit_workspace(root_path: String, message: String) -> Result<git::GitStatus, String> {
+    git::commit_workspace(&PathBuf::from(root_path), &message)
 }
 
 #[tauri::command]
@@ -445,6 +721,84 @@ fn create_markdown_file(
     )
 }
 
+fn normalized_daily_date(input: &str) -> String {
+    let trimmed = input.trim();
+    if is_iso_date(trimmed) {
+        return trimmed.to_string();
+    }
+    if trimmed.chars().all(|character| character.is_ascii_digit()) {
+        if let Ok(raw_timestamp) = trimmed.parse::<i64>() {
+            let seconds = if trimmed.len() >= 13 {
+                raw_timestamp / 1000
+            } else {
+                raw_timestamp
+            };
+            return date_from_unix_seconds(seconds);
+        }
+    }
+    let now_seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    date_from_unix_seconds(now_seconds)
+}
+
+fn is_iso_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+}
+
+fn date_from_unix_seconds(seconds: i64) -> String {
+    let days = seconds.div_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+fn civil_from_days(days_since_epoch: i64) -> (i64, u32, u32) {
+    let z = days_since_epoch + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 }.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096).div_euclid(365);
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2).div_euclid(153);
+    let day = doy - (153 * mp + 2).div_euclid(5) + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = year + if month <= 2 { 1 } else { 0 };
+    (year, month as u32, day as u32)
+}
+
+#[tauri::command]
+fn open_daily_note(
+    state: tauri::State<'_, AppState>,
+    root_path: String,
+    date: String,
+) -> Result<document::MarkdownDocument, String> {
+    let date = normalized_daily_date(&date);
+    let daily_path = PathBuf::from(&root_path)
+        .join("daily")
+        .join(format!("{date}.md"));
+    if daily_path.exists() {
+        return document::open_markdown_path(&state.documents, &daily_path);
+    }
+    let title = format!("Daily {date}");
+    let content = format!("# {title}\n\n## 记录\n\n- \n");
+    let result = document::create_markdown_file(
+        &state.documents,
+        &PathBuf::from(&root_path),
+        "daily",
+        &format!("{date}.md"),
+        &content,
+    )?;
+    document::open_markdown_path(&state.documents, &PathBuf::from(result.path))
+}
+
 #[tauri::command]
 fn rename_markdown_file(
     state: tauri::State<'_, AppState>,
@@ -533,10 +887,49 @@ fn export_markdown_docx(path: Option<String>, content: String) -> Result<Option<
     export::export_docx_document(&target_path, &content).map(Some)
 }
 
+#[tauri::command]
+fn update_native_menu_state(app: tauri::AppHandle, state: NativeMenuState) -> Result<(), String> {
+    let is_preview = state.editor_mode == "preview";
+    let is_source = state.editor_mode == "edit";
+    let is_split = state.editor_mode == "split";
+    set_checked_menu_item(&app, "view-preview", is_preview).map_err(|error| error.to_string())?;
+    set_checked_menu_item(&app, "view-source", is_source).map_err(|error| error.to_string())?;
+    set_checked_menu_item(
+        &app,
+        "split-vertical",
+        is_split && state.split_orientation == "vertical",
+    )
+    .map_err(|error| error.to_string())?;
+    set_checked_menu_item(
+        &app,
+        "split-horizontal",
+        is_split && state.split_orientation == "horizontal",
+    )
+    .map_err(|error| error.to_string())?;
+    set_checked_menu_item(&app, "toggle-left-panel", state.left_panel_open)
+        .map_err(|error| error.to_string())?;
+    set_checked_menu_item(&app, "toggle-right-panel", state.right_panel_open)
+        .map_err(|error| error.to_string())?;
+    set_checked_menu_item(&app, "toggle-feature-area", state.feature_area_open)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
+        .menu(build_app_menu)
+        .on_menu_event(|app, event| {
+            let id = event.id().0.as_str();
+            if let Some(action) = id.strip_prefix("markdown:") {
+                let _ = app.emit(MARKDOWN_MENU_EVENT, action);
+            } else if let Some(action) = id.strip_prefix("app:") {
+                if !handle_native_view_menu(app, action).unwrap_or(false) {
+                    let _ = app.emit(APP_MENU_EVENT, action);
+                }
+            }
+        })
         .setup(|_app| {
             set_macos_application_icon();
             Ok(())
@@ -547,6 +940,8 @@ pub fn run() {
             export_markdown_docx,
             export_markdown_html,
             export_markdown_pdf,
+            git_commit_workspace,
+            git_workspace_status,
             assistant_catalog,
             create_markdown_file,
             delete_assistant_api_key,
@@ -559,6 +954,7 @@ pub fn run() {
             knowledge_lint_report,
             open_markdown_file,
             open_markdown_path,
+            open_daily_note,
             open_workspace,
             query_context,
             refresh_workspace,
@@ -569,6 +965,7 @@ pub fn run() {
             save_assistant_api_key,
             summarize_editor_context,
             summarize_query_context,
+            update_native_menu_state,
             save_markdown_file
         ])
         .run(tauri::generate_context!())
@@ -616,6 +1013,12 @@ mod tests {
             .expect("system time before epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("lmd-{name}-{}-{nonce}", std::process::id()))
+    }
+
+    #[test]
+    fn normalizes_daily_note_dates() {
+        assert_eq!(super::normalized_daily_date("2026-05-07"), "2026-05-07");
+        assert_eq!(super::normalized_daily_date("1778164463273"), "2026-05-07");
     }
 
     #[test]

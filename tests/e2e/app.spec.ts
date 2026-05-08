@@ -189,6 +189,30 @@ async function installTauriMock(page: Page) {
           };
         }
 
+        if (command === "git_workspace_status") {
+          return {
+            isRepository: true,
+            branch: "main",
+            changes: [{ status: "M", path: "alpha.md" }],
+            currentFileDiff: "diff --git a/alpha.md b/alpha.md\n+Changed",
+            recentCommits: [
+              { hash: "abc123", subject: "Initial commit", author: "LMD", date: "2026-05-07" },
+            ],
+          };
+        }
+
+        if (command === "git_commit_workspace") {
+          return {
+            isRepository: true,
+            branch: "main",
+            changes: [],
+            currentFileDiff: "",
+            recentCommits: [
+              { hash: "def456", subject: String(args?.message ?? ""), author: "LMD", date: "2026-05-07" },
+            ],
+          };
+        }
+
         if (command === "summarize_query_context") {
           return {
             title: "alpha summary",
@@ -308,6 +332,21 @@ async function installTauriMock(page: Page) {
           };
         }
 
+        if (command === "open_daily_note") {
+          const date = String(args?.date ?? "2026-05-07");
+          return {
+            path: `/workspace/daily/${date}.md`,
+            content: `# Daily ${date}\n\n## 记录\n\n- `,
+            byteSize: 34,
+            lineCount: 5,
+            modifiedMs: 2400,
+            isLarge: false,
+            readOnly: false,
+            visibleStartLine: 1,
+            visibleLineCount: 5,
+          };
+        }
+
         if (command === "search_workspace") {
           return [
             {
@@ -396,6 +435,15 @@ async function installTauriMock(page: Page) {
   });
 }
 
+async function pressAppShortcut(page: Page, key: string, options: { shift?: boolean } = {}) {
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  await page.keyboard.down(modifier);
+  if (options.shift) await page.keyboard.down("Shift");
+  await page.keyboard.press(key);
+  if (options.shift) await page.keyboard.up("Shift");
+  await page.keyboard.up(modifier);
+}
+
 test.beforeEach(async ({ page }) => {
   await installTauriMock(page);
   await page.goto("/");
@@ -404,7 +452,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("edits markdown and renders preview modes", async ({ page }) => {
-  await expect(page.locator(".document-heading").getByRole("heading", { name: "未命名" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "未命名" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "资料库分区" })).toBeVisible();
   await expect(page.getByRole("button", { name: "全部笔记" })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "工作区笔记" })).toBeVisible();
@@ -415,8 +463,29 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await page.keyboard.type(
     "---\ntitle: Preview title\ntags: [math, diagram]\n---\n\n# Preview title\n\nInline math $a^2 + b^2 = c^2$.\n\n$$E=mc^2$$\n\n```mermaid\ngraph TD\nA-->B\n```\n\n```plantuml\n@startuml\nAlice -> Bob: Hi\n@enduml\n```\n\n```javascript\nconst answer = 42;\n```\n\n| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n\n- [x] done item\n\nhttps://example.com",
   );
+  await page.keyboard.type(
+    Array.from({ length: 12 }, (_, index) => `\n\n## Long section ${index + 1}\n\nScrollable source line ${index + 1}`).join(""),
+  );
+  const sourceCanScroll = await page.locator(".editor-frame").evaluate((node) => {
+    const content = node.querySelector(".cm-editor");
+    if (!content) return false;
+    const contentHeight = content.getBoundingClientRect().height;
+    const viewportHeight = node.getBoundingClientRect().height;
+    node.scrollTop = 0;
+    node.scrollBy({ top: 240 });
+    return contentHeight > viewportHeight && node.scrollTop > 0;
+  });
+  expect(sourceCanScroll).toBeTruthy();
+  await pressAppShortcut(page, "F");
+  await expect(page.getByPlaceholder("查找...")).toBeFocused();
+  await page.keyboard.type("Preview");
+  await expect(page.getByLabel("匹配数量")).toHaveText("1/2");
+  await page.getByRole("button", { name: "下一个匹配" }).click();
+  await expect(page.getByLabel("匹配数量")).toHaveText("2/2");
+  await page.getByRole("button", { name: "关闭查找" }).click();
+  await expect(page.getByRole("search", { name: "文档查找" })).toHaveCount(0);
 
-  await page.getByRole("button", { name: "分屏" }).click();
+  await pressAppShortcut(page, "\\");
   await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
   await expect(page.locator(".document-main .markdown-preview h1")).toHaveText("Preview title");
   const firstPreviewBlockOffset = await page.locator(".document-main .markdown-preview h1").evaluate((heading) => {
@@ -434,11 +503,11 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await expect(page.locator(".document-main").getByRole("checkbox", { name: "done item" })).toBeChecked();
   await expect(page.locator(".document-main").getByRole("link", { name: "https://example.com" })).toBeVisible();
 
-  await page.getByLabel("编辑模式").getByRole("button", { name: "预览" }).click();
+  await pressAppShortcut(page, "E");
   await expect(page.locator(".editor-frame")).toHaveCount(0);
   await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
 
-  await page.getByRole("button", { name: "编辑" }).click();
+  await pressAppShortcut(page, "E", { shift: true });
   await expect(page.locator(".editor-frame")).toBeVisible();
 });
 
@@ -453,20 +522,56 @@ test("applies markdown toolbar shortcuts to the editor", async ({ page }) => {
   await expect(page.locator(".cm-content")).toContainText("**Toolbar text**");
 
   await page.keyboard.press("End");
-  await page.getByLabel("Markdown 快捷格式").getByRole("button", { name: "表格", exact: true }).click();
+  await page.getByLabel("Markdown 快捷格式").getByText("格式", { exact: true }).click();
+  await page.getByRole("button", { name: "插入表格" }).click();
   await expect(page.locator(".cm-content")).toContainText("| 列 1 | 列 2 | 列 3 |");
 
   await page.keyboard.type("\n\nBlock target");
-  await page.getByLabel("Markdown 快捷格式").getByRole("button", { name: "块 ID" }).click();
+  await page.getByLabel("Markdown 快捷格式").getByText("格式", { exact: true }).click();
+  await page.getByRole("button", { name: "块 ID" }).click();
   await expect(page.locator(".cm-content")).toContainText("^block-");
-  await page.getByRole("button", { name: "分屏" }).click();
+  await pressAppShortcut(page, "\\");
   await expect(page.locator(".document-main .markdown-preview .block-anchor").first()).toContainText("^block-");
 
-  await page.getByRole("button", { name: "编辑" }).click();
-  await page.getByLabel("Markdown 快捷格式").getByRole("button", { name: "块引用" }).click();
+  await pressAppShortcut(page, "E", { shift: true });
+  await page.getByLabel("Markdown 快捷格式").getByText("格式", { exact: true }).click();
+  await page.getByRole("button", { name: "块引用" }).click();
   await expect(page.locator(".cm-content")).toContainText("[[当前笔记#^block-");
-  await page.getByRole("button", { name: "分屏" }).click();
+  await pressAppShortcut(page, "\\");
   await expect(page.locator(".document-main .markdown-preview .wiki-link").first()).toContainText("当前笔记#^block-");
+});
+
+test("supports daily notes, lightweight table tools, and git status", async ({ page }) => {
+  await page.getByRole("button", { name: "工作区" }).click();
+  await page.getByRole("button", { name: "今日笔记" }).click();
+  await expect(page.getByRole("tab", { name: /\.md$/ })).toBeVisible();
+  await expect(page.locator(".cm-content")).toContainText("# Daily");
+
+  await page.locator(".cm-content").click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+  await page.keyboard.type("name,value\nalpha,1");
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+  await page.getByLabel("Markdown 快捷格式").getByText("格式", { exact: true }).click();
+  await page.getByRole("button", { name: "CSV 表格" }).click();
+  await expect(page.locator(".cm-content")).toContainText("| name | value |");
+  await page.getByLabel("Markdown 快捷格式").getByText("格式", { exact: true }).click();
+  await page.getByRole("button", { name: "加行" }).click();
+  await expect(page.getByText("已添加表格行。")).toBeVisible();
+  await page.getByLabel("Markdown 快捷格式").getByText("格式", { exact: true }).click();
+  await page.getByRole("button", { name: "加列" }).click();
+  await expect(page.getByText("已添加表格列。")).toBeVisible();
+
+  await page.getByText("Git", { exact: true }).click();
+  await expect(page.getByLabel("Git 状态")).toContainText("main");
+  await expect(page.getByLabel("Git 状态")).toContainText("alpha.md");
+  await expect(page.getByLabel("Git 状态")).toContainText("Initial commit");
+  await page.getByRole("button", { name: "提交改动" }).click();
+  await page.getByRole("dialog", { name: "提交 Git 改动" }).getByLabel("提交信息").fill("Save daily note");
+  await page.getByRole("dialog", { name: "提交 Git 改动" }).getByRole("button", { name: "提交" }).click();
+  await expect(page.getByText("Git 提交已完成。")).toBeVisible();
+
+  const calls = await page.evaluate(() => window.__LMD_TEST_CALLS__?.map((call) => call.command));
+  expect(calls).toEqual(expect.arrayContaining(["open_daily_note", "git_workspace_status", "git_commit_workspace"]));
 });
 
 test("persists settings across reload", async ({ page }) => {
@@ -483,7 +588,8 @@ test("persists settings across reload", async ({ page }) => {
   await page.reload();
 
   await page.getByText("设置", { exact: true }).click();
-  await expect(page.getByLabel("编辑模式").getByRole("button", { name: "预览" })).toHaveClass(/active/);
+  await expect(page.locator(".editor-frame")).toHaveCount(0);
+  await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
   await expect(page.getByLabel("默认视图")).toHaveValue("preview");
   await expect(page.getByLabel("搜索结果")).toHaveValue("120");
   await expect(page.getByLabel("文件检查")).toHaveValue("10");
@@ -524,7 +630,7 @@ test("saves and exports the current document", async ({ page }) => {
 
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("已保存 untitled.md。")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "untitled.md" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "untitled.md" })).toBeVisible();
 
   await page.getByText("更多").click();
   await page.getByRole("button", { name: "导出 HTML" }).click();
@@ -563,7 +669,7 @@ test("removes files from the recent list without deleting the document", async (
   await page.getByRole("button", { name: "移除最近文件 untitled.md" }).click();
   await expect(page.getByText("已从最近列表移除。")).toBeVisible();
   await expect(page.getByText("暂无最近文件。")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "untitled.md" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "untitled.md" })).toBeVisible();
 
   const recentFiles = await page.evaluate(() => window.localStorage.getItem("lmd:recent-files"));
   expect(recentFiles).toBe("[]");
@@ -582,13 +688,44 @@ test("opens workspace, searches, and opens a match", async ({ page }) => {
 
   await page.getByRole("button", { name: /needle match/ }).focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("heading", { name: "alpha.md" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "alpha.md" })).toBeVisible();
   await expect(page.locator(".cm-content")).toContainText("Opened from workspace.");
 
   const searchCall = await page.evaluate(() =>
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "search_workspace"),
   );
   expect(searchCall?.args).toMatchObject({ rootPath: "/workspace", query: "needle", maxResults: 80 });
+});
+
+test("opens workspace files in closable document tabs", async ({ page }) => {
+  await page.getByRole("button", { name: "关闭 未命名" }).click();
+  await expect(page.getByRole("tab", { name: "未命名" })).toHaveCount(0);
+  await expect(page.getByLabel("缺省页").getByRole("heading", { name: "没有打开的笔记" })).toBeVisible();
+  await expect(page.locator(".document-heading")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "工作区" }).click();
+
+  await page.locator(".file-list .file-item").filter({ hasText: "alpha.md" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("tab", { name: "alpha.md" })).toBeVisible();
+
+  await page.locator(".file-list .file-item").filter({ hasText: "notes/topic.md" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("tab", { name: "topic.md" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "topic.md" })).toBeVisible();
+
+  await page.getByRole("tab", { name: "alpha.md" }).click();
+  await expect(page.getByRole("tab", { name: "alpha.md" })).toHaveAttribute("aria-selected", "true");
+
+  await page.getByRole("button", { name: "关闭 alpha.md" }).click();
+  await expect(page.getByRole("tab", { name: "alpha.md" })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "topic.md" })).toHaveAttribute("aria-selected", "true");
+
+  await page.getByRole("button", { name: "关闭 topic.md" }).click();
+  await expect(page.getByRole("tab", { name: "topic.md" })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "未命名" })).toHaveCount(0);
+  await expect(page.getByLabel("缺省页").getByRole("heading", { name: "没有打开的笔记" })).toBeVisible();
+  await expect(page.locator(".document-heading")).toHaveCount(0);
 });
 
 test("renames tags across the workspace", async ({ page }) => {
@@ -621,13 +758,17 @@ test("creates named notes, renames files, imports attachments, and uses command 
   await expect(page.getByRole("dialog", { name: "新建 Markdown" })).toBeVisible();
   await page.getByLabel("文件名").fill("daily.md");
   await page.getByRole("button", { name: "创建" }).click();
-  await expect(page.locator(".document-heading").getByRole("heading", { name: "daily.md" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "daily.md" })).toBeVisible();
 
-  await page.getByRole("button", { name: "重命名" }).click();
+  await page.getByRole("tab", { name: "daily.md" }).click({ button: "right" });
+  await page.getByRole("menu", { name: "标签页菜单" }).getByRole("menuitem", { name: "重命名" }).click();
   await expect(page.getByRole("dialog", { name: "重命名 Markdown" })).toBeVisible();
   await page.getByLabel("文件名").fill("renamed.md");
   await page.getByRole("dialog", { name: "重命名 Markdown" }).getByRole("button", { name: "重命名" }).click();
-  await expect(page.locator(".document-heading").getByRole("heading", { name: "renamed.md" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "renamed.md" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "daily.md" })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "renamed.md" })).toBeVisible();
+  await expect(page.getByText("该文件已从磁盘中删除。")).toHaveCount(0);
 
   await page.locator(".cm-content").click();
   await page.getByText("更多").click();
@@ -714,8 +855,8 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
 
   await page.locator(".file-list .file-item").first().focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("heading", { name: "alpha.md" })).toBeVisible();
-  await page.getByLabel("编辑模式").getByRole("button", { name: "分屏" }).click();
+  await expect(page.getByRole("tab", { name: "alpha.md" })).toBeVisible();
+  await pressAppShortcut(page, "\\");
   await page.getByLabel("检查器标签").getByRole("button", { name: "知识" }).click();
 
   await expect(page.locator(".knowledge-link-item span").filter({ hasText: "wiki/overview.md" }).first()).toBeVisible();
@@ -770,7 +911,8 @@ test("builds and saves an assistant draft", async ({ page }) => {
   await page.getByRole("button", { name: "初始化知识库" }).click();
   await page.locator(".file-list .file-item").first().focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByLabel("编辑模式").getByRole("button", { name: "分屏" })).toHaveClass(/active/);
+  await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
+  await expect(page.locator(".editor-frame")).toBeVisible();
   await page.getByLabel("检查器标签").getByRole("button", { name: "AI 助手" }).click();
   await expect(page.getByRole("complementary", { name: "检查器" })).toBeVisible();
   await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("上下文已加载");
@@ -784,6 +926,8 @@ test("builds and saves an assistant draft", async ({ page }) => {
 
   await page.getByRole("button", { name: "总结笔记" }).click();
   await expect(page.getByLabel("AI 对话")).toContainText("# alpha summary");
+  await expect(page.getByText("引用来源 2")).toBeVisible();
+  await expect(page.getByText("Overview context excerpt.")).toBeVisible();
   await expect(page.getByText("AI 草稿已生成。")).toHaveCount(0);
   await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("已请求 AI");
   await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("external_command / command-json-v1");

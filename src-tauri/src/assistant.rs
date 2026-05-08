@@ -465,6 +465,9 @@ fn build_llm_prompt(
             item.relative_path, item.source_kind, item.reason, item.excerpt
         ));
     }
+    prompt.push_str(
+        "\n回答需要尽量引用来源路径；涉及上下文事实时，在句末用 `[来源: relative/path.md]` 标注。",
+    );
     prompt
 }
 

@@ -3,6 +3,7 @@ import type {
   AppSettings,
   AssistantCatalog,
   EditorMode,
+  GitStatus,
   HistorySnapshot,
   LibrarySection,
   RecentFile,
@@ -20,6 +21,7 @@ type WorkspaceListPanelProps = {
   workspaceMatches: SearchMatch[];
   workspaceSearchActive: boolean;
   historySnapshots: HistorySnapshot[];
+  gitStatus: GitStatus | null;
   recentFiles: RecentFile[];
   path: string | null;
   isLarge: boolean;
@@ -33,6 +35,8 @@ type WorkspaceListPanelProps = {
   onOpenSearchMatch: (match: SearchMatch) => void;
   onRefreshHistorySnapshots: () => void;
   onOpenHistorySnapshot: (snapshot: HistorySnapshot) => void;
+  onRefreshGitStatus: () => void;
+  onGitCommit: () => void;
   onOpenRecentFile: (path: string, name: string) => void;
   onRemoveRecentFile: (path: string) => void;
   onSettingsChange: (settings: AppSettings) => void;
@@ -64,6 +68,7 @@ export function WorkspaceListPanel({
   workspaceMatches,
   workspaceSearchActive,
   historySnapshots,
+  gitStatus,
   recentFiles,
   path,
   isLarge,
@@ -77,6 +82,8 @@ export function WorkspaceListPanel({
   onOpenSearchMatch,
   onRefreshHistorySnapshots,
   onOpenHistorySnapshot,
+  onRefreshGitStatus,
+  onGitCommit,
   onOpenRecentFile,
   onRemoveRecentFile,
   onSettingsChange,
@@ -307,6 +314,73 @@ export function WorkspaceListPanel({
             ))
           ) : (
             <p className="empty-workspace">暂无快照。</p>
+          )}
+        </div>
+      </details>
+
+      <details className="history-panel">
+        <summary className="settings-summary">
+          <span className="label">Git</span>
+          <small>
+            {gitStatus?.isRepository
+              ? `${gitStatus.changes.length.toLocaleString()} 个改动`
+              : "未启用"}
+          </small>
+        </summary>
+        <div className="recent-list git-panel" aria-label="Git 状态">
+          <button
+            type="button"
+            className="knowledge-action-button"
+            onClick={onRefreshGitStatus}
+            disabled={busy || !workspace}
+          >
+            刷新 Git 状态
+          </button>
+          <button
+            type="button"
+            className="knowledge-action-button"
+            onClick={onGitCommit}
+            disabled={busy || !gitStatus?.isRepository || gitStatus.changes.length === 0}
+          >
+            提交改动
+          </button>
+          {gitStatus?.isRepository ? (
+            <>
+              <p className="git-summary">
+                分支：<strong>{gitStatus.branch ?? "detached"}</strong>
+              </p>
+              {gitStatus.changes.length > 0 ? (
+                <ul className="git-change-list">
+                  {gitStatus.changes.slice(0, 8).map((change) => (
+                    <li key={`${change.status}:${change.path}`}>
+                      <strong>{change.status}</strong>
+                      <span>{change.path}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty-workspace">暂无未提交改动。</p>
+              )}
+              {gitStatus.currentFileDiff && (
+                <details className="git-diff-panel">
+                  <summary>当前文件 diff</summary>
+                  <pre>{gitStatus.currentFileDiff}</pre>
+                </details>
+              )}
+              {gitStatus.recentCommits.length > 0 && (
+                <div className="git-log-panel">
+                  <span className="label">最近提交</span>
+                  {gitStatus.recentCommits.map((commit) => (
+                    <p key={commit.hash}>
+                      <strong>{commit.hash}</strong>
+                      <span>{commit.subject}</span>
+                    </p>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="empty-workspace">当前工作区不是 Git 仓库。</p>
           )}
         </div>
       </details>

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { Workspace } from "../types";
+import type { EditorMode, Workspace } from "../types";
 
 type AppShortcutsOptions = {
   busy: boolean;
@@ -12,6 +12,8 @@ type AppShortcutsOptions = {
   onNew: () => void;
   onRefreshWorkspace: () => void;
   onOpenCommandPalette: () => void;
+  onFocusDocumentSearch: () => void;
+  onSetEditorMode: (mode: EditorMode) => void;
 };
 
 export function useAppShortcuts({
@@ -25,10 +27,12 @@ export function useAppShortcuts({
   onNew,
   onRefreshWorkspace,
   onOpenCommandPalette,
+  onFocusDocumentSearch,
+  onSetEditorMode,
 }: AppShortcutsOptions) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (!event.metaKey || event.altKey || event.ctrlKey) return;
+      if ((!event.metaKey && !event.ctrlKey) || event.altKey) return;
 
       const key = event.key.toLowerCase();
       if (key === "s") {
@@ -37,6 +41,18 @@ export function useAppShortcuts({
       } else if (key === "k") {
         event.preventDefault();
         onOpenCommandPalette();
+      } else if (key === "f") {
+        event.preventDefault();
+        onFocusDocumentSearch();
+      } else if (key === "e" && event.shiftKey) {
+        event.preventDefault();
+        onSetEditorMode("edit");
+      } else if (key === "e") {
+        event.preventDefault();
+        onSetEditorMode("preview");
+      } else if (event.key === "\\") {
+        event.preventDefault();
+        onSetEditorMode("split");
       } else if (key === "o" && event.shiftKey) {
         event.preventDefault();
         if (!busy) onOpenWorkspace();
@@ -54,5 +70,18 @@ export function useAppShortcuts({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [busy, isDirty, onNew, onOpen, onOpenCommandPalette, onOpenWorkspace, onRefreshWorkspace, onSave, readOnly, workspace]);
+  }, [
+    busy,
+    isDirty,
+    onFocusDocumentSearch,
+    onNew,
+    onOpen,
+    onOpenCommandPalette,
+    onOpenWorkspace,
+    onRefreshWorkspace,
+    onSave,
+    onSetEditorMode,
+    readOnly,
+    workspace,
+  ]);
 }
