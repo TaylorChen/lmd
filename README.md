@@ -1,6 +1,6 @@
 # LMD
 
-LMD is a native Markdown editor built with Tauri, React, and Rust. It is designed for local-first note taking, fast Markdown editing, workspace browsing, and AI-assisted writing without turning into a browser-only note app.
+LMD is a local-first Markdown note app for macOS, built with Tauri, React, CodeMirror, and Rust. It focuses on fast note taking, source/preview writing, workspace knowledge organization, and AI-assisted drafting without moving your Markdown files into a proprietary database.
 
 ![LMD editor screenshot](docs/assets/lmd-editor.png)
 
@@ -8,35 +8,167 @@ LMD is a native Markdown editor built with Tauri, React, and Rust. It is designe
 
 ## Highlights
 
-- Native macOS desktop shell powered by Tauri
-- Focused three-column layout for files, writing/preview, and AI assistance
-- Edit, Split, and Preview modes for Markdown writing
-- Front Matter-aware preview, KaTeX math, Mermaid diagrams, and syntax-highlighted code blocks
-- Workspace browsing, recent files, and full-text search
-- Local knowledge workspace with `notes/`, `sources/`, `wiki/`, and `wiki/inbox/`
-- AI assistant chat with DeepSeek, MiniMax, Kimi, 智谱 GLM, or a local external command
-- Save AI drafts directly into `wiki/inbox/`
-- HTML and lightweight PDF export
-- Large-file read-only paging for Markdown files over 5 MB
-- Browser E2E tests and Rust backend tests
+- Native macOS desktop app powered by Tauri
+- Local Markdown files, workspace folders, recent files, tabs, and closable documents
+- Source, reading, and split views controlled from the macOS `View` menu
+- Native `Insert`, `Format`, and `View` menus for Markdown operations and layout controls
+- On-demand document search via `Edit -> 在文档中查找` or `Cmd+F`
+- Markdown preview with Front Matter hiding, KaTeX math, Mermaid, PlantUML blocks, task lists, tables, and highlighted code
+- Knowledge workspace protocol with `notes/`, `sources/`, `wiki/`, and `wiki/inbox/`
+- Wiki links, backlinks, block IDs, block references, tags, linting, and source context
+- AI assistant chat with DeepSeek, MiniMax, Kimi, 智谱 GLM, Ollama, LM Studio, or an external command
+- Streaming AI responses in the chat UI and save-to-wiki draft workflows
+- HTML, PDF, and DOCX export
+- Git status, diff, and commit support for workspace folders
+- Rust backend tests and Playwright browser E2E tests
 
 ## Features
 
-- Native desktop shell with Tauri
-- Markdown preview powered by `markdown-it`
-- GFM-style tables, task lists, strikethrough, images, and linkify in preview and HTML export
-- YAML Front Matter is hidden from rendered preview and export output
-- KaTeX math formulas, Mermaid diagrams, and syntax-highlighted code blocks
-- Workspace file listing and full-text search
-- Large-file mmap-backed paging for files over 5 MB
-- Real file metadata checks for external change detection
-- Knowledge workspace protocol with `notes/`, `sources/`, `wiki/`, and `.lmd/knowledge/`
-- Wiki links, backlinks, unresolved links, source references, and lint checks
-- Assistant chat with provider selection, explicit loading states, and save-to-wiki draft workflow
-- HTML export using the same renderer as Preview
-- Lightweight Markdown-aware PDF export with heading, list, quote, and code styling
-- Playwright browser E2E coverage for core UI flows
-- Rust tests for real file save/open/export/metadata behavior
+### Editing
+
+- CodeMirror 6 Markdown source editor
+- Document tabs with close buttons and right-click menu actions
+- Tab right-click actions for rename and close
+- Unsaved tabs are marked with `*`
+- `Cmd+F` opens a temporary find bar instead of occupying permanent toolbar space
+- Long Markdown documents scroll correctly in source and reading views
+- Large-file read-only paging for Markdown files over 5 MB
+- External file metadata polling for missing or modified files
+
+### Markdown Rendering
+
+- YAML Front Matter is hidden in preview and export output
+- GFM-style tables, task lists, strikethrough, images, links, and autolinks
+- KaTeX block and inline math
+- Mermaid diagrams
+- PlantUML / `puml` blocks with dedicated rendering style
+- Syntax-highlighted code blocks
+- Block anchors such as `^block-id`
+- Wiki-style links such as `[[note]]` and `[[note#^block-id]]`
+
+### macOS Menus
+
+LMD moves editing controls out of the document canvas and into native menus.
+
+- `Insert`
+  - links, annotations, code blocks, math blocks, footnotes
+  - tables, formatted tables, rows, columns, CSV tables
+  - unordered, ordered, and task lists
+  - block IDs and block references
+  - attachments and folding actions
+- `Format`
+  - headings H1-H6
+  - bold, italic, highlight, strikethrough
+  - inline math, comments, code blocks
+- `View`
+  - source mode, reading mode, vertical split, horizontal split
+  - left/right sidebar visibility
+  - feature area visibility
+  - navigation, zoom, reload, and developer tools
+- `Edit`
+  - `在文档中查找` with `Cmd+F`
+
+The checked state in the `View` menu is synchronized from the actual app state.
+
+### Workspace and Knowledge
+
+Open a folder as a workspace, then use `More -> 初始化知识库` in the left rail. LMD creates:
+
+```text
+notes/
+sources/
+wiki/
+wiki/inbox/
+.lmd/knowledge/
+AGENTS.md
+wiki/index.md
+wiki/log.md
+```
+
+Workspace capabilities include:
+
+- folder scanning for Markdown files
+- recent files and removable recent entries
+- workspace search with `path:`, `#tag`, and `block:^id` queries
+- backlinks, outgoing links, unresolved links, block references, tags, and front matter
+- knowledge lint reports
+- tag rename across front matter and body `#tag` references
+- document history snapshots in `.lmd/history`
+- Git status, diff, and commit actions
+
+AI drafts saved from the assistant are written to:
+
+```text
+<workspace>/wiki/inbox/<draft-title>.md
+```
+
+The app also refreshes the workspace and updates knowledge index/log files when relevant.
+
+### AI Assistant
+
+LMD supports multiple OpenAI-compatible and local assistant providers:
+
+- DeepSeek
+- MiniMax
+- Kimi / Moonshot
+- 智谱 GLM / Z.ai
+- Ollama
+- LM Studio
+- external command
+
+Assistant features:
+
+- chat with loading and streaming UI feedback
+- current-note and workspace context loading
+- quick actions such as summarize, polish, extract todos, generate title, generate outline, and continue writing
+- save AI draft to `wiki/inbox/`
+- save AI chat as a wiki draft
+- macOS Keychain API key storage, with localStorage fallback for browser preview
+
+Environment variable fallbacks:
+
+- `DEEPSEEK_API_KEY`
+- `MINIMAX_API_KEY`
+- `MOONSHOT_API_KEY`
+- `ZAI_API_KEY`
+- `OLLAMA_BASE_URL`
+- `LM_STUDIO_BASE_URL`
+
+The external command provider is hidden under advanced settings. It runs a local executable and sends one JSON object to stdin:
+
+```json
+{
+  "provider": "external_command",
+  "model": "command-json-v1",
+  "task": "summarize",
+  "prompt": "Optional user instruction",
+  "currentContent": "# Current note",
+  "context": {
+    "currentPath": "/absolute/path/to/current.md",
+    "currentRelativePath": "notes/current.md",
+    "items": []
+  }
+}
+```
+
+The command must write an assistant draft JSON object to stdout:
+
+```json
+{
+  "title": "Topic summary",
+  "content": "# Topic summary\n\n## Summary\n\nDraft text."
+}
+```
+
+## Export
+
+LMD can export the current Markdown document as:
+
+- HTML
+- PDF
+- DOCX
+
+DOCX export depends on a local `pandoc` installation.
 
 ## Tech Stack
 
@@ -51,9 +183,9 @@ LMD is a native Markdown editor built with Tauri, React, and Rust. It is designe
 
 ```text
 src/           React UI, preview renderer, hooks, components
-src-tauri/     Rust backend, file IO, export, workspace scanning
+src-tauri/     Rust backend, file IO, export, workspace, assistant, git
 tests/e2e/     Playwright browser-based UI tests
-docs/          QA notes and platform limitations
+docs/          QA notes, screenshots, and design notes
 ```
 
 ## Quick Start
@@ -64,6 +196,7 @@ Requirements:
 - npm
 - Rust toolchain
 - Tauri prerequisites for your platform
+- Optional: `pandoc` for DOCX export
 
 Install dependencies:
 
@@ -71,40 +204,19 @@ Install dependencies:
 npm install
 ```
 
-Run the app in development:
+Run the macOS desktop app in development:
 
 ```bash
 npm run tauri:dev
 ```
 
-If you only need the frontend dev server:
+Run only the frontend browser preview:
 
 ```bash
 npm run dev
 ```
 
-## Knowledge Workspace
-
-Open a folder as a workspace, then use `More -> Initialize Knowledge Base` in the left rail. LMD creates:
-
-```text
-notes/
-sources/
-wiki/
-wiki/inbox/
-.lmd/knowledge/
-AGENTS.md
-wiki/index.md
-wiki/log.md
-```
-
-AI drafts saved from the assistant are written to:
-
-```text
-<workspace>/wiki/inbox/<draft-title>.md
-```
-
-The app also updates `wiki/index.md` and `wiki/log.md` when saving a draft.
+The browser preview mocks native Tauri calls in tests and cannot perform real local file operations by itself.
 
 ## Test and Build
 
@@ -127,57 +239,7 @@ Browser E2E:
 npm run test:e2e
 ```
 
-## Assistant Providers
-
-LMD ships with OpenAI-compatible assistant providers for DeepSeek, MiniMax, Kimi, and 智谱 GLM. Select a provider in Settings, then either enter the provider API key in the local settings panel or export the matching environment variable before starting the Tauri app:
-
-- `DEEPSEEK_API_KEY`
-- `MINIMAX_API_KEY`
-- `MOONSHOT_API_KEY`
-- `ZAI_API_KEY`
-
-`external_command` runs a local executable. Configure the command path and timeout in Settings, or use `LMD_ASSISTANT_COMMAND` and `LMD_ASSISTANT_TIMEOUT_SECONDS` as environment-variable fallbacks.
-
-The external command provider is the integration point for local LLM tools such as an `llm-wiki` wrapper. LMD writes one JSON object to stdin:
-
-```json
-{
-  "provider": "external_command",
-  "model": "command-json-v1",
-  "task": "summarize",
-  "prompt": "Optional user instruction",
-  "currentContent": "# Current note",
-  "context": {
-    "currentPath": "/absolute/path/to/current.md",
-    "currentRelativePath": "notes/current.md",
-    "items": []
-  }
-}
-```
-
-The command must write an assistant draft JSON object to stdout:
-
-```json
-{
-  "title": "topic summary",
-  "content": "# topic summary\n\n## Summary\n\nDraft text."
-}
-```
-
-Example:
-
-```bash
-# Optional fallback if the command path is not configured in Settings.
-export LMD_ASSISTANT_COMMAND=/absolute/path/to/lmd/scripts/lmd-assistant-command.example.mjs
-export LMD_ASSISTANT_TIMEOUT_SECONDS=60
-npm run tauri:dev
-```
-
-The timeout defaults to 60 seconds and is capped at 600 seconds.
-
-The repository includes [`scripts/lmd-assistant-command.example.mjs`](scripts/lmd-assistant-command.example.mjs) as a minimal protocol-compatible command. Replace it with a wrapper that calls your local model or `llm-wiki` workflow.
-
-Desktop bundles:
+Desktop bundle:
 
 ```bash
 npm run tauri build
@@ -196,14 +258,15 @@ LMD uses three layers of verification:
    - real file save/open/export flows
    - metadata changes
    - workspace scanning and search
-   - large-file range logic
+   - knowledge workspace operations
+   - assistant provider validation
+   - Git parsing and workspace status
 2. Playwright browser tests
-   - editing
-   - preview rendering
-   - settings persistence
-   - save/export/workspace command flows
-3. Tauri release build verification
-   - ensures `.app` and `.dmg` still build
+   - editing, preview, split view, and source scrolling
+   - tab open/close/rename behavior
+   - search, settings, workspace, knowledge, assistant, and export flows
+3. Tauri build verification
+   - ensures `.app` and `.dmg` bundles still build locally
 
 More detail:
 
@@ -212,29 +275,30 @@ More detail:
 
 ## Platform Notes
 
-- The project is currently developed and verified primarily on macOS.
+- LMD is currently developed and verified primarily on macOS.
 - Native Tauri WebDriver automation is not available on macOS because Tauri desktop WebDriver support does not currently cover WKWebView.
-- The repository therefore uses:
-  - Rust real file-flow tests
-  - Playwright browser tests with mocked Tauri command calls
-  - real Tauri bundle verification
+- The repository therefore uses Rust real file-flow tests, Playwright browser tests with mocked Tauri commands, and real Tauri bundle verification.
 
 ## Known Limits
 
 - Preview and HTML export intentionally disable raw HTML input.
-- PDF export is not a full layout engine yet. Complex table layout, image placement, and font embedding still need manual checking.
+- PDF export is lightweight and not a full layout engine.
+- DOCX export requires `pandoc`.
 - Release builds are not signed or notarized yet.
-- Native Tauri WebDriver automation would need Linux or Windows CI rather than the current macOS environment.
+- Native Tauri WebDriver coverage would need Linux or Windows CI.
+- The current screenshot may be refreshed as the native macOS menu-first UI continues to evolve.
 
 ## Status
 
-This project is usable, testable, and buildable, but still early.
+LMD is usable, testable, and buildable, but still early.
 
 High-priority remaining work:
 
 - code signing and notarization
+- screenshot and release artifact refresh for public launch
 - optional native Tauri WebDriver coverage on supported CI platforms
-- further PDF layout improvements
+- further export layout improvements
+- deeper knowledge graph and semantic search features
 
 ## Contributing
 
