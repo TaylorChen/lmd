@@ -416,6 +416,10 @@ async function installTauriMock(page: Page) {
           };
         }
 
+        if (command === "delete_markdown_file" || command === "reveal_in_finder") {
+          return null;
+        }
+
         if (command === "import_attachment") {
           return {
             path: "/workspace/attachments/diagram.png",
@@ -708,6 +712,8 @@ test("removes files from the recent list without deleting the document", async (
 test("opens workspace, searches, and opens a match", async ({ page }) => {
   await page.getByRole("button", { name: "工作区" }).click();
   await expect(page.getByText("已打开工作区，共 5 个文件。")).toBeVisible();
+  await expect(page.getByLabel("工作区目录树")).toBeVisible();
+  await expect(page.getByRole("button", { name: "▾ wiki" })).toBeVisible();
   await expect(page.getByRole("button", { name: /alpha\.md/ })).toBeVisible();
 
   await page.getByLabel("搜索工作区").fill("needle");
@@ -718,11 +724,30 @@ test("opens workspace, searches, and opens a match", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(page.getByRole("tab", { name: "alpha.md" })).toBeVisible();
   await expect(page.locator(".cm-content")).toContainText("Opened from workspace.");
+  await page.getByLabel("检查器标签").getByRole("button", { name: "大纲" }).click();
+  await expect(page.getByLabel("文档大纲").getByRole("button", { name: /Alpha/ })).toBeVisible();
 
   const searchCall = await page.evaluate(() =>
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "search_workspace"),
   );
   expect(searchCall?.args).toMatchObject({ rootPath: "/workspace", query: "needle", maxResults: 80 });
+});
+
+test("opens the workspace file context menu", async ({ page }) => {
+  await page.getByRole("button", { name: "工作区" }).click();
+  const fileItem = page.locator(".file-list .file-item").filter({ hasText: "notes/topic.md" }).first();
+  await fileItem.dispatchEvent("contextmenu", {
+    button: 2,
+    bubbles: true,
+    cancelable: true,
+    clientX: 120,
+    clientY: 160,
+  });
+  await expect(page.getByRole("menu", { name: "文件菜单" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "重命名" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "在 Finder 中显示" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "打开" }).click();
+  await expect(page.getByRole("tab", { name: "topic.md" })).toBeVisible();
 });
 
 test("opens workspace files in closable document tabs", async ({ page }) => {

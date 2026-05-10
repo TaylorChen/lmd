@@ -508,6 +508,22 @@ pub(crate) fn rename_markdown_file(
     save_markdown_file(cache, &target_path, &content, None)
 }
 
+pub(crate) fn delete_markdown_file(cache: &DocumentCache, path: &Path) -> Result<(), String> {
+    if !path.is_file() {
+        return Err(format!("{} is not a file", path.display()));
+    }
+    if !is_markdown_extension(path) {
+        return Err("只能删除 Markdown 文件。".to_string());
+    }
+    fs::remove_file(path).map_err(|error| format!("Could not delete {}: {error}", path.display()))?;
+    cache
+        .indexed_files
+        .lock()
+        .map_err(|_| "Could not lock file index cache".to_string())?
+        .remove(&path.to_string_lossy().to_string());
+    Ok(())
+}
+
 fn unique_target_path(directory: &Path, file_name: &str) -> PathBuf {
     let candidate = directory.join(file_name);
     if !candidate.exists() {

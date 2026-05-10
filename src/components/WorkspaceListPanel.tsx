@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { fileName } from "../lib/format";
 import type {
   AppSettings,
@@ -32,6 +33,9 @@ type WorkspaceListPanelProps = {
   onWorkspaceQueryChange: (query: string) => void;
   onWorkspaceSearch: () => void;
   onOpenWorkspaceFile: (file: WorkspaceFile) => void;
+  onRenameWorkspaceFile: (file: WorkspaceFile) => void;
+  onDeleteWorkspaceFile: (file: WorkspaceFile) => void;
+  onRevealWorkspaceFile: (file: WorkspaceFile) => void;
   onOpenSearchMatch: (match: SearchMatch) => void;
   onRefreshHistorySnapshots: () => void;
   onOpenHistorySnapshot: (snapshot: HistorySnapshot) => void;
@@ -40,6 +44,20 @@ type WorkspaceListPanelProps = {
   onOpenRecentFile: (path: string, name: string) => void;
   onRemoveRecentFile: (path: string) => void;
   onSettingsChange: (settings: AppSettings) => void;
+};
+
+type FileTreeNode = {
+  name: string;
+  path: string;
+  type: "folder" | "file";
+  file?: WorkspaceFile;
+  children: FileTreeNode[];
+};
+
+type FileContextMenuState = {
+  file: WorkspaceFile;
+  x: number;
+  y: number;
 };
 
 function sourceKindForPath(relativePath: string) {
@@ -57,6 +75,46 @@ function assistantProviderLabel(provider: AssistantCatalog["providers"][number])
   if (provider.id === "zhipu") return "智谱 GLM";
   if (provider.id === "external_command") return "外部命令";
   return provider.label;
+}
+
+function createFolderNode(name: string, path: string): FileTreeNode {
+  return { name, path, type: "folder", children: [] };
+}
+
+function buildFileTree(files: WorkspaceFile[]) {
+  const root = createFolderNode("", "");
+  const folders = new Map<string, FileTreeNode>([["", root]]);
+  for (const file of files) {
+    const parts = file.relativePath.split("/").filter(Boolean);
+    let parent = root;
+    let currentPath = "";
+    for (const part of parts.slice(0, -1)) {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      let folder = folders.get(currentPath);
+      if (!folder) {
+        folder = createFolderNode(part, currentPath);
+        folders.set(currentPath, folder);
+        parent.children.push(folder);
+      }
+      parent = folder;
+    }
+    parent.children.push({
+      name: parts[parts.length - 1] ?? file.name,
+      path: file.relativePath,
+      type: "file",
+      file,
+      children: [],
+    });
+  }
+  const sortNodes = (nodes: FileTreeNode[]) => {
+    nodes.sort((left, right) => {
+      if (left.type !== right.type) return left.type === "folder" ? -1 : 1;
+      return left.name.localeCompare(right.name);
+    });
+    nodes.forEach((node) => sortNodes(node.children));
+  };
+  sortNodes(root.children);
+  return root.children;
 }
 
 export function WorkspaceListPanel({
@@ -79,6 +137,9 @@ export function WorkspaceListPanel({
   onWorkspaceQueryChange,
   onWorkspaceSearch,
   onOpenWorkspaceFile,
+  onRenameWorkspaceFile,
+  onDeleteWorkspaceFile,
+  onRevealWorkspaceFile,
   onOpenSearchMatch,
   onRefreshHistorySnapshots,
   onOpenHistorySnapshot,
@@ -88,8 +149,99 @@ export function WorkspaceListPanel({
   onRemoveRecentFile,
   onSettingsChange,
 }: WorkspaceListPanelProps) {
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(["notes", "sources", "wiki", "wiki/inbox"]));
+  const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState | null>(null);
+
   function updateSetting(nextSettings: Partial<AppSettings>) {
     onSettingsChange({ ...settings, ...nextSettings });
+  }
+
+  const fileTree = useMemo(() => buildFileTree(workspaceFiles), [workspaceFiles]);
+
+  useEffect(() => {
+    setExpandedFolders((current) => {
+      const next = new Set(current);
+      for (const file of workspaceFiles) {
+        const parts = file.relativePath.split("/").filter(Boolean);
+        let currentPath = "";
+        for (const part of parts.slice(0, -1)) {
+          currentPath = currentPath ? `${currentPath}/${part}` : part;
+          next.add(currentPath);
+        }
+      }
+      return next;
+    });
+  }, [workspaceFiles]);
+
+  useEffect(() => {
+    if (!fileContextMenu) return;
+    function closeContextMenu() {
+      setFileContextMenu(null);
+    }
+    window.addEventListener("click", closeContextMenu);
+    window.addEventListener("keydown", closeContextMenu);
+    window.addEventListener("resize", closeContextMenu);
+    return () => {
+      window.removeEventListener("click", closeContextMenu);
+      window.removeEventListener("keydown", closeContextMenu);
+      window.removeEventListener("resize", closeContextMenu);
+    };
+  }, [fileContextMenu]);
+
+  function toggleFolder(folderPath: string) {
+    setExpandedFolders((current) => {
+      const next = new Set(current);
+      if (next.has(folderPath)) next.delete(folderPath);
+      else next.add(folderPath);
+      return next;
+    });
+  }
+
+  function handleFileContextMenu(event: MouseEvent, file: WorkspaceFile) {
+    event.preventDefault();
+    event.stopPropagation();
+    setFileContextMenu({ file, x: event.clientX, y: event.clientY });
+  }
+
+  function renderTreeNode(node: FileTreeNode, depth = 0) {
+    if (node.type === "folder") {
+      const expanded = expandedFolders.has(node.path);
+      return (
+        <div key={node.path} className="file-tree-node">
+          <button
+            type="button"
+            className="file-tree-folder"
+            onClick={() => toggleFolder(node.path)}
+            aria-expanded={expanded}
+            style={{ paddingLeft: `${depth * 12 + 8}px` }}
+          >
+            <span className="folder-caret">{expanded ? "▾" : "▸"}</span>
+            <span>{node.name}</span>
+            <small>{node.children.length.toLocaleString()}</small>
+          </button>
+          {expanded && <div className="file-tree-children">{node.children.map((child) => renderTreeNode(child, depth + 1))}</div>}
+        </div>
+      );
+    }
+
+    const file = node.file;
+    if (!file) return null;
+    return (
+      <button
+        type="button"
+        key={file.path}
+        className={`file-item tree-file-item ${file.path === path ? "active" : ""}`}
+        onClick={() => onOpenWorkspaceFile(file)}
+        onContextMenu={(event) => handleFileContextMenu(event, file)}
+        disabled={busy}
+        title={file.relativePath}
+        style={{ paddingLeft: `${depth * 12 + 10}px` }}
+      >
+        <span>{fileName(file.relativePath)}</span>
+        <small className="file-kind">{sourceKindForPath(file.relativePath)}</small>
+        <em>{file.relativePath}</em>
+      </button>
+    );
   }
 
   const selectedProvider =
@@ -221,24 +373,77 @@ export function WorkspaceListPanel({
                   <p className="empty-workspace">未找到匹配结果。</p>
                 )
               ) : workspaceFiles.length > 0 ? (
-                workspaceFiles.map((file) => (
-                  <button
-                    type="button"
-                    key={file.path}
-                    className={`file-item ${file.path === path ? "active" : ""}`}
-                    onClick={() => onOpenWorkspaceFile(file)}
-                    disabled={busy}
-                    title={file.relativePath}
-                  >
-                    <span>{fileName(file.relativePath)}</span>
-                    <small className="file-kind">{sourceKindForPath(file.relativePath)}</small>
-                    <em>{file.relativePath}</em>
-                  </button>
-                ))
+                <div className="file-tree" aria-label="工作区目录树">
+                  {fileTree.map((node) => renderTreeNode(node))}
+                </div>
               ) : (
                 <p className="empty-workspace">{sectionLabel}中未找到 Markdown 文件。</p>
               )}
             </div>
+            {fileContextMenu && (
+              <div
+                className="file-context-menu"
+                role="menu"
+                aria-label="文件菜单"
+                style={{ left: fileContextMenu.x, top: fileContextMenu.y }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onOpenWorkspaceFile(fileContextMenu.file);
+                    setFileContextMenu(null);
+                  }}
+                >
+                  打开
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onRenameWorkspaceFile(fileContextMenu.file);
+                    setFileContextMenu(null);
+                  }}
+                  disabled={busy}
+                >
+                  重命名
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(fileContextMenu.file.relativePath);
+                    setFileContextMenu(null);
+                  }}
+                >
+                  复制相对路径
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onRevealWorkspaceFile(fileContextMenu.file);
+                    setFileContextMenu(null);
+                  }}
+                  disabled={busy}
+                >
+                  在 Finder 中显示
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="danger"
+                  onClick={() => {
+                    onDeleteWorkspaceFile(fileContextMenu.file);
+                    setFileContextMenu(null);
+                  }}
+                  disabled={busy}
+                >
+                  删除
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <div className="workspace-empty-state">

@@ -6,6 +6,7 @@ import { EditorView } from "@codemirror/view";
 import { listen } from "@tauri-apps/api/event";
 import { AssistantPanel } from "./components/AssistantPanel";
 import { CommandPalette } from "./components/CommandPalette";
+import { DocumentOutline } from "./components/DocumentOutline";
 import { EditorToolbar, type MarkdownAction } from "./components/EditorToolbar";
 import { KnowledgePanel } from "./components/KnowledgePanel";
 import { LibraryRail } from "./components/LibraryRail";
@@ -38,6 +39,7 @@ import type {
   AttachmentImportResult,
   ExternalChange,
   DocumentKnowledge,
+  DocumentHeading,
   EditorMode,
   GitStatus,
   HistorySnapshot,
@@ -88,6 +90,10 @@ type TabContextMenuState = {
   x: number;
   y: number;
 };
+
+type RenameTarget =
+  | { kind: "current" }
+  | { kind: "workspace-file"; path: string; name: string };
 
 const defaultAssistantCatalog: AssistantCatalog = {
   defaultProvider: "deepseek",
@@ -347,6 +353,30 @@ function extractBlockIds(content: string) {
   return Array.from(ids).sort((left, right) => left.localeCompare(right));
 }
 
+function extractDocumentHeadings(content: string): DocumentHeading[] {
+  const headings: DocumentHeading[] = [];
+  let offset = 0;
+  const lines = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const match = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
+    if (match) {
+      const title = match[2].replace(/\s+#+$/, "").trim();
+      if (title) {
+        headings.push({
+          id: `${index + 1}:${title}`,
+          level: match[1].length,
+          title,
+          lineNumber: index + 1,
+          offset,
+        });
+      }
+    }
+    offset += line.length + 1;
+  }
+  return headings;
+}
+
 function extractTransclusionTargets(content: string) {
   const targets = new Set<string>();
   for (const match of content.matchAll(/!\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)) {
@@ -410,6 +440,7 @@ export default function App() {
   const markdownActionRef = useRef<(action: MarkdownAction) => void>(() => {});
   const appMenuActionRef = useRef<(action: string) => void>(() => {});
   const initialTabRef = useRef<DocumentTab | null>(null);
+  const renameTargetRef = useRef<RenameTarget>({ kind: "current" });
   if (!initialTabRef.current) {
     initialTabRef.current = createUntitledTab();
   }
@@ -440,7 +471,7 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [activeSearchMatch, setActiveSearchMatch] = useState(0);
   const [editorMode, setEditorMode] = useState<EditorMode>(() => settings.defaultEditorMode);
-  const [inspectorTab, setInspectorTab] = useState<"knowledge" | "assistant">("assistant");
+  const [inspectorTab, setInspectorTab] = useState<"knowledge" | "assistant" | "outline">("assistant");
   const [documentKnowledge, setDocumentKnowledge] = useState<DocumentKnowledge | null>(null);
   const [knowledgeLint, setKnowledgeLint] = useState<KnowledgeLintReport | null>(null);
   const [queryContext, setQueryContext] = useState<QueryContext | null>(null);
@@ -474,6 +505,7 @@ export default function App() {
   const canPageForward = isLarge && visibleEndLine < lineCount;
   const editableFrontmatter = useMemo(() => readEditableFrontmatter(content), [content]);
   const blockIds = useMemo(() => extractBlockIds(content), [content]);
+  const documentHeadings = useMemo(() => extractDocumentHeadings(content), [content]);
 
   const extensions = useEditorExtensions(isLarge, readOnly, visibleStartLine, workspace?.files ?? [], blockIds);
   const workspaceFiles = useMemo(() => {
@@ -941,6 +973,24 @@ export default function App() {
     }, 80);
   }
 
+  function scrollToEditorOffset(offset: number) {
+    if (editorMode === "preview") setEditorMode("edit");
+    window.setTimeout(() => {
+      const view = editorViewRef.current;
+      if (!view) return;
+      const position = Math.max(0, Math.min(offset, view.state.doc.length));
+      view.dispatch({
+        selection: EditorSelection.cursor(position),
+        effects: EditorView.scrollIntoView(position, { y: "center" }),
+      });
+      view.focus();
+    }, 80);
+  }
+
+  function handleOpenHeading(heading: DocumentHeading) {
+    scrollToEditorOffset(heading.offset);
+  }
+
   function wikiTitleFromTarget(target: string) {
     return target
       .split("#")[0]
@@ -1013,6 +1063,7 @@ export default function App() {
       setNotice({ tone: "error", message: "请先保存当前更改再重命名。" });
       return;
     }
+    renameTargetRef.current = { kind: "current" };
     setNameDialog({
       kind: "rename",
       title: "重命名 Markdown",
@@ -1024,17 +1075,38 @@ export default function App() {
 
   async function renameCurrentFile(nextName: string) {
     if (!path) return;
+    await renameWorkspaceFile(path, nextName, true);
+  }
+
+  async function renameWorkspaceFile(targetPath: string, nextName: string, replaceCurrent = targetPath === path) {
     setBusy(true);
     setNotice(null);
     try {
-      const oldPath = path;
+      const oldPath = targetPath;
       const result = await invokeCommand<SaveResult>("rename_markdown_file", {
-        path,
+        path: targetPath,
         newName: nextName,
       });
-      const document = await invokeCommand<MarkdownDocument>("open_markdown_path", { path: result.path });
-      replaceActiveTabWithDocument(document);
-      rememberDocument(document.path);
+      const document = replaceCurrent
+        ? await invokeCommand<MarkdownDocument>("open_markdown_path", { path: result.path })
+        : null;
+      if (document) {
+        replaceActiveTabWithDocument(document);
+        rememberDocument(document.path);
+      }
+      setTabs((currentTabs) =>
+        currentTabs.map((tab) =>
+          tab.path === oldPath
+            ? {
+                ...tab,
+                path: result.path,
+                knownModifiedMs: result.modifiedMs,
+                byteSize: result.byteSize,
+                lineCount: result.lineCount,
+              }
+            : tab,
+        ),
+      );
       setRecentFiles((currentRecentFiles) => {
         const nextRecentFiles = [
           { path: result.path, name: fileName(result.path) },
@@ -1051,6 +1123,70 @@ export default function App() {
       setNotice({ tone: "error", message: String(error) });
     } finally {
       setBusy(false);
+    }
+  }
+
+  function handleRenameWorkspaceFile(file: WorkspaceFile) {
+    const activeTab = tabs.find((tab) => tab.path === file.path);
+    if (activeTab && !activeTab.readOnly && activeTab.content !== activeTab.savedContent) {
+      setNotice({ tone: "error", message: "该文件有未保存更改，请先保存后再重命名。" });
+      return;
+    }
+    renameTargetRef.current = { kind: "workspace-file", path: file.path, name: file.name };
+    setNameDialog({
+      kind: "rename",
+      title: "重命名 Markdown",
+      label: "文件名",
+      defaultValue: file.name,
+      confirmLabel: "重命名",
+    });
+  }
+
+  async function handleDeleteWorkspaceFile(file: WorkspaceFile) {
+    const activeTab = tabs.find((tab) => tab.path === file.path);
+    if (activeTab && !activeTab.readOnly && activeTab.content !== activeTab.savedContent) {
+      setNotice({ tone: "error", message: "该文件有未保存更改，请先保存后再删除。" });
+      return;
+    }
+    if (!window.confirm(`删除 ${file.relativePath}？此操作会从磁盘移除该 Markdown 文件。`)) return;
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      await invokeCommand<void>("delete_markdown_file", { path: file.path });
+      setTabs((currentTabs) => {
+        const nextTabs = currentTabs.filter((tab) => tab.path !== file.path);
+        if (path === file.path) {
+          const nextActiveTab = nextTabs[0];
+          if (nextActiveTab) {
+            setActiveTabId(nextActiveTab.id);
+            applyTab(nextActiveTab);
+          } else {
+            setActiveTabId(null);
+            clearKnowledge();
+          }
+        }
+        return nextTabs;
+      });
+      setRecentFiles((currentRecentFiles) => {
+        const nextRecentFiles = currentRecentFiles.filter((recentFile) => recentFile.path !== file.path);
+        writeRecentFiles(nextRecentFiles);
+        return nextRecentFiles;
+      });
+      if (workspace) await handleRefreshWorkspace(false);
+      setNotice({ tone: "info", message: `已删除 ${file.name}。` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRevealWorkspaceFile(file: WorkspaceFile) {
+    try {
+      await invokeCommand<void>("reveal_in_finder", { path: file.path });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
     }
   }
 
@@ -1154,7 +1290,15 @@ export default function App() {
     setNameDialog(null);
     if (!current) return;
     if (current.kind === "new") void createNamedMarkdown(value);
-    if (current.kind === "rename") void renameCurrentFile(value);
+    if (current.kind === "rename") {
+      const target = renameTargetRef.current;
+      if (target.kind === "workspace-file") {
+        void renameWorkspaceFile(target.path, value);
+      } else {
+        void renameCurrentFile(value);
+      }
+      renameTargetRef.current = { kind: "current" };
+    }
     if (current.kind === "wiki") void createWikiPage(value);
     if (current.kind === "git") void commitGitWithMessage(value);
   }
@@ -2824,6 +2968,9 @@ export default function App() {
           }}
           onWorkspaceSearch={() => void handleWorkspaceSearch()}
           onOpenWorkspaceFile={(file) => void handleOpenWorkspaceFile(file)}
+          onRenameWorkspaceFile={handleRenameWorkspaceFile}
+          onDeleteWorkspaceFile={(file) => void handleDeleteWorkspaceFile(file)}
+          onRevealWorkspaceFile={(file) => void handleRevealWorkspaceFile(file)}
           onOpenSearchMatch={(match) => void handleOpenSearchMatch(match)}
           onRefreshHistorySnapshots={() => void handleLoadHistorySnapshots()}
           onOpenHistorySnapshot={(snapshot) => void handleOpenHistorySnapshot(snapshot)}
@@ -3052,8 +3199,18 @@ export default function App() {
           >
             知识
           </button>
+          <button
+            type="button"
+            className={inspectorTab === "outline" ? "active" : ""}
+            onClick={() => setInspectorTab("outline")}
+            disabled={!hasOpenTab}
+          >
+            大纲
+          </button>
         </div>
-        {inspectorTab === "knowledge" ? (
+        {inspectorTab === "outline" ? (
+          <DocumentOutline headings={documentHeadings} busy={busy} onOpenHeading={handleOpenHeading} />
+        ) : inspectorTab === "knowledge" ? (
           <KnowledgePanel
             knowledge={documentKnowledge}
             lint={knowledgeLint}

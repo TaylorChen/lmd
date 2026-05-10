@@ -827,6 +827,40 @@ fn rename_markdown_file(
 }
 
 #[tauri::command]
+fn delete_markdown_file(state: tauri::State<'_, AppState>, path: String) -> Result<(), String> {
+    document::delete_markdown_file(&state.documents, &PathBuf::from(path))
+}
+
+#[tauri::command]
+fn reveal_in_finder(path: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .status()
+            .map_err(|error| format!("Could not reveal {}: {error}", path.display()))?;
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let target = path.parent().unwrap_or(&path);
+        let command = if cfg!(target_os = "windows") {
+            "explorer"
+        } else {
+            "xdg-open"
+        };
+        std::process::Command::new(command)
+            .arg(target)
+            .status()
+            .map_err(|error| format!("Could not open {}: {error}", target.display()))?;
+        Ok(())
+    }
+}
+
+#[tauri::command]
 fn import_attachment(
     root_path: Option<String>,
     current_path: Option<String>,
@@ -964,6 +998,7 @@ pub fn run() {
             assistant_catalog,
             create_markdown_file,
             delete_assistant_api_key,
+            delete_markdown_file,
             file_metadata,
             import_attachment,
             list_history_snapshots,
@@ -981,6 +1016,7 @@ pub fn run() {
             refresh_workspace,
             rename_markdown_file,
             rename_workspace_tag,
+            reveal_in_finder,
             save_wiki_draft,
             search_workspace,
             save_assistant_api_key,

@@ -53,6 +53,14 @@ export type WorkspaceFile = {
   byteSize: number;
 };
 
+export type DocumentHeading = {
+  id: string;
+  level: number;
+  title: string;
+  lineNumber: number;
+  offset: number;
+};
+
 export type LibrarySection = "inbox" | "all-notes" | "notes" | "sources" | "wiki" | "recent";
 
 export type Workspace = {
