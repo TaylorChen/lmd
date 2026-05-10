@@ -990,6 +990,18 @@ test("collapses and restores the note library", async ({ page }) => {
   await expect(page.getByRole("complementary", { name: "工作区笔记" })).toBeVisible();
 });
 
+test("collapses and restores the inspector panel", async ({ page }) => {
+  await expect(page.getByRole("complementary", { name: "检查器" })).toBeVisible();
+
+  await page.getByRole("button", { name: "隐藏检查器" }).click();
+  await expect(page.locator(".app-shell")).toHaveClass(/right-closed/);
+  await expect(page.getByRole("button", { name: "显示检查器" })).toBeVisible();
+
+  await page.getByRole("button", { name: "显示检查器" }).click();
+  await expect(page.locator(".app-shell")).toHaveClass(/right-open/);
+  await expect(page.getByRole("complementary", { name: "检查器" })).toBeVisible();
+});
+
 test("initializes a knowledge workspace", async ({ page }) => {
   await page.getByRole("button", { name: "打开工作区" }).click();
   await expect(page.locator(".workspace-mode").filter({ hasText: "本地" })).toBeVisible();

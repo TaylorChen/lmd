@@ -3713,6 +3713,15 @@ export default function App() {
       >
         &gt;
       </button>
+      <button
+        type="button"
+        className="floating-panel-toggle right-panel-restore"
+        onClick={() => setRightPanelOpen(true)}
+        aria-label="显示检查器"
+        title="显示检查器"
+      >
+        &lt;
+      </button>
 
       <div className="left-workspace" aria-hidden={!leftPanelOpen}>
         <LibraryRail
@@ -3965,29 +3974,40 @@ export default function App() {
       </section>
 
       <aside className="right-companion inspector-rail" aria-label="检查器" aria-hidden={!rightPanelOpen}>
-        <div className="companion-tabs mode-switch" aria-label="检查器标签">
+        <div className="inspector-header">
+          <div className="companion-tabs mode-switch" aria-label="检查器标签">
+            <button
+              type="button"
+              className={inspectorTab === "assistant" ? "active" : ""}
+              onClick={() => setInspectorTab("assistant")}
+            >
+              AI 助手
+            </button>
+            <button
+              type="button"
+              className={inspectorTab === "knowledge" ? "active" : ""}
+              onClick={() => setInspectorTab("knowledge")}
+              disabled={!workspace?.knowledge.isInitialized || !path}
+            >
+              知识
+            </button>
+            <button
+              type="button"
+              className={inspectorTab === "outline" ? "active" : ""}
+              onClick={() => setInspectorTab("outline")}
+              disabled={!hasOpenTab}
+            >
+              大纲
+            </button>
+          </div>
           <button
             type="button"
-            className={inspectorTab === "assistant" ? "active" : ""}
-            onClick={() => setInspectorTab("assistant")}
+            className="panel-toggle inspector-panel-toggle"
+            onClick={() => setRightPanelOpen(false)}
+            aria-label="隐藏检查器"
+            title="隐藏检查器"
           >
-            AI 助手
-          </button>
-          <button
-            type="button"
-            className={inspectorTab === "knowledge" ? "active" : ""}
-            onClick={() => setInspectorTab("knowledge")}
-            disabled={!workspace?.knowledge.isInitialized || !path}
-          >
-            知识
-          </button>
-          <button
-            type="button"
-            className={inspectorTab === "outline" ? "active" : ""}
-            onClick={() => setInspectorTab("outline")}
-            disabled={!hasOpenTab}
-          >
-            大纲
+            ◨
           </button>
         </div>
         {inspectorTab === "outline" ? (
