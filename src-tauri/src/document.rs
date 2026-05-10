@@ -477,6 +477,17 @@ pub(crate) fn create_markdown_file(
     save_markdown_file(cache, &target_path, content, Some(root))
 }
 
+pub(crate) fn create_folder(root: &Path, directory: &str) -> Result<String, String> {
+    let safe_directory = directory.trim().trim_matches('/');
+    if safe_directory.is_empty() || safe_directory.contains("..") || safe_directory.contains('\\') {
+        return Err("目标目录无效。".to_string());
+    }
+    let target_path = ensure_inside_root(root, &root.join(safe_directory))?;
+    fs::create_dir_all(&target_path)
+        .map_err(|error| format!("Could not create {}: {error}", target_path.display()))?;
+    Ok(target_path.to_string_lossy().to_string())
+}
+
 pub(crate) fn rename_markdown_file(
     cache: &DocumentCache,
     path: &Path,
@@ -515,13 +526,80 @@ pub(crate) fn delete_markdown_file(cache: &DocumentCache, path: &Path) -> Result
     if !is_markdown_extension(path) {
         return Err("只能删除 Markdown 文件。".to_string());
     }
-    fs::remove_file(path).map_err(|error| format!("Could not delete {}: {error}", path.display()))?;
+    fs::remove_file(path)
+        .map_err(|error| format!("Could not delete {}: {error}", path.display()))?;
     cache
         .indexed_files
         .lock()
         .map_err(|_| "Could not lock file index cache".to_string())?
         .remove(&path.to_string_lossy().to_string());
     Ok(())
+}
+
+pub(crate) fn delete_folder(root: &Path, directory: &str) -> Result<(), String> {
+    let safe_directory = directory.trim().trim_matches('/');
+    if safe_directory.is_empty() || safe_directory.contains("..") || safe_directory.contains('\\') {
+        return Err("目标目录无效。".to_string());
+    }
+    let target_path = ensure_inside_root(root, &root.join(safe_directory))?;
+    if !target_path.is_dir() {
+        return Err(format!("{} is not a folder", target_path.display()));
+    }
+    fs::remove_dir(&target_path)
+        .map_err(|error| format!("只能删除空文件夹 {}: {error}", target_path.display()))?;
+    Ok(())
+}
+
+pub(crate) fn move_markdown_file(
+    cache: &DocumentCache,
+    root: &Path,
+    path: &Path,
+    target_directory: &str,
+) -> Result<SaveResult, String> {
+    if !path.is_file() {
+        return Err(format!("{} is not a file", path.display()));
+    }
+    if !is_markdown_extension(path) {
+        return Err("只能移动 Markdown 文件。".to_string());
+    }
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|error| format!("Could not resolve {}: {error}", root.display()))?;
+    let source_path = path
+        .canonicalize()
+        .map_err(|error| format!("Could not resolve {}: {error}", path.display()))?;
+    if !source_path.starts_with(&canonical_root) {
+        return Err("只能移动当前工作区内的 Markdown 文件。".to_string());
+    }
+    let safe_directory = target_directory.trim().trim_matches('/');
+    if safe_directory.contains("..") || safe_directory.contains('\\') {
+        return Err("目标目录无效。".to_string());
+    }
+    let target_dir = if safe_directory.is_empty() {
+        root.to_path_buf()
+    } else {
+        root.join(safe_directory)
+    };
+    fs::create_dir_all(&target_dir)
+        .map_err(|error| format!("Could not create {}: {error}", target_dir.display()))?;
+    let file_name = source_path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| "无法解析文件名。".to_string())?;
+    let target_path = ensure_inside_root(root, &target_dir.join(file_name))?;
+    if target_path != source_path && target_path.exists() {
+        return Err(format!("{} already exists", target_path.display()));
+    }
+    fs::rename(&source_path, &target_path)
+        .map_err(|error| format!("Could not move {}: {error}", source_path.display()))?;
+    cache
+        .indexed_files
+        .lock()
+        .map_err(|_| "Could not lock file index cache".to_string())?
+        .remove(&source_path.to_string_lossy().to_string());
+    let content = fs::read_to_string(&target_path)
+        .map_err(|error| format!("Could not read {}: {error}", target_path.display()))?;
+    save_markdown_file(cache, &target_path, &content, Some(root))
 }
 
 fn unique_target_path(directory: &Path, file_name: &str) -> PathBuf {
@@ -611,6 +689,64 @@ pub(crate) fn import_attachment(
     let target_path = unique_target_path(&attachment_dir, original_name);
     fs::copy(source_path, &target_path)
         .map_err(|error| format!("Could not copy {}: {error}", source_path.display()))?;
+
+    let current_dir = current_path.and_then(Path::parent).unwrap_or(&base_root);
+    let link_target = relative_path(current_dir, &target_path);
+    let extension = target_path
+        .extension()
+        .and_then(OsStr::to_str)
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+    let is_image = matches!(
+        extension.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg"
+    );
+    let label = target_path
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .unwrap_or("attachment");
+    let markdown = if is_image {
+        format!("![{label}]({link_target})")
+    } else {
+        format!("[{label}]({link_target})")
+    };
+
+    Ok(AttachmentImportResult {
+        path: target_path.to_string_lossy().to_string(),
+        markdown,
+    })
+}
+
+pub(crate) fn import_attachment_bytes(
+    root: Option<&Path>,
+    current_path: Option<&Path>,
+    file_name: &str,
+    bytes: &[u8],
+) -> Result<AttachmentImportResult, String> {
+    if bytes.is_empty() {
+        return Err("附件内容为空。".to_string());
+    }
+    let base_root = if let Some(root) = root {
+        root.to_path_buf()
+    } else if let Some(current_path) = current_path.and_then(Path::parent) {
+        current_path.to_path_buf()
+    } else {
+        return Err("请先打开工作区或保存当前文档。".to_string());
+    };
+    let attachment_dir = base_root.join("attachments");
+    fs::create_dir_all(&attachment_dir)
+        .map_err(|error| format!("Could not create {}: {error}", attachment_dir.display()))?;
+    let safe_name = file_name
+        .trim()
+        .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
+    let safe_name = if safe_name.is_empty() {
+        "pasted-image.png".to_string()
+    } else {
+        safe_name
+    };
+    let target_path = unique_target_path(&attachment_dir, &safe_name);
+    fs::write(&target_path, bytes)
+        .map_err(|error| format!("Could not write {}: {error}", target_path.display()))?;
 
     let current_dir = current_path.and_then(Path::parent).unwrap_or(&base_root);
     let link_target = relative_path(current_dir, &target_path);

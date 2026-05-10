@@ -670,6 +670,43 @@ fn assistant_catalog() -> assistant::AssistantCatalog {
 }
 
 #[tauri::command]
+async fn test_assistant_connection(
+    provider: Option<String>,
+    model: Option<String>,
+    api_key: Option<String>,
+    base_url: Option<String>,
+    external_command: Option<String>,
+    external_timeout_seconds: Option<u64>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let context = workspace::QueryContext {
+            current_path: "connection-test.md".to_string(),
+            current_relative_path: "connection-test.md".to_string(),
+            items: Vec::new(),
+        };
+        let request = assistant::AssistantRequest {
+            provider: provider.as_deref().unwrap_or(assistant::DEFAULT_PROVIDER),
+            model: model.as_deref().unwrap_or(assistant::DEFAULT_MODEL),
+            context: &context,
+            current_content: Some("# Connection Test\n\n请回复 OK。"),
+            task: Some("summarize"),
+            prompt: Some("请只回复 OK，用于测试 LMD AI 配置是否可用。"),
+            api_key: api_key.as_deref(),
+            base_url: base_url.as_deref(),
+            external_command: external_command.as_deref(),
+            external_timeout_seconds: Some(external_timeout_seconds.unwrap_or(30).min(60)),
+        };
+        let draft = assistant::summarize_query_context(request)?;
+        if draft.content.trim().is_empty() {
+            return Err("AI 返回为空。".to_string());
+        }
+        Ok("AI 连接测试成功。".to_string())
+    })
+    .await
+    .map_err(|error| format!("Assistant connection test failed: {error}"))?
+}
+
+#[tauri::command]
 fn save_wiki_draft(root_path: String, title: String, content: String) -> Result<String, String> {
     workspace::save_wiki_draft(&PathBuf::from(root_path), &title, &content)
 }
@@ -737,6 +774,11 @@ fn create_markdown_file(
         &name,
         &content,
     )
+}
+
+#[tauri::command]
+fn create_folder(root_path: String, directory: String) -> Result<String, String> {
+    document::create_folder(&PathBuf::from(root_path), &directory)
 }
 
 fn normalized_daily_date(input: &str) -> String {
@@ -832,6 +874,26 @@ fn delete_markdown_file(state: tauri::State<'_, AppState>, path: String) -> Resu
 }
 
 #[tauri::command]
+fn delete_folder(root_path: String, directory: String) -> Result<(), String> {
+    document::delete_folder(&PathBuf::from(root_path), &directory)
+}
+
+#[tauri::command]
+fn move_markdown_file(
+    state: tauri::State<'_, AppState>,
+    root_path: String,
+    path: String,
+    target_directory: String,
+) -> Result<document::SaveResult, String> {
+    document::move_markdown_file(
+        &state.documents,
+        &PathBuf::from(root_path),
+        &PathBuf::from(path),
+        &target_directory,
+    )
+}
+
+#[tauri::command]
 fn reveal_in_finder(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
     #[cfg(target_os = "macos")]
@@ -871,6 +933,26 @@ fn import_attachment(
     let root = root_path.as_deref().map(PathBuf::from);
     let current = current_path.as_deref().map(PathBuf::from);
     document::import_attachment(root.as_deref(), current.as_deref(), &source_path).map(Some)
+}
+
+#[tauri::command]
+fn import_pasted_attachment(
+    root_path: Option<String>,
+    current_path: Option<String>,
+    file_name: String,
+    bytes: Vec<u8>,
+) -> Result<document::AttachmentImportResult, String> {
+    let root = root_path.as_deref().map(PathBuf::from);
+    let current = current_path.as_deref().map(PathBuf::from);
+    document::import_attachment_bytes(root.as_deref(), current.as_deref(), &file_name, &bytes)
+}
+
+#[tauri::command]
+fn open_history_snapshot(
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<document::MarkdownDocument, String> {
+    document::open_markdown_path(&state.documents, &PathBuf::from(path))
 }
 
 #[tauri::command]
@@ -997,16 +1079,21 @@ pub fn run() {
             git_workspace_status,
             assistant_catalog,
             create_markdown_file,
+            create_folder,
             delete_assistant_api_key,
+            delete_folder,
             delete_markdown_file,
             file_metadata,
             import_attachment,
+            import_pasted_attachment,
             list_history_snapshots,
             load_assistant_api_key,
             load_markdown_range,
             initialize_knowledge_index,
             initialize_knowledge_workspace,
             knowledge_lint_report,
+            move_markdown_file,
+            open_history_snapshot,
             open_markdown_file,
             open_markdown_path,
             open_daily_note,
@@ -1022,6 +1109,7 @@ pub fn run() {
             save_assistant_api_key,
             summarize_editor_context,
             summarize_query_context,
+            test_assistant_connection,
             update_native_menu_state,
             save_markdown_file
         ])

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type MouseEvent } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { foldAll, foldCode, unfoldAll, unfoldCode } from "@codemirror/language";
 import { EditorSelection } from "@codemirror/state";
@@ -94,6 +94,10 @@ type TabContextMenuState = {
 type RenameTarget =
   | { kind: "current" }
   | { kind: "workspace-file"; path: string; name: string };
+
+type DirectoryTarget = {
+  directory: string;
+};
 
 const defaultAssistantCatalog: AssistantCatalog = {
   defaultProvider: "deepseek",
@@ -424,6 +428,16 @@ function extractBlockByAnchor(content: string, anchor: string | null | undefined
     .trim();
 }
 
+function lineOffset(content: string, lineNumber: number) {
+  const targetLine = Math.max(1, lineNumber);
+  let currentLine = 1;
+  for (let index = 0; index < content.length; index += 1) {
+    if (currentLine === targetLine) return index;
+    if (content[index] === "\n") currentLine += 1;
+  }
+  return content.length;
+}
+
 function formatAssistantChatArchive(messages: AssistantMessage[]) {
   const body = messages
     .map((message) => {
@@ -441,6 +455,8 @@ export default function App() {
   const appMenuActionRef = useRef<(action: string) => void>(() => {});
   const initialTabRef = useRef<DocumentTab | null>(null);
   const renameTargetRef = useRef<RenameTarget>({ kind: "current" });
+  const directoryTargetRef = useRef<DirectoryTarget>({ directory: "" });
+  const moveTargetRef = useRef<WorkspaceFile | null>(null);
   if (!initialTabRef.current) {
     initialTabRef.current = createUntitledTab();
   }
@@ -489,7 +505,9 @@ export default function App() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
   const [tabContextMenu, setTabContextMenu] = useState<TabContextMenuState | null>(null);
-  const [nameDialog, setNameDialog] = useState<(NameDialogState & { kind: "new" | "rename" | "wiki" | "git" }) | null>(null);
+  const [nameDialog, setNameDialog] = useState<
+    (NameDialogState & { kind: "new" | "rename" | "wiki" | "git" | "folder" | "new-in-folder" | "move" }) | null
+  >(null);
   const [tagRenameOpen, setTagRenameOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [assistantBusy, setAssistantBusy] = useState(false);
@@ -987,6 +1005,11 @@ export default function App() {
     }, 80);
   }
 
+  function scrollToEditorLine(lineNumber: number, nextContent = content) {
+    const offset = lineOffset(nextContent, lineNumber);
+    scrollToEditorOffset(offset);
+  }
+
   function handleOpenHeading(heading: DocumentHeading) {
     scrollToEditorOffset(heading.offset);
   }
@@ -1031,6 +1054,11 @@ export default function App() {
   async function createNamedMarkdown(name: string) {
     if (!workspace) return;
     const directory = workspace.knowledge.isInitialized ? "notes" : "";
+    await createMarkdownInDirectory(directory, name);
+  }
+
+  async function createMarkdownInDirectory(directory: string, name: string) {
+    if (!workspace) return;
     const title = name.replace(/\.(md|markdown|mdown)$/i, "");
     const initialContent = `# ${title}\n\n`;
     setBusy(true);
@@ -1051,6 +1079,116 @@ export default function App() {
       setNotice({ tone: "error", message: String(error) });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function createWorkspaceFolder(parentDirectory: string, name: string) {
+    if (!workspace) return;
+    const nextDirectory = [parentDirectory, name].filter(Boolean).join("/");
+    setBusy(true);
+    setNotice(null);
+    try {
+      await invokeCommand<string>("create_folder", {
+        rootPath: workspace.rootPath,
+        directory: nextDirectory,
+      });
+      await handleRefreshWorkspace(false);
+      setNotice({ tone: "info", message: `已创建文件夹 ${nextDirectory}。` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleCreateMarkdownInFolder(directory: string) {
+    directoryTargetRef.current = { directory };
+    setNameDialog({
+      kind: "new-in-folder",
+      title: "新建 Markdown",
+      label: "文件名",
+      defaultValue: "未命名.md",
+      confirmLabel: "创建",
+    });
+  }
+
+  function handleCreateFolder(directory: string) {
+    directoryTargetRef.current = { directory };
+    setNameDialog({
+      kind: "folder",
+      title: "新建文件夹",
+      label: "文件夹名称",
+      defaultValue: "新文件夹",
+      confirmLabel: "创建",
+    });
+  }
+
+  async function handleDeleteFolder(directory: string) {
+    if (!workspace) return;
+    if (!directory.trim()) return;
+    if (!window.confirm(`删除空文件夹 ${directory}？`)) return;
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      await invokeCommand<void>("delete_folder", {
+        rootPath: workspace.rootPath,
+        directory,
+      });
+      await handleRefreshWorkspace(false);
+      setNotice({ tone: "info", message: `已删除文件夹 ${directory}。` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleMoveWorkspaceFile(file: WorkspaceFile) {
+    const activeTab = tabs.find((tab) => tab.path === file.path);
+    if (activeTab && !activeTab.readOnly && activeTab.content !== activeTab.savedContent) {
+      setNotice({ tone: "error", message: "该文件有未保存更改，请先保存后再移动。" });
+      return;
+    }
+    moveTargetRef.current = file;
+    setNameDialog({
+      kind: "move",
+      title: "移动 Markdown",
+      label: "目标目录",
+      defaultValue: file.relativePath.split("/").slice(0, -1).join("/"),
+      confirmLabel: "移动",
+    });
+  }
+
+  async function moveWorkspaceFile(file: WorkspaceFile, targetDirectory: string) {
+    if (!workspace) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await invokeCommand<SaveResult>("move_markdown_file", {
+        rootPath: workspace.rootPath,
+        path: file.path,
+        targetDirectory,
+      });
+      const document = await invokeCommand<MarkdownDocument>("open_markdown_path", { path: result.path });
+      const existingTab = tabs.find((tab) => tab.path === file.path);
+      const nextTab = { ...tabFromDocument(document), id: existingTab?.id ?? document.path };
+      setTabs((currentTabs) => {
+        const remainingTabs = currentTabs.filter(
+          (tab) => tab.path !== file.path && tab.path !== document.path,
+        );
+        return [...remainingTabs, nextTab];
+      });
+      setActiveTabId(nextTab.id);
+      applyTab(nextTab);
+      rememberDocument(document.path);
+      await handleRefreshWorkspace(false);
+      setNotice({ tone: "info", message: `已移动到 ${fileName(result.path)}。` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+      moveTargetRef.current = null;
     }
   }
 
@@ -1208,6 +1346,38 @@ export default function App() {
     }
   }
 
+  function pastedFileName(file: File) {
+    if (file.name) return file.name;
+    if (file.type === "image/jpeg") return `pasted-${Date.now()}.jpg`;
+    if (file.type === "image/gif") return `pasted-${Date.now()}.gif`;
+    if (file.type === "image/webp") return `pasted-${Date.now()}.webp`;
+    return `pasted-${Date.now()}.png`;
+  }
+
+  async function handlePaste(event: ClipboardEvent<HTMLElement>) {
+    if (readOnly) return;
+    const imageFile = Array.from(event.clipboardData.files).find((file) => file.type.startsWith("image/"));
+    if (!imageFile) return;
+    event.preventDefault();
+    setBusy(true);
+    setNotice(null);
+    try {
+      const bytes = Array.from(new Uint8Array(await imageFile.arrayBuffer()));
+      const result = await invokeCommand<AttachmentImportResult>("import_pasted_attachment", {
+        rootPath: workspace?.rootPath,
+        currentPath: path,
+        fileName: pastedFileName(imageFile),
+        bytes,
+      });
+      insertTextAtCursor(result.markdown, `已插入粘贴图片 ${fileName(result.path)}。`);
+      if (workspace) void handleRefreshWorkspace(false);
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleCreateWikiPage() {
     if (!workspace) {
       setNotice({ tone: "error", message: "请先打开工作区。" });
@@ -1301,6 +1471,9 @@ export default function App() {
     }
     if (current.kind === "wiki") void createWikiPage(value);
     if (current.kind === "git") void commitGitWithMessage(value);
+    if (current.kind === "folder") void createWorkspaceFolder(directoryTargetRef.current.directory, value);
+    if (current.kind === "new-in-folder") void createMarkdownInDirectory(directoryTargetRef.current.directory, value);
+    if (current.kind === "move" && moveTargetRef.current) void moveWorkspaceFile(moveTargetRef.current, value);
   }
 
   async function handleOpen() {
@@ -1600,11 +1773,90 @@ export default function App() {
   }
 
   async function handleOpenSearchMatch(match: SearchMatch) {
-    await openPath(match.path, `${match.relativePath}:${match.lineNumber}`);
+    const nextSearch = workspaceQuery.trim() || match.lineText.trim();
+    if (match.path === path) {
+      if (nextSearch) {
+        setSearch(nextSearch);
+        setSearchOpen(true);
+      }
+      scrollToEditorLine(match.lineNumber);
+      return;
+    }
+
+    const existingTab = tabs.find((tab) => tab.path === match.path);
+    if (existingTab) {
+      const nextTab = { ...existingTab, search: nextSearch };
+      setTabs((currentTabs) => currentTabs.map((tab) => (tab.id === nextTab.id ? nextTab : tab)));
+      setActiveTabId(nextTab.id);
+      applyTab(nextTab);
+      if (nextSearch) setSearchOpen(true);
+      scrollToEditorLine(match.lineNumber, nextTab.content);
+      return;
+    }
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const document = await invokeCommand<MarkdownDocument>("open_markdown_path", { path: match.path });
+      const nextTab = { ...tabFromDocument(document), search: nextSearch };
+      openTab(nextTab);
+      rememberDocument(document.path);
+      if (nextSearch) setSearchOpen(true);
+      scrollToEditorLine(match.lineNumber, document.content);
+      setNotice({ tone: "info", message: `已打开 ${match.relativePath}:${match.lineNumber}。` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleOpenHistorySnapshot(snapshot: HistorySnapshot) {
-    await openPath(snapshot.path, `快照 ${snapshot.name}`);
+    setBusy(true);
+    setNotice(null);
+    try {
+      const document = await invokeCommand<MarkdownDocument>("open_history_snapshot", {
+        path: snapshot.path,
+      });
+      applyDocument(document);
+      setNotice({ tone: "info", message: `已打开快照 ${snapshot.name}。` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRestoreHistorySnapshot(snapshot: HistorySnapshot) {
+    if (!path) {
+      setNotice({ tone: "error", message: "请先打开要恢复的 Markdown 文件。" });
+      return;
+    }
+    if (!window.confirm(`用快照 ${snapshot.name} 覆盖当前文件？当前内容会先进入历史快照。`)) return;
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const snapshotDocument = await invokeCommand<MarkdownDocument>("open_history_snapshot", {
+        path: snapshot.path,
+      });
+      const result = await invokeCommand<SaveResult | null>("save_markdown_file", {
+        path,
+        rootPath: workspace?.rootPath,
+        content: snapshotDocument.content,
+      });
+      if (!result) return;
+      const restoredDocument = await invokeCommand<MarkdownDocument>("open_markdown_path", { path });
+      replaceActiveTabWithDocument(restoredDocument);
+      setExternalChange(null);
+      if (workspace) await handleRefreshWorkspace(false);
+      await handleLoadHistorySnapshots(false);
+      setNotice({ tone: "info", message: `已恢复快照 ${snapshot.name}。` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleWorkspaceSearch() {
@@ -1767,6 +2019,42 @@ export default function App() {
       externalCommand: settings.assistantExternalCommand,
       externalTimeoutSeconds: settings.assistantExternalTimeoutSeconds,
     };
+  }
+
+  async function handleTestAssistantConnection() {
+    const providerConfig = assistantProviderConfig(settings.assistantProvider);
+    setBusy(true);
+    setNotice(null);
+    appendAssistantEvent({
+      label: "正在测试 AI 连接",
+      detail: `${settings.assistantProvider} / ${settings.assistantModel}`,
+      tone: "info",
+    });
+    try {
+      const message = await invokeCommand<string>("test_assistant_connection", {
+        provider: settings.assistantProvider,
+        model: settings.assistantModel,
+        apiKey: providerConfig.apiKey,
+        baseUrl: providerConfig.baseUrl,
+        externalCommand: providerConfig.externalCommand,
+        externalTimeoutSeconds: providerConfig.externalTimeoutSeconds,
+      });
+      appendAssistantEvent({
+        label: "AI 连接测试成功",
+        detail: settings.assistantModel,
+        tone: "info",
+      });
+      setNotice({ tone: "info", message });
+    } catch (error) {
+      appendAssistantEvent({
+        label: "AI 连接测试失败",
+        detail: String(error),
+        tone: "error",
+      });
+      setNotice({ tone: "error", message: `AI 连接测试失败：${String(error)}` });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function runAssistantCommand(args: Record<string, unknown>) {
@@ -2968,21 +3256,27 @@ export default function App() {
           }}
           onWorkspaceSearch={() => void handleWorkspaceSearch()}
           onOpenWorkspaceFile={(file) => void handleOpenWorkspaceFile(file)}
+          onCreateMarkdownInFolder={handleCreateMarkdownInFolder}
+          onCreateFolder={handleCreateFolder}
+          onDeleteFolder={(directory) => void handleDeleteFolder(directory)}
+          onMoveWorkspaceFile={handleMoveWorkspaceFile}
           onRenameWorkspaceFile={handleRenameWorkspaceFile}
           onDeleteWorkspaceFile={(file) => void handleDeleteWorkspaceFile(file)}
           onRevealWorkspaceFile={(file) => void handleRevealWorkspaceFile(file)}
           onOpenSearchMatch={(match) => void handleOpenSearchMatch(match)}
           onRefreshHistorySnapshots={() => void handleLoadHistorySnapshots()}
           onOpenHistorySnapshot={(snapshot) => void handleOpenHistorySnapshot(snapshot)}
+          onRestoreHistorySnapshot={(snapshot) => void handleRestoreHistorySnapshot(snapshot)}
           onRefreshGitStatus={() => void handleRefreshGitStatus()}
           onGitCommit={() => void handleGitCommit()}
           onOpenRecentFile={(recentPath, name) => void openPath(recentPath, name)}
           onRemoveRecentFile={handleRemoveRecentFile}
           onSettingsChange={handleSettingsChange}
+          onTestAssistantConnection={() => void handleTestAssistantConnection()}
         />
       </div>
 
-      <section className="editor-pane">
+      <section className="editor-pane" onPaste={handlePaste}>
         {tabs.length > 0 && (
           <div className="document-tabs" role="tablist" aria-label="打开的笔记">
             {tabs.map((tab) => {

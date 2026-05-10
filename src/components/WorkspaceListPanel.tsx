@@ -33,17 +33,23 @@ type WorkspaceListPanelProps = {
   onWorkspaceQueryChange: (query: string) => void;
   onWorkspaceSearch: () => void;
   onOpenWorkspaceFile: (file: WorkspaceFile) => void;
+  onCreateMarkdownInFolder: (directory: string) => void;
+  onCreateFolder: (directory: string) => void;
+  onDeleteFolder: (directory: string) => void;
+  onMoveWorkspaceFile: (file: WorkspaceFile) => void;
   onRenameWorkspaceFile: (file: WorkspaceFile) => void;
   onDeleteWorkspaceFile: (file: WorkspaceFile) => void;
   onRevealWorkspaceFile: (file: WorkspaceFile) => void;
   onOpenSearchMatch: (match: SearchMatch) => void;
   onRefreshHistorySnapshots: () => void;
   onOpenHistorySnapshot: (snapshot: HistorySnapshot) => void;
+  onRestoreHistorySnapshot: (snapshot: HistorySnapshot) => void;
   onRefreshGitStatus: () => void;
   onGitCommit: () => void;
   onOpenRecentFile: (path: string, name: string) => void;
   onRemoveRecentFile: (path: string) => void;
   onSettingsChange: (settings: AppSettings) => void;
+  onTestAssistantConnection: () => void;
 };
 
 type FileTreeNode = {
@@ -56,6 +62,12 @@ type FileTreeNode = {
 
 type FileContextMenuState = {
   file: WorkspaceFile;
+  x: number;
+  y: number;
+};
+
+type FolderContextMenuState = {
+  node: FileTreeNode;
   x: number;
   y: number;
 };
@@ -137,20 +149,27 @@ export function WorkspaceListPanel({
   onWorkspaceQueryChange,
   onWorkspaceSearch,
   onOpenWorkspaceFile,
+  onCreateMarkdownInFolder,
+  onCreateFolder,
+  onDeleteFolder,
+  onMoveWorkspaceFile,
   onRenameWorkspaceFile,
   onDeleteWorkspaceFile,
   onRevealWorkspaceFile,
   onOpenSearchMatch,
   onRefreshHistorySnapshots,
   onOpenHistorySnapshot,
+  onRestoreHistorySnapshot,
   onRefreshGitStatus,
   onGitCommit,
   onOpenRecentFile,
   onRemoveRecentFile,
   onSettingsChange,
+  onTestAssistantConnection,
 }: WorkspaceListPanelProps) {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(["notes", "sources", "wiki", "wiki/inbox"]));
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState | null>(null);
+  const [folderContextMenu, setFolderContextMenu] = useState<FolderContextMenuState | null>(null);
 
   function updateSetting(nextSettings: Partial<AppSettings>) {
     onSettingsChange({ ...settings, ...nextSettings });
@@ -174,9 +193,10 @@ export function WorkspaceListPanel({
   }, [workspaceFiles]);
 
   useEffect(() => {
-    if (!fileContextMenu) return;
+    if (!fileContextMenu && !folderContextMenu) return;
     function closeContextMenu() {
       setFileContextMenu(null);
+      setFolderContextMenu(null);
     }
     window.addEventListener("click", closeContextMenu);
     window.addEventListener("keydown", closeContextMenu);
@@ -186,7 +206,7 @@ export function WorkspaceListPanel({
       window.removeEventListener("keydown", closeContextMenu);
       window.removeEventListener("resize", closeContextMenu);
     };
-  }, [fileContextMenu]);
+  }, [fileContextMenu, folderContextMenu]);
 
   function toggleFolder(folderPath: string) {
     setExpandedFolders((current) => {
@@ -200,7 +220,15 @@ export function WorkspaceListPanel({
   function handleFileContextMenu(event: MouseEvent, file: WorkspaceFile) {
     event.preventDefault();
     event.stopPropagation();
+    setFolderContextMenu(null);
     setFileContextMenu({ file, x: event.clientX, y: event.clientY });
+  }
+
+  function handleFolderContextMenu(event: MouseEvent, node: FileTreeNode) {
+    event.preventDefault();
+    event.stopPropagation();
+    setFileContextMenu(null);
+    setFolderContextMenu({ node, x: event.clientX, y: event.clientY });
   }
 
   function renderTreeNode(node: FileTreeNode, depth = 0) {
@@ -212,6 +240,7 @@ export function WorkspaceListPanel({
             type="button"
             className="file-tree-folder"
             onClick={() => toggleFolder(node.path)}
+            onContextMenu={(event) => handleFolderContextMenu(event, node)}
             aria-expanded={expanded}
             style={{ paddingLeft: `${depth * 12 + 8}px` }}
           >
@@ -413,6 +442,17 @@ export function WorkspaceListPanel({
                   type="button"
                   role="menuitem"
                   onClick={() => {
+                    onMoveWorkspaceFile(fileContextMenu.file);
+                    setFileContextMenu(null);
+                  }}
+                  disabled={busy}
+                >
+                  移动到目录
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
                     void navigator.clipboard?.writeText(fileContextMenu.file.relativePath);
                     setFileContextMenu(null);
                   }}
@@ -441,6 +481,50 @@ export function WorkspaceListPanel({
                   disabled={busy}
                 >
                   删除
+                </button>
+              </div>
+            )}
+            {folderContextMenu && (
+              <div
+                className="file-context-menu"
+                role="menu"
+                aria-label="文件夹菜单"
+                style={{ left: folderContextMenu.x, top: folderContextMenu.y }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onCreateMarkdownInFolder(folderContextMenu.node.path);
+                    setFolderContextMenu(null);
+                  }}
+                  disabled={busy}
+                >
+                  新建 Markdown
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onCreateFolder(folderContextMenu.node.path);
+                    setFolderContextMenu(null);
+                  }}
+                  disabled={busy}
+                >
+                  新建文件夹
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="danger"
+                  onClick={() => {
+                    onDeleteFolder(folderContextMenu.node.path);
+                    setFolderContextMenu(null);
+                  }}
+                  disabled={busy || folderContextMenu.node.children.length > 0}
+                >
+                  删除空文件夹
                 </button>
               </div>
             )}
@@ -506,16 +590,29 @@ export function WorkspaceListPanel({
           </button>
           {historySnapshots.length > 0 ? (
             historySnapshots.map((snapshot) => (
-              <button
-                type="button"
+              <div
                 key={snapshot.path}
-                className="recent-item"
-                onClick={() => onOpenHistorySnapshot(snapshot)}
-                disabled={busy}
-                title={snapshot.path}
+                className="history-snapshot-row"
               >
-                {snapshot.name}
-              </button>
+                <button
+                  type="button"
+                  className="recent-item"
+                  onClick={() => onOpenHistorySnapshot(snapshot)}
+                  disabled={busy}
+                  title={snapshot.path}
+                >
+                  {snapshot.name}
+                </button>
+                <button
+                  type="button"
+                  className="snapshot-restore-button"
+                  onClick={() => onRestoreHistorySnapshot(snapshot)}
+                  disabled={busy || !path}
+                  title="用该快照覆盖当前文件"
+                >
+                  恢复
+                </button>
+              </div>
             ))
           ) : (
             <p className="empty-workspace">暂无快照。</p>
@@ -784,6 +881,15 @@ export function WorkspaceListPanel({
               </div>
             </details>
           )}
+
+          <button
+            type="button"
+            className="knowledge-action-button"
+            onClick={onTestAssistantConnection}
+            disabled={busy}
+          >
+            测试 AI 连接
+          </button>
         </div>
       </details>
 

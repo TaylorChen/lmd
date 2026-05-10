@@ -527,6 +527,19 @@ button:disabled {
   color: var(--muted);
 }
 
+.history-snapshot-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.snapshot-restore-button {
+  height: 30px;
+  padding: 0 8px;
+  color: var(--muted);
+}
+
 .recent-remove-button,
 .recent-remove-icon {
   flex: none;

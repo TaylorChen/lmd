@@ -406,6 +406,15 @@ async function installTauriMock(page: Page) {
           };
         }
 
+        if (command === "create_folder") {
+          const directory = String(args?.directory ?? "notes/new-folder");
+          return `/workspace/${directory}`;
+        }
+
+        if (command === "delete_folder") {
+          return null;
+        }
+
         if (command === "rename_markdown_file") {
           const newName = String(args?.newName ?? "renamed.md");
           return {
@@ -413,6 +422,17 @@ async function installTauriMock(page: Page) {
             byteSize: 31,
             lineCount: 3,
             modifiedMs: 2300,
+          };
+        }
+
+        if (command === "move_markdown_file") {
+          const targetDirectory = String(args?.targetDirectory ?? "").replace(/^\/+|\/+$/g, "");
+          const name = String(args?.path ?? "/workspace/alpha.md").split("/").pop() ?? "alpha.md";
+          return {
+            path: `/workspace/${targetDirectory ? `${targetDirectory}/` : ""}${name}`,
+            byteSize: 31,
+            lineCount: 3,
+            modifiedMs: 2400,
           };
         }
 
@@ -425,6 +445,32 @@ async function installTauriMock(page: Page) {
             path: "/workspace/attachments/diagram.png",
             markdown: "![diagram](../attachments/diagram.png)",
           };
+        }
+
+        if (command === "import_pasted_attachment") {
+          return {
+            path: "/workspace/attachments/pasted.png",
+            markdown: "![pasted](../attachments/pasted.png)",
+          };
+        }
+
+        if (command === "open_history_snapshot") {
+          return {
+            path: String(args?.path ?? "/workspace/.lmd/history/alpha.md"),
+            name: "alpha.md",
+            content: "# Snapshot\n\nOld version",
+            byteSize: 22,
+            lineCount: 3,
+            modifiedMs: 900,
+            isLarge: false,
+            readOnly: false,
+            visibleStartLine: 1,
+            visibleLineCount: 3,
+          };
+        }
+
+        if (command === "test_assistant_connection") {
+          return "AI 连接测试成功。";
         }
 
         if (command === "export_markdown_html") {
@@ -616,6 +662,8 @@ test("persists settings across reload", async ({ page }) => {
   await page.getByRole("button", { name: "使用外部命令" }).click();
   await page.getByLabel("外部命令路径").fill("/tmp/lmd-assistant");
   await page.getByLabel("外部命令超时时间").selectOption("120");
+  await page.getByRole("button", { name: "测试 AI 连接" }).click();
+  await expect(page.getByText("AI 连接测试成功。")).toBeVisible();
 
   await page.reload();
 
@@ -723,6 +771,7 @@ test("opens workspace, searches, and opens a match", async ({ page }) => {
   await page.getByRole("button", { name: /needle match/ }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("tab", { name: "alpha.md" })).toBeVisible();
+  await expect(page.getByRole("search", { name: "文档查找" })).toBeVisible();
   await expect(page.locator(".cm-content")).toContainText("Opened from workspace.");
   await page.getByLabel("检查器标签").getByRole("button", { name: "大纲" }).click();
   await expect(page.getByLabel("文档大纲").getByRole("button", { name: /Alpha/ })).toBeVisible();
@@ -745,9 +794,60 @@ test("opens the workspace file context menu", async ({ page }) => {
   });
   await expect(page.getByRole("menu", { name: "文件菜单" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "重命名" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "移动到目录" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "在 Finder 中显示" })).toBeVisible();
   await page.getByRole("menuitem", { name: "打开" }).click();
   await expect(page.getByRole("tab", { name: "topic.md" })).toBeVisible();
+});
+
+test("manages folders and moves workspace files from context menus", async ({ page }) => {
+  await page.getByRole("button", { name: "工作区" }).click();
+
+  const folderItem = page.locator(".file-tree-folder").filter({ hasText: "notes" }).first();
+  await folderItem.dispatchEvent("contextmenu", {
+    button: 2,
+    bubbles: true,
+    cancelable: true,
+    clientX: 140,
+    clientY: 180,
+  });
+  await expect(page.getByRole("menu", { name: "文件夹菜单" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "新建文件夹" }).click();
+  await page.getByLabel("文件夹名称").fill("ideas");
+  await page.getByRole("dialog", { name: "新建文件夹" }).getByRole("button", { name: "创建" }).click();
+  await expect(page.getByText("已创建文件夹 notes/ideas。")).toBeVisible();
+
+  const fileItem = page.locator(".file-list .file-item").filter({ hasText: "alpha.md" }).first();
+  await fileItem.dispatchEvent("contextmenu", {
+    button: 2,
+    bubbles: true,
+    cancelable: true,
+    clientX: 160,
+    clientY: 220,
+  });
+  await page.getByRole("menuitem", { name: "移动到目录" }).click();
+  await expect(page.getByRole("dialog", { name: "移动 Markdown" })).toBeVisible();
+  await page.getByLabel("目标目录").fill("notes/ideas");
+  await page.getByRole("dialog", { name: "移动 Markdown" }).getByRole("button", { name: "移动" }).click();
+  await expect(page.getByText("已移动到 alpha.md。")).toBeVisible();
+
+  const calls = await page.evaluate(() => window.__LMD_TEST_CALLS__);
+  expect(calls).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        command: "create_folder",
+        args: expect.objectContaining({ rootPath: "/workspace", directory: "notes/ideas" }),
+      }),
+      expect.objectContaining({
+        command: "move_markdown_file",
+        args: expect.objectContaining({
+          rootPath: "/workspace",
+          path: "/workspace/alpha.md",
+          targetDirectory: "notes/ideas",
+        }),
+      }),
+    ]),
+  );
 });
 
 test("opens workspace files in closable document tabs", async ({ page }) => {
