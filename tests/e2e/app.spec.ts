@@ -318,12 +318,34 @@ async function installTauriMock(page: Page) {
           };
         }
 
+        if (command === "initialize_knowledge_index" || command === "rebuild_knowledge_index") {
+          return {
+            documentCount: knowledgeInitialized ? 5 : 0,
+            indexedCount: knowledgeInitialized ? 5 : 0,
+            removedCount: 0,
+            databasePath: "/workspace/.lmd/knowledge/lmd.db",
+          };
+        }
+
         if (command === "open_markdown_path") {
+          if (args?.path === "/workspace/wiki/beta.md") {
+            return {
+              path: args.path,
+              content: "# Beta\n\nEmbedded beta content.\n\nTarget paragraph. ^beta-block",
+              byteSize: 58,
+              lineCount: 5,
+              modifiedMs: 1000,
+              isLarge: false,
+              readOnly: false,
+              visibleStartLine: 1,
+              visibleLineCount: 5,
+            };
+          }
           return {
             path: args?.path as string,
-            content: "# Alpha\n\nOpened from workspace.",
+            content: "# Alpha\n\nOpened from workspace.\n\n![[Beta]]\n\nAlpha target block. ^block-alpha",
             byteSize: 31,
-            lineCount: 3,
+            lineCount: 7,
             modifiedMs: 1000,
             isLarge: false,
             readOnly: false,
@@ -485,6 +507,7 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await page.getByRole("button", { name: "关闭查找" }).click();
   await expect(page.getByRole("search", { name: "文档查找" })).toHaveCount(0);
 
+  await pressAppShortcut(page, "E", { shift: true });
   await pressAppShortcut(page, "\\");
   await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
   await expect(page.locator(".document-main .markdown-preview h1")).toHaveText("Preview title");
@@ -502,6 +525,9 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await expect(page.locator(".document-main .markdown-preview table")).toContainText("Alpha");
   await expect(page.locator(".document-main").getByRole("checkbox", { name: "done item" })).toBeChecked();
   await expect(page.locator(".document-main").getByRole("link", { name: "https://example.com" })).toBeVisible();
+  await pressAppShortcut(page, "\\");
+  await expect(page.locator(".editor-frame")).toBeVisible();
+  await expect(page.locator(".document-main .markdown-preview")).toHaveCount(0);
 
   await pressAppShortcut(page, "E");
   await expect(page.locator(".editor-frame")).toHaveCount(0);
@@ -530,6 +556,7 @@ test("applies markdown toolbar shortcuts to the editor", async ({ page }) => {
   await page.getByLabel("Markdown 快捷格式").getByText("格式", { exact: true }).click();
   await page.getByRole("button", { name: "块 ID" }).click();
   await expect(page.locator(".cm-content")).toContainText("^block-");
+  await pressAppShortcut(page, "E", { shift: true });
   await pressAppShortcut(page, "\\");
   await expect(page.locator(".document-main .markdown-preview .block-anchor").first()).toContainText("^block-");
 
@@ -537,6 +564,7 @@ test("applies markdown toolbar shortcuts to the editor", async ({ page }) => {
   await page.getByLabel("Markdown 快捷格式").getByText("格式", { exact: true }).click();
   await page.getByRole("button", { name: "块引用" }).click();
   await expect(page.locator(".cm-content")).toContainText("[[当前笔记#^block-");
+  await pressAppShortcut(page, "E", { shift: true });
   await pressAppShortcut(page, "\\");
   await expect(page.locator(".document-main .markdown-preview .wiki-link").first()).toContainText("当前笔记#^block-");
 });
@@ -860,6 +888,11 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
   await page.getByLabel("检查器标签").getByRole("button", { name: "知识" }).click();
 
   await expect(page.locator(".knowledge-link-item span").filter({ hasText: "wiki/overview.md" }).first()).toBeVisible();
+  await pressAppShortcut(page, "E");
+  await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
+  await expect(page.locator(".markdown-transclusion").filter({ hasText: "Embedded beta content." })).toBeVisible();
+  await pressAppShortcut(page, "E", { shift: true });
+  await expect(page.locator(".cm-content")).toBeVisible();
   const blockReferenceSection = page.locator(".knowledge-section").filter({ hasText: "块引用" }).first();
   await expect(blockReferenceSection).toBeVisible();
   await expect(blockReferenceSection.locator(".knowledge-link-item").filter({ hasText: "alpha.md#^block-alpha" })).toBeVisible();

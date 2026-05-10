@@ -1,11 +1,13 @@
-import { useEffect, useRef } from "react";
-import { renderMarkdownBody } from "../lib/markdown";
+import { useEffect, useRef, type MouseEvent } from "react";
+import { renderMarkdownBody, type TransclusionMap } from "../lib/markdown";
 
 type MarkdownPreviewProps = {
   content: string;
+  transclusions?: TransclusionMap;
+  onOpenWikiLink?: (target: string) => void;
 };
 
-export function MarkdownPreview({ content }: MarkdownPreviewProps) {
+export function MarkdownPreview({ content, transclusions, onOpenWikiLink }: MarkdownPreviewProps) {
   const previewRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -26,10 +28,19 @@ export function MarkdownPreview({ content }: MarkdownPreviewProps) {
     };
   });
 
+  function handleClick(event: MouseEvent<HTMLElement>) {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLAnchorElement>("[data-wiki-target]");
+    if (!target) return;
+    const wikiTarget = target.dataset.wikiTarget;
+    if (!wikiTarget) return;
+    event.preventDefault();
+    onOpenWikiLink?.(wikiTarget);
+  }
+
   return (
-    <article ref={previewRef} className="markdown-preview" aria-label="Markdown 预览">
+    <article ref={previewRef} className="markdown-preview" aria-label="Markdown 预览" onClick={handleClick}>
       {content.trim() ? (
-        <div dangerouslySetInnerHTML={{ __html: renderMarkdownBody(content) }} />
+        <div dangerouslySetInnerHTML={{ __html: renderMarkdownBody(content, transclusions) }} />
       ) : (
         <p className="preview-empty">暂无可预览内容。</p>
       )}

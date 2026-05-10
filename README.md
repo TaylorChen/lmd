@@ -80,6 +80,7 @@ sources/
 wiki/
 wiki/inbox/
 .lmd/knowledge/
+.lmd/knowledge/lmd.db
 AGENTS.md
 wiki/index.md
 wiki/log.md
@@ -89,8 +90,9 @@ Workspace capabilities include:
 
 - folder scanning for Markdown files
 - recent files and removable recent entries
-- workspace search with `path:`, `#tag`, and `block:^id` queries
-- backlinks, outgoing links, unresolved links, block references, tags, and front matter
+- SQLite-backed knowledge indexing in `.lmd/knowledge/lmd.db`
+- workspace search with `path:`, `#tag`, and `block:^id` queries through the local index
+- backlinks, outgoing links, unresolved links, block references, aliases, tags, and front matter
 - knowledge lint reports
 - tag rename across front matter and body `#tag` references
 - document history snapshots in `.lmd/history`
@@ -257,8 +259,8 @@ LMD uses three layers of verification:
 1. Rust tests
    - real file save/open/export flows
    - metadata changes
-   - workspace scanning and search
-   - knowledge workspace operations
+   - workspace scanning and SQLite-backed search
+   - knowledge workspace operations, alias links, and index creation
    - assistant provider validation
    - Git parsing and workspace status
 2. Playwright browser tests

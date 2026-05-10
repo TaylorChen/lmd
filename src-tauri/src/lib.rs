@@ -10,6 +10,7 @@ mod assistant;
 mod document;
 mod export;
 mod git;
+mod knowledge;
 mod workspace;
 
 #[cfg(target_os = "macos")]
@@ -175,6 +176,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                     &PredefinedMenuItem::separator(app)?,
                     &checked_app_menu_item(app, "toggle-feature-area", "显示/隐藏功能区", None)?,
                     &PredefinedMenuItem::separator(app)?,
+                    &checked_app_menu_item(app, "split-none", "取消分屏", None)?,
                     &checked_app_menu_item(app, "split-vertical", "左右分屏", None)?,
                     &checked_app_menu_item(app, "split-horizontal", "上下分屏", None)?,
                     &PredefinedMenuItem::separator(app)?,
@@ -480,6 +482,22 @@ fn git_commit_workspace(root_path: String, message: String) -> Result<git::GitSt
 #[tauri::command]
 fn initialize_knowledge_workspace(root_path: String) -> Result<workspace::Workspace, String> {
     workspace::initialize_knowledge_workspace(&PathBuf::from(root_path))
+}
+
+#[tauri::command]
+fn initialize_knowledge_index(
+    root_path: String,
+) -> Result<knowledge::KnowledgeIndexStatus, String> {
+    let root = PathBuf::from(root_path);
+    let files = workspace::scan_workspace(&root)?;
+    knowledge::ensure_index(&root, &files)
+}
+
+#[tauri::command]
+fn rebuild_knowledge_index(root_path: String) -> Result<knowledge::KnowledgeIndexStatus, String> {
+    let root = PathBuf::from(root_path);
+    let files = workspace::scan_workspace(&root)?;
+    knowledge::rebuild_index(&root, &files)
 }
 
 #[tauri::command]
@@ -906,6 +924,7 @@ fn update_native_menu_state(app: tauri::AppHandle, state: NativeMenuState) -> Re
         is_split && state.split_orientation == "horizontal",
     )
     .map_err(|error| error.to_string())?;
+    set_checked_menu_item(&app, "split-none", !is_split).map_err(|error| error.to_string())?;
     set_checked_menu_item(&app, "toggle-left-panel", state.left_panel_open)
         .map_err(|error| error.to_string())?;
     set_checked_menu_item(&app, "toggle-right-panel", state.right_panel_open)
@@ -950,6 +969,7 @@ pub fn run() {
             list_history_snapshots,
             load_assistant_api_key,
             load_markdown_range,
+            initialize_knowledge_index,
             initialize_knowledge_workspace,
             knowledge_lint_report,
             open_markdown_file,
@@ -957,6 +977,7 @@ pub fn run() {
             open_daily_note,
             open_workspace,
             query_context,
+            rebuild_knowledge_index,
             refresh_workspace,
             rename_markdown_file,
             rename_workspace_tag,
@@ -1282,6 +1303,7 @@ mod tests {
         assert!(root.join("wiki/sources").is_dir());
         assert!(root.join("AGENTS.md").is_file());
         assert!(root.join(".lmd/knowledge/manifest.json").is_file());
+        assert!(root.join(".lmd/knowledge/lmd.db").is_file());
         assert!(root.join(".lmd/knowledge/index.json").is_file());
 
         let manifest =
@@ -1295,6 +1317,37 @@ mod tests {
 
         let loaded = load_workspace(&root).expect("reload initialized workspace");
         assert!(loaded.knowledge.is_initialized);
+
+        fs::remove_dir_all(root).expect("remove workspace");
+    }
+
+    #[test]
+    fn resolves_wiki_links_by_frontmatter_alias() {
+        let root = temp_workspace_path("knowledge-alias");
+        initialize_knowledge_workspace(&root).expect("initialize workspace");
+        fs::write(
+            root.join("notes/alpha.md"),
+            "# Alpha\n\nAlias link to [[Second Brain]].",
+        )
+        .expect("write alpha");
+        fs::write(
+            root.join("wiki/concepts/pkm.md"),
+            "---\ntitle: PKM\naliases: [Second Brain]\n---\n# PKM\n",
+        )
+        .expect("write pkm");
+
+        let knowledge = document_knowledge(&root, &root.join("notes/alpha.md"), None)
+            .expect("document knowledge");
+        let knowledge_json = to_value(knowledge).expect("serialize knowledge");
+
+        assert_eq!(
+            knowledge_json["outgoingLinks"][0]["resolvedRelativePath"],
+            "wiki/concepts/pkm.md"
+        );
+        assert!(knowledge_json["unresolvedLinks"]
+            .as_array()
+            .expect("unresolved links")
+            .is_empty());
 
         fs::remove_dir_all(root).expect("remove workspace");
     }

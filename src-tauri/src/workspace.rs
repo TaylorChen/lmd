@@ -7,6 +7,8 @@ use std::{
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{json, Value};
 
+use crate::knowledge;
+
 const MAX_WORKSPACE_FILES: usize = 5000;
 pub(crate) const MAX_SEARCH_RESULTS: usize = 200;
 const DEFAULT_AGENTS_MD: &str = r#"# LMD Knowledge Workspace Rules
@@ -348,6 +350,9 @@ pub(crate) fn document_knowledge(
     current_content: Option<&str>,
 ) -> Result<DocumentKnowledge, String> {
     let files = scan_workspace(root)?;
+    if inspect_workspace(root).is_initialized {
+        return knowledge::document_knowledge(root, &files, current_path, current_content);
+    }
     let indexed = if current_content.is_some() {
         index_workspace_documents(&files, current_path, current_content)?
     } else {
@@ -427,6 +432,9 @@ pub(crate) fn document_knowledge(
 
 pub(crate) fn knowledge_lint_report(root: &Path) -> Result<KnowledgeLintReport, String> {
     let files = scan_workspace(root)?;
+    if inspect_workspace(root).is_initialized {
+        return knowledge::knowledge_lint_report(root, &files);
+    }
     let indexed = load_or_build_index_cache(root, &files)?;
     let index_path = root.join("wiki/index.md").to_string_lossy().to_string();
     let linked_from_index = indexed
@@ -511,6 +519,9 @@ pub(crate) fn query_context(
     current_content: Option<&str>,
 ) -> Result<QueryContext, String> {
     let files = scan_workspace(root)?;
+    if inspect_workspace(root).is_initialized {
+        return knowledge::query_context(root, &files, current_path, current_content);
+    }
     let indexed = if current_content.is_some() {
         index_workspace_documents(&files, current_path, current_content)?
     } else {
@@ -608,6 +619,7 @@ pub(crate) fn load_workspace(root: &Path) -> Result<Workspace, String> {
     let knowledge = inspect_workspace(root);
 
     if knowledge.is_initialized {
+        crate::knowledge::ensure_index(root, &files)?;
         write_knowledge_index_cache(root, &files)?;
     }
 
@@ -1321,6 +1333,10 @@ pub(crate) fn search_workspace_files(
     query: &str,
     max_results: usize,
 ) -> Result<Vec<SearchMatch>, String> {
+    let files = scan_workspace(root)?;
+    if inspect_workspace(root).is_initialized {
+        return knowledge::search_workspace(root, &files, query, max_results);
+    }
     let query = query.trim();
     if query.is_empty() {
         return Ok(Vec::new());
@@ -1349,7 +1365,7 @@ pub(crate) fn search_workspace_files(
     }
     let mut matches = Vec::new();
 
-    for file in scan_workspace(root)? {
+    for file in files {
         let relative_path = file.relative_path.to_ascii_lowercase();
         if path_filters
             .iter()

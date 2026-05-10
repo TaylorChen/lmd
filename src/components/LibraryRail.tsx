@@ -19,6 +19,7 @@ type LibraryRailProps = {
   onCreateWikiPage: () => void;
   onOpenCommandPalette: () => void;
   onInitializeKnowledgeWorkspace: () => void;
+  onRebuildKnowledgeIndex: () => void;
   onRefreshWorkspace: () => void;
   onExportHtml: () => void;
   onExportPdf: () => void;
@@ -53,6 +54,7 @@ export function LibraryRail({
   onCreateWikiPage,
   onOpenCommandPalette,
   onInitializeKnowledgeWorkspace,
+  onRebuildKnowledgeIndex,
   onRefreshWorkspace,
   onExportHtml,
   onExportPdf,
@@ -123,6 +125,16 @@ export function LibraryRail({
                   disabled={busy}
                 >
                   刷新工作区
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    onRebuildKnowledgeIndex();
+                  }}
+                  disabled={busy || !workspace.knowledge.isInitialized}
+                >
+                  重建知识索引
                 </button>
               </>
             )}

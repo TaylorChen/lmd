@@ -1,4 +1,4 @@
-import type { Backlink, DocumentKnowledge, KnowledgeLintReport, QueryContext } from "../types";
+import type { Backlink, DocumentKnowledge, KnowledgeIndexStatus, KnowledgeLintReport, QueryContext } from "../types";
 
 type KnowledgePanelProps = {
   knowledge: DocumentKnowledge | null;
@@ -11,8 +11,11 @@ type KnowledgePanelProps = {
   };
   workspaceIndexPath: string | null;
   workspaceLogPath: string | null;
+  indexStatus: KnowledgeIndexStatus | null;
   busy: boolean;
-  onOpenPath: (path: string, name: string) => void;
+  onOpenPath: (path: string, name: string, anchor?: string | null) => void;
+  onCreateWikiPage: (target: string) => void;
+  onRebuildIndex: () => void;
   onApplyFrontmatter: (draft: { title: string; tags: string; status: string }) => void;
 };
 
@@ -48,6 +51,10 @@ function StatChip({ label, value }: { label: string; value: number }) {
   );
 }
 
+function tagLevels(tag: string) {
+  return tag.split("/").filter(Boolean);
+}
+
 export function KnowledgePanel({
   knowledge,
   lint,
@@ -55,8 +62,11 @@ export function KnowledgePanel({
   frontmatterDraft,
   workspaceIndexPath,
   workspaceLogPath,
+  indexStatus,
   busy,
   onOpenPath,
+  onCreateWikiPage,
+  onRebuildIndex,
   onApplyFrontmatter,
 }: KnowledgePanelProps) {
   if (!knowledge) {
@@ -117,6 +127,18 @@ export function KnowledgePanel({
                 打开 log.md
               </button>
             )}
+            <button type="button" className="knowledge-action-button" onClick={onRebuildIndex} disabled={busy}>
+              重建索引
+            </button>
+          </div>
+        )}
+        {indexStatus && (
+          <div className="knowledge-index-status" title={indexStatus.databasePath}>
+            <span>SQLite 索引</span>
+            <strong>
+              {indexStatus.indexedCount.toLocaleString()} / {indexStatus.documentCount.toLocaleString()}
+            </strong>
+            <small>移除 {indexStatus.removedCount.toLocaleString()}</small>
           </div>
         )}
       </section>
@@ -194,8 +216,13 @@ export function KnowledgePanel({
           {knowledge.tags.length > 0 && (
             <div className="knowledge-tag-list">
               {knowledge.tags.map((tag) => (
-                <span key={tag} className="knowledge-tag">
-                  #{tag}
+                <span key={tag} className="knowledge-tag" title={`#${tag}`}>
+                  {tagLevels(tag).map((level, index) => (
+                    <span key={`${tag}:${index}`}>
+                      {index === 0 ? "#" : "/"}
+                      {level}
+                    </span>
+                  ))}
                 </span>
               ))}
             </div>
@@ -228,7 +255,7 @@ export function KnowledgePanel({
                     type="button"
                     key={`${link.target}:${index}`}
                     className="knowledge-link-item"
-                    onClick={() => onOpenPath(link.resolvedPath!, link.resolvedName ?? link.label)}
+                    onClick={() => onOpenPath(link.resolvedPath!, link.resolvedName ?? link.label, link.anchor)}
                     disabled={busy}
                     title={link.resolvedRelativePath ?? link.target}
                   >
@@ -264,7 +291,7 @@ export function KnowledgePanel({
                   type="button"
                   key={`${link.target}:${index}`}
                   className="knowledge-link-item"
-                  onClick={() => onOpenPath(link.resolvedPath!, link.resolvedName ?? link.label)}
+                  onClick={() => onOpenPath(link.resolvedPath!, link.resolvedName ?? link.label, link.anchor)}
                   disabled={busy}
                   title={link.resolvedRelativePath ?? link.target}
                 >
@@ -373,7 +400,14 @@ export function KnowledgePanel({
               <div key={`${link.target}:${index}`} className="knowledge-link-item unresolved">
                 <strong>{link.label}</strong>
                 <span>{link.target}</span>
-                <small>缺少目标</small>
+                <button
+                  type="button"
+                  className="knowledge-inline-action"
+                  onClick={() => onCreateWikiPage(link.target)}
+                  disabled={busy}
+                >
+                  创建页面
+                </button>
               </div>
             ))}
           </div>

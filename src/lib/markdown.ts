@@ -6,6 +6,14 @@ import hljs from "highlight.js";
 
 const htmlEscape = new MarkdownIt().utils.escapeHtml;
 
+export type TransclusionEntry = {
+  title: string;
+  content: string;
+  missing?: boolean;
+};
+
+export type TransclusionMap = Record<string, TransclusionEntry>;
+
 export function stripFrontmatter(content: string) {
   const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   if (!normalized.startsWith("---\n")) return content;
@@ -91,18 +99,42 @@ function normalizeInternalAnchor(anchor: string) {
   return anchor.trim().replace(/^\^/, "");
 }
 
+function transclusionKey(target: string) {
+  return target.trim();
+}
+
+function renderEmbeddedMarkdown(content: string) {
+  return withWikiLinks(withBlockAnchors(markdown.render(stripFrontmatter(content))));
+}
+
+function withTransclusions(html: string, transclusions: TransclusionMap = {}) {
+  const replaced = html.replace(/!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_match, rawTarget: string, rawLabel?: string) => {
+    const target = rawTarget.trim();
+    const label = (rawLabel ?? target).trim();
+    const entry = transclusions[transclusionKey(target)];
+    const title = entry?.title || label;
+    const stateClass = entry?.missing ? " missing" : "";
+    const body = entry?.missing
+      ? `<p class="markdown-transclusion-empty">未找到可嵌入的页面或块。</p>`
+      : renderEmbeddedMarkdown(entry?.content || "");
+
+    return `<aside class="markdown-transclusion${stateClass}" data-wiki-target="${markdown.utils.escapeHtml(target)}"><header>${markdown.utils.escapeHtml(title)}</header><div>${body}</div></aside>`;
+  });
+  return replaced.replace(/<p>\s*(<aside class="markdown-transclusion[\s\S]*?<\/aside>)\s*<\/p>/g, "$1");
+}
+
 function withWikiLinks(html: string) {
-  return html.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_match, rawTarget: string, rawLabel?: string) => {
+  return html.replace(/(^|[^!])\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_match, prefix: string, rawTarget: string, rawLabel?: string) => {
     const target = rawTarget.trim();
     const label = (rawLabel ?? target).trim();
     const [, anchor] = target.split("#");
     const href = anchor ? `#${normalizeInternalAnchor(anchor)}` : "#";
-    return `<a class="wiki-link" href="${markdown.utils.escapeHtml(href)}">${markdown.utils.escapeHtml(label)}</a>`;
+    return `${prefix}<a class="wiki-link" href="${markdown.utils.escapeHtml(href)}" data-wiki-target="${markdown.utils.escapeHtml(target)}">${markdown.utils.escapeHtml(label)}</a>`;
   });
 }
 
-export function renderMarkdownBody(content: string) {
-  return withWikiLinks(withBlockAnchors(markdown.render(stripFrontmatter(content))));
+export function renderMarkdownBody(content: string, transclusions?: TransclusionMap) {
+  return withWikiLinks(withTransclusions(withBlockAnchors(markdown.render(stripFrontmatter(content))), transclusions));
 }
 
 export function renderMarkdownDocument(title: string, content: string) {

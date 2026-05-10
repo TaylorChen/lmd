@@ -118,6 +118,13 @@ export type KnowledgeLintReport = {
   issues: KnowledgeLintIssue[];
 };
 
+export type KnowledgeIndexStatus = {
+  documentCount: number;
+  indexedCount: number;
+  removedCount: number;
+  databasePath: string;
+};
+
 export type QueryContextItem = {
   path: string;
   relativePath: string;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { foldAll, foldCode, unfoldAll, unfoldCode } from "@codemirror/language";
 import { EditorSelection } from "@codemirror/state";
@@ -18,7 +18,7 @@ import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { useEditorExtensions } from "./hooks/useEditorExtensions";
 import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
 import { fileName, isPathInsideRoot, localStats } from "./lib/format";
-import { renderMarkdownDocument } from "./lib/markdown";
+import { renderMarkdownDocument, type TransclusionMap } from "./lib/markdown";
 import {
   readRecentFiles,
   readSettings,
@@ -41,6 +41,7 @@ import type {
   EditorMode,
   GitStatus,
   HistorySnapshot,
+  KnowledgeIndexStatus,
   KnowledgeLintReport,
   LibrarySection,
   LineRange,
@@ -346,6 +347,53 @@ function extractBlockIds(content: string) {
   return Array.from(ids).sort((left, right) => left.localeCompare(right));
 }
 
+function extractTransclusionTargets(content: string) {
+  const targets = new Set<string>();
+  for (const match of content.matchAll(/!\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)) {
+    const target = match[1]?.trim();
+    if (target) targets.add(target);
+  }
+  return Array.from(targets);
+}
+
+function normalizeBlockAnchor(anchor: string | null | undefined) {
+  return (anchor ?? "").trim().replace(/^#/, "").replace(/^\^/, "");
+}
+
+function transclusionTitle(target: string) {
+  return (
+    target
+      .split("#")[0]
+      .trim()
+      .replace(/\.(md|markdown|mdown)$/i, "")
+      .split("/")
+      .pop()
+      ?.trim() || target
+  );
+}
+
+function extractBlockByAnchor(content: string, anchor: string | null | undefined) {
+  const blockId = normalizeBlockAnchor(anchor);
+  if (!blockId) return content;
+
+  const lines = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const marker = `^${blockId}`;
+  const lineIndex = lines.findIndex((line) => line.includes(marker));
+  if (lineIndex === -1) return "";
+
+  let start = lineIndex;
+  while (start > 0 && lines[start - 1].trim()) start -= 1;
+
+  let end = lineIndex;
+  while (end < lines.length - 1 && lines[end + 1].trim()) end += 1;
+
+  return lines
+    .slice(start, end + 1)
+    .join("\n")
+    .replace(new RegExp(`\\s*\\^${blockId}\\b`), "")
+    .trim();
+}
+
 function formatAssistantChatArchive(messages: AssistantMessage[]) {
   const body = messages
     .map((message) => {
@@ -396,6 +444,8 @@ export default function App() {
   const [documentKnowledge, setDocumentKnowledge] = useState<DocumentKnowledge | null>(null);
   const [knowledgeLint, setKnowledgeLint] = useState<KnowledgeLintReport | null>(null);
   const [queryContext, setQueryContext] = useState<QueryContext | null>(null);
+  const [knowledgeIndexStatus, setKnowledgeIndexStatus] = useState<KnowledgeIndexStatus | null>(null);
+  const [previewTransclusions, setPreviewTransclusions] = useState<TransclusionMap>({});
   const [assistantDraft, setAssistantDraft] = useState<AssistantDraft | null>(null);
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([]);
   const [assistantEvents, setAssistantEvents] = useState<AssistantEvent[]>([]);
@@ -437,6 +487,54 @@ export default function App() {
       return true;
     });
   }, [librarySection, workspace]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const targets = extractTransclusionTargets(content);
+
+    if (!targets.length) {
+      setPreviewTransclusions({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    async function loadTransclusions() {
+      const nextTransclusions: TransclusionMap = {};
+
+      for (const target of targets) {
+        const link = documentKnowledge?.outgoingLinks.find((candidate) => candidate.target === target);
+        const title = link?.resolvedName ?? link?.label ?? transclusionTitle(target);
+
+        if (!link?.resolvedPath) {
+          nextTransclusions[target] = { title, content: "", missing: true };
+          continue;
+        }
+
+        try {
+          const document =
+            link.resolvedPath === path
+              ? ({ content } as MarkdownDocument)
+              : await invokeCommand<MarkdownDocument>("open_markdown_path", { path: link.resolvedPath });
+          const embeddedContent = link.anchor ? extractBlockByAnchor(document.content, link.anchor) : document.content;
+          nextTransclusions[target] = {
+            title,
+            content: embeddedContent || "",
+            missing: !embeddedContent.trim(),
+          };
+        } catch {
+          nextTransclusions[target] = { title, content: "", missing: true };
+        }
+      }
+
+      if (!cancelled) setPreviewTransclusions(nextTransclusions);
+    }
+
+    void loadTransclusions();
+    return () => {
+      cancelled = true;
+    };
+  }, [content, documentKnowledge, path]);
 
   useEffect(() => {
     let cancelled = false;
@@ -600,6 +698,7 @@ export default function App() {
     setDocumentKnowledge(null);
     setKnowledgeLint(null);
     setQueryContext(null);
+    setPreviewTransclusions({});
     setAssistantDraft(null);
   }
 
@@ -820,6 +919,49 @@ export default function App() {
     setNotice({ tone: "info", message });
   }
 
+  function scrollToBlockAnchor(anchor: string | null | undefined, nextContent = content) {
+    const blockId = normalizeBlockAnchor(anchor);
+    if (!blockId) return;
+
+    const index = nextContent.indexOf(`^${blockId}`);
+    if (index === -1) {
+      setNotice({ tone: "error", message: `未找到块 ID：^${blockId}。` });
+      return;
+    }
+
+    if (editorMode === "preview") setEditorMode("edit");
+    window.setTimeout(() => {
+      const view = editorViewRef.current;
+      if (!view) return;
+      view.dispatch({
+        selection: EditorSelection.cursor(index),
+        effects: EditorView.scrollIntoView(index, { y: "center" }),
+      });
+      view.focus();
+    }, 80);
+  }
+
+  function wikiTitleFromTarget(target: string) {
+    return target
+      .split("#")[0]
+      .trim()
+      .replace(/\.(md|markdown|mdown)$/i, "")
+      .replace(/^wiki\//i, "")
+      .split("/")
+      .pop()
+      ?.trim() || "新页面";
+  }
+
+  function wikiFileNameFromTarget(target: string) {
+    const title = wikiTitleFromTarget(target);
+    const normalized = title
+      .replace(/[\\/:*?"<>|#\[\]]+/g, "-")
+      .replace(/\s+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80);
+    return `${normalized || "新页面"}.md`;
+  }
+
   async function handleNew() {
     if (workspace) {
       setNameDialog({
@@ -966,6 +1108,47 @@ export default function App() {
     }
   }
 
+  async function createWikiPageForTarget(target: string) {
+    if (!workspace?.knowledge.isInitialized) {
+      setNotice({ tone: "error", message: "请先初始化知识库。" });
+      return;
+    }
+    const title = wikiTitleFromTarget(target);
+    const name = wikiFileNameFromTarget(target);
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await invokeCommand<SaveResult>("create_markdown_file", {
+        rootPath: workspace.rootPath,
+        directory: "wiki",
+        name,
+        content: `# ${title}\n\n`,
+      });
+      const document = await invokeCommand<MarkdownDocument>("open_markdown_path", { path: result.path });
+      applyDocument(document);
+      rememberDocument(document.path);
+      await handleRefreshWorkspace(false);
+      setLibrarySection("wiki");
+      setInspectorTab("knowledge");
+      setNotice({ tone: "info", message: `已创建 Wiki 页面 ${fileName(result.path)}。` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleOpenWikiLink(target: string) {
+    const normalizedTarget = target.trim();
+    if (!normalizedTarget) return;
+    const resolved = documentKnowledge?.outgoingLinks.find((link) => link.target === normalizedTarget);
+    if (resolved?.resolvedPath) {
+      await openPath(resolved.resolvedPath, resolved.resolvedName ?? resolved.label, resolved.anchor);
+      return;
+    }
+    await createWikiPageForTarget(normalizedTarget);
+  }
+
   function handleNameDialogSubmit(value: string) {
     const current = nameDialog;
     setNameDialog(null);
@@ -1006,6 +1189,15 @@ export default function App() {
       const nextWorkspace = await invokeCommand<Workspace | null>("open_workspace");
       if (!nextWorkspace) return;
       setWorkspace(nextWorkspace);
+      if (nextWorkspace.knowledge.isInitialized) {
+        void invokeCommand<KnowledgeIndexStatus>("initialize_knowledge_index", {
+          rootPath: nextWorkspace.rootPath,
+        })
+          .then(setKnowledgeIndexStatus)
+          .catch(() => setKnowledgeIndexStatus(null));
+      } else {
+        setKnowledgeIndexStatus(null);
+      }
       window.localStorage.setItem(storageKeys.lastWorkspaceRoot, nextWorkspace.rootPath);
       setWorkspaceQuery("");
       setWorkspaceMatches([]);
@@ -1036,6 +1228,13 @@ export default function App() {
       setWorkspace(nextWorkspace);
       if (!nextWorkspace.knowledge.isInitialized) {
         clearKnowledge();
+        setKnowledgeIndexStatus(null);
+      } else {
+        void invokeCommand<KnowledgeIndexStatus>("initialize_knowledge_index", {
+          rootPath: nextWorkspace.rootPath,
+        })
+          .then(setKnowledgeIndexStatus)
+          .catch(() => setKnowledgeIndexStatus(null));
       }
       window.localStorage.setItem(storageKeys.lastWorkspaceRoot, nextWorkspace.rootPath);
       setWorkspaceSearchActive(false);
@@ -1064,10 +1263,42 @@ export default function App() {
       const nextWorkspace = await invokeCommand<Workspace>("initialize_knowledge_workspace", {
         rootPath: workspace.rootPath,
       });
+      const status = await invokeCommand<KnowledgeIndexStatus>("initialize_knowledge_index", {
+        rootPath: nextWorkspace.rootPath,
+      });
       setWorkspace(nextWorkspace);
+      setKnowledgeIndexStatus(status);
       window.localStorage.setItem(storageKeys.lastWorkspaceRoot, nextWorkspace.rootPath);
       setWorkspaceSearchActive(false);
       setNotice({ tone: "info", message: "知识库工作区已初始化。" });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRebuildKnowledgeIndex() {
+    if (!workspace?.knowledge.isInitialized) {
+      setNotice({ tone: "error", message: "请先初始化知识库。" });
+      return;
+    }
+
+    setBusy(true);
+    setNotice(null);
+    try {
+      const status = await invokeCommand<KnowledgeIndexStatus>("rebuild_knowledge_index", {
+        rootPath: workspace.rootPath,
+      });
+      const nextWorkspace = await invokeCommand<Workspace>("refresh_workspace", {
+        rootPath: workspace.rootPath,
+      });
+      setWorkspace(nextWorkspace);
+      setKnowledgeIndexStatus(status);
+      setNotice({
+        tone: "info",
+        message: `知识索引已重建：${status.documentCount.toLocaleString()} 个文档，索引 ${status.indexedCount.toLocaleString()} 个，移除 ${status.removedCount.toLocaleString()} 个。`,
+      });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -1162,12 +1393,16 @@ export default function App() {
     }
   }
 
-  async function openPath(pathToOpen: string, displayName: string) {
-    if (pathToOpen === path) return;
+  async function openPath(pathToOpen: string, displayName: string, anchor?: string | null) {
+    if (pathToOpen === path) {
+      scrollToBlockAnchor(anchor);
+      return;
+    }
     const existingTab = tabs.find((tab) => tab.path === pathToOpen);
     if (existingTab) {
       setActiveTabId(existingTab.id);
       applyTab(existingTab);
+      scrollToBlockAnchor(anchor, existingTab.content);
       return;
     }
 
@@ -1177,6 +1412,7 @@ export default function App() {
       const document = await invokeCommand<MarkdownDocument>("open_markdown_path", { path: pathToOpen });
       applyDocument(document);
       rememberDocument(document.path);
+      scrollToBlockAnchor(anchor, document.content);
       setNotice({
         tone: "info",
         message: document.isLarge
@@ -1955,14 +2191,26 @@ export default function App() {
       setFeatureAreaOpen((open) => !open);
       return;
     }
+    if (action === "split-none") {
+      setEditorMode("edit");
+      return;
+    }
     if (action === "split-vertical") {
-      setSplitOrientation("vertical");
-      setEditorMode("split");
+      if (editorMode === "split" && splitOrientation === "vertical") {
+        setEditorMode("edit");
+      } else {
+        setSplitOrientation("vertical");
+        setEditorMode("split");
+      }
       return;
     }
     if (action === "split-horizontal") {
-      setSplitOrientation("horizontal");
-      setEditorMode("split");
+      if (editorMode === "split" && splitOrientation === "horizontal") {
+        setEditorMode("edit");
+      } else {
+        setSplitOrientation("horizontal");
+        setEditorMode("split");
+      }
       return;
     }
     if (action === "navigate-back") {
@@ -2289,14 +2537,36 @@ export default function App() {
     onFocusDocumentSearch: () => {
       setSearchOpen(true);
     },
-    onSetEditorMode: setEditorMode,
+    onSetEditorMode: (mode) => {
+      if (mode === "split" && editorMode === "split") {
+        setEditorMode("edit");
+        return;
+      }
+      setEditorMode(mode);
+    },
   });
+
+  const handleExternalChange = useCallback(
+    (change: ExternalChange) => {
+      setExternalChange(change);
+      if (workspace?.knowledge.isInitialized) {
+        void invokeCommand<KnowledgeIndexStatus>("initialize_knowledge_index", {
+          rootPath: workspace.rootPath,
+        })
+          .then(setKnowledgeIndexStatus)
+          .catch(() => {
+            // Index refresh should not interrupt editing.
+          });
+      }
+    },
+    [workspace?.knowledge.isInitialized, workspace?.rootPath],
+  );
 
   useExternalChangePolling({
     path,
     knownModifiedMs,
     intervalMs: settings.externalCheckSeconds * 1000,
-    onExternalChange: setExternalChange,
+    onExternalChange: handleExternalChange,
   });
 
   useEffect(() => {
@@ -2417,6 +2687,13 @@ export default function App() {
       run: () => setTagRenameOpen(true),
     },
     {
+      id: "rebuild-knowledge-index",
+      label: "重建知识索引",
+      hint: "重新生成 .lmd/knowledge/lmd.db",
+      disabled: busy || !workspace?.knowledge.isInitialized,
+      run: () => void handleRebuildKnowledgeIndex(),
+    },
+    {
       id: "wiki",
       label: "新建 Wiki 页面",
       hint: "创建页面并插入 [[Wiki Link]]",
@@ -2514,6 +2791,7 @@ export default function App() {
             setCommandPaletteOpen(true);
           }}
           onInitializeKnowledgeWorkspace={() => void handleInitializeKnowledgeWorkspace()}
+          onRebuildKnowledgeIndex={() => void handleRebuildKnowledgeIndex()}
           onRefreshWorkspace={() => void handleRefreshWorkspace()}
           onExportHtml={() => void handleExportHtml()}
           onExportPdf={() => void handleExportPdf()}
@@ -2744,7 +3022,13 @@ export default function App() {
                   </div>
                 )}
 
-                {editorMode !== "edit" && <MarkdownPreview content={content} />}
+                {editorMode !== "edit" && (
+                  <MarkdownPreview
+                    content={content}
+                    transclusions={previewTransclusions}
+                    onOpenWikiLink={(target) => void handleOpenWikiLink(target)}
+                  />
+                )}
               </div>
             </div>
           </>
@@ -2777,8 +3061,11 @@ export default function App() {
             frontmatterDraft={editableFrontmatter}
             workspaceIndexPath={workspace ? `${workspace.knowledge.wikiPath}/index.md` : null}
             workspaceLogPath={workspace ? `${workspace.knowledge.wikiPath}/log.md` : null}
-            busy={assistantBusy}
-            onOpenPath={(nextPath, name) => void openPath(nextPath, name)}
+            indexStatus={knowledgeIndexStatus}
+            busy={busy || assistantBusy}
+            onOpenPath={(nextPath, name, anchor) => void openPath(nextPath, name, anchor)}
+            onCreateWikiPage={(target) => void createWikiPageForTarget(target)}
+            onRebuildIndex={() => void handleRebuildKnowledgeIndex()}
             onApplyFrontmatter={handleApplyFrontmatter}
           />
         ) : (
