@@ -115,16 +115,20 @@ button:disabled {
 
 .floating-panel-toggle {
   position: fixed;
-  left: 12px;
-  top: 12px;
+  left: 0;
+  top: 50%;
   z-index: 6;
   display: none;
-  width: 34px;
+  width: 28px;
+  height: 56px;
   padding: 0;
-  border-color: rgba(204, 120, 92, 0.28);
+  border-color: var(--line);
+  border-left: 0;
+  border-radius: 0 10px 10px 0;
   background: var(--panel);
-  color: var(--accent-strong);
+  color: var(--muted);
   box-shadow: var(--shadow);
+  transform: translateY(-50%);
 }
 
 .left-closed .floating-panel-toggle {
@@ -189,6 +193,12 @@ button:disabled {
 
 .panel-toggle:hover:not(:disabled) {
   color: var(--accent-strong);
+}
+
+.workspace-panel-toggle {
+  border-color: var(--line);
+  background: var(--panel-muted);
+  font-size: 1rem;
 }
 
 .library-nav,
@@ -307,6 +317,12 @@ button:disabled {
 
 .resource-tree-header {
   min-height: 30px;
+}
+
+.resource-tree-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .workspace-header {

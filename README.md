@@ -72,7 +72,7 @@ The checked state in the `View` menu is synchronized from the actual app state.
 
 ### Workspace and Knowledge
 
-Open a folder as a workspace, then use `More -> 初始化知识库` in the left rail. LMD creates:
+Open a folder as a workspace, then use `Knowledge -> 初始化知识库` from the macOS menu or the command palette. LMD creates:
 
 ```text
 notes/
@@ -288,7 +288,7 @@ More detail:
 - DOCX export requires `pandoc`.
 - Release builds are not signed or notarized yet.
 - Native Tauri WebDriver coverage would need Linux or Windows CI.
-- The current screenshot may be refreshed as the native macOS menu-first UI continues to evolve.
+- The UI is evolving quickly; screenshots should be refreshed when menu, workspace, or assistant layouts change.
 
 ## Status
 
@@ -297,7 +297,7 @@ LMD is usable, testable, and buildable, but still early.
 High-priority remaining work:
 
 - code signing and notarization
-- screenshot and release artifact refresh for public launch
+- release artifact refresh for public launch
 - optional native Tauri WebDriver coverage on supported CI platforms
 - further export layout improvements
 - deeper knowledge graph and semantic search features

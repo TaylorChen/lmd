@@ -3718,9 +3718,7 @@ export default function App() {
         <LibraryRail
           busy={busy}
           workspace={workspace}
-          leftPanelOpen={leftPanelOpen}
           activeSection={librarySection}
-          onToggleLeftPanel={() => setLeftPanelOpen((open) => !open)}
           onSectionChange={(section) => {
             setLibrarySection(section);
             setWorkspaceSearchActive(false);
@@ -3742,6 +3740,7 @@ export default function App() {
           isLarge={isLarge}
           visibleStartLine={visibleStartLine}
           visibleEndLine={visibleEndLine}
+          onCollapsePanel={() => setLeftPanelOpen(false)}
           onWorkspaceQueryChange={(query) => {
             setWorkspaceQuery(query);
             setWorkspaceSearchActive(false);

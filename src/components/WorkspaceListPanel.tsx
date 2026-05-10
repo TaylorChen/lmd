@@ -21,6 +21,7 @@ type WorkspaceListPanelProps = {
   isLarge: boolean;
   visibleStartLine: number;
   visibleEndLine: number;
+  onCollapsePanel: () => void;
   onWorkspaceQueryChange: (query: string) => void;
   onWorkspaceSearch: () => void;
   onOpenWorkspace: () => void;
@@ -180,6 +181,7 @@ export function WorkspaceListPanel({
   isLarge,
   visibleStartLine,
   visibleEndLine,
+  onCollapsePanel,
   onWorkspaceQueryChange,
   onWorkspaceSearch,
   onOpenWorkspace,
@@ -330,13 +332,24 @@ export function WorkspaceListPanel({
       <div className="workspace-panel">
         <div className="workspace-header resource-tree-header">
           <span className="label">{sectionLabel}</span>
-          <small>
-            {librarySection === "recent"
-              ? `${recentFiles.length.toLocaleString()} 个文件`
-              : workspace
-                ? `${workspaceFiles.length.toLocaleString()} 个文件`
-                : "无"}
-          </small>
+          <div className="resource-tree-header-actions">
+            <small>
+              {librarySection === "recent"
+                ? `${recentFiles.length.toLocaleString()} 个文件`
+                : workspace
+                  ? `${workspaceFiles.length.toLocaleString()} 个文件`
+                  : "无"}
+            </small>
+            <button
+              type="button"
+              className="panel-toggle workspace-panel-toggle"
+              onClick={onCollapsePanel}
+              aria-label="隐藏笔记栏"
+              title="隐藏笔记栏"
+            >
+              ◧
+            </button>
+          </div>
         </div>
 
         {librarySection === "recent" ? (

@@ -3,9 +3,7 @@ import type { LibrarySection, Workspace } from "../types";
 type LibraryRailProps = {
   busy: boolean;
   workspace: Workspace | null;
-  leftPanelOpen: boolean;
   activeSection: LibrarySection;
-  onToggleLeftPanel: () => void;
   onSectionChange: (section: LibrarySection) => void;
   onOpenSettings: () => void;
 };
@@ -22,9 +20,7 @@ const libraryItems: Array<{ id: LibrarySection; label: string; icon: string; req
 export function LibraryRail({
   busy,
   workspace,
-  leftPanelOpen,
   activeSection,
-  onToggleLeftPanel,
   onSectionChange,
   onOpenSettings,
 }: LibraryRailProps) {
@@ -32,15 +28,6 @@ export function LibraryRail({
     <aside className="library-rail" aria-label="资料库">
       <div className="app-brand">
         <div className="app-mark">LMD</div>
-        <button
-          type="button"
-          className="panel-toggle"
-          onClick={onToggleLeftPanel}
-          aria-label={leftPanelOpen ? "隐藏笔记栏" : "显示笔记栏"}
-          title={leftPanelOpen ? "隐藏笔记栏" : "显示笔记栏"}
-        >
-          {leftPanelOpen ? "<" : ">"}
-        </button>
       </div>
 
       <nav className="library-nav" aria-label="资料库分区">

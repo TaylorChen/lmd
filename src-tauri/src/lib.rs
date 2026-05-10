@@ -76,6 +76,19 @@ fn checked_app_menu_item(
     )
 }
 
+#[cfg(target_os = "macos")]
+fn lmd_about_metadata(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::AboutMetadata<'static>> {
+    let package_info = app.package_info();
+    Ok(tauri::menu::AboutMetadata {
+        name: Some(package_info.name.clone()),
+        version: Some(package_info.version.to_string()),
+        short_version: Some(package_info.version.to_string()),
+        copyright: app.config().bundle.copyright.clone(),
+        icon: Some(tauri::image::Image::from_bytes(APP_ICON_PNG)?),
+        ..Default::default()
+    })
+}
+
 fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::default(app)?;
     let knowledge_menu = Submenu::with_items(
@@ -193,6 +206,16 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     menu.insert(&ai_menu, 6)?;
     for item in menu.items()? {
         if let MenuItemKind::Submenu(submenu) = item {
+            #[cfg(target_os = "macos")]
+            if submenu.text()? == app.package_info().name {
+                let _ = submenu.remove_at(0)?;
+                submenu.insert(
+                    &PredefinedMenuItem::about(app, None, Some(lmd_about_metadata(app)?))?,
+                    0,
+                )?;
+                continue;
+            }
+
             if submenu.text()? == "File" {
                 submenu.prepend_items(&[
                     &app_menu_item(app, "new-markdown", "新建 Markdown", Some("CmdOrCtrl+N"))?,
