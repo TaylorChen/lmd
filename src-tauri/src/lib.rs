@@ -78,6 +78,41 @@ fn checked_app_menu_item(
 
 fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::default(app)?;
+    let knowledge_menu = Submenu::with_items(
+        app,
+        "Knowledge",
+        true,
+        &[
+            &app_menu_item(app, "create-wiki-page", "新建 Wiki 页面", None)?,
+            &app_menu_item(app, "initialize-knowledge", "初始化知识库", None)?,
+            &app_menu_item(app, "rebuild-knowledge-index", "重建知识索引", None)?,
+            &app_menu_item(app, "refresh-workspace", "刷新工作区", None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &app_menu_item(app, "history-snapshots", "查看保存快照", None)?,
+            &app_menu_item(app, "rename-tag", "重命名标签", None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &app_menu_item(app, "git-status", "刷新 Git 状态", None)?,
+            &app_menu_item(app, "git-commit", "提交 Git 改动", None)?,
+        ],
+    )?;
+    let ai_menu = Submenu::with_items(
+        app,
+        "AI",
+        true,
+        &[
+            &app_menu_item(app, "ai-summarize", "总结笔记", None)?,
+            &app_menu_item(app, "ai-polish", "优化文字", None)?,
+            &app_menu_item(app, "ai-todos", "提取待办", None)?,
+            &app_menu_item(app, "ai-title", "生成标题", None)?,
+            &app_menu_item(app, "ai-outline", "生成大纲", None)?,
+            &app_menu_item(app, "ai-continue", "续写", None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &app_menu_item(app, "ai-save-draft", "保存 AI 草稿", None)?,
+            &app_menu_item(app, "ai-save-chat", "保存 AI 对话", None)?,
+            &app_menu_item(app, "ai-run-log", "运行日志", None)?,
+            &app_menu_item(app, "ai-test-connection", "测试 AI 连接", None)?,
+        ],
+    )?;
     let insert_menu = Submenu::with_items(
         app,
         "Insert",
@@ -154,9 +189,34 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     )?;
     menu.insert(&insert_menu, 3)?;
     menu.insert(&format_menu, 4)?;
+    menu.insert(&knowledge_menu, 5)?;
+    menu.insert(&ai_menu, 6)?;
     for item in menu.items()? {
         if let MenuItemKind::Submenu(submenu) = item {
-            if submenu.text()? == "Edit" {
+            if submenu.text()? == "File" {
+                submenu.prepend_items(&[
+                    &app_menu_item(app, "new-markdown", "新建 Markdown", Some("CmdOrCtrl+N"))?,
+                    &app_menu_item(app, "open-file", "打开文件...", Some("CmdOrCtrl+O"))?,
+                    &app_menu_item(
+                        app,
+                        "open-workspace",
+                        "打开工作区...",
+                        Some("Shift+CmdOrCtrl+O"),
+                    )?,
+                    &app_menu_item(app, "daily-note", "打开今日笔记", None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &app_menu_item(app, "save", "保存", Some("CmdOrCtrl+S"))?,
+                    &app_menu_item(app, "rename-current", "重命名当前文件", None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &app_menu_item(app, "command-palette", "命令面板", Some("CmdOrCtrl+K"))?,
+                    &app_menu_item(app, "settings", "设置...", Some("CmdOrCtrl+,"))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &app_menu_item(app, "export-html", "导出 HTML", None)?,
+                    &app_menu_item(app, "export-pdf", "导出 PDF", None)?,
+                    &app_menu_item(app, "export-docx", "导出 DOCX", None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                ])?;
+            } else if submenu.text()? == "Edit" {
                 submenu.append_items(&[
                     &PredefinedMenuItem::separator(app)?,
                     &app_menu_item(
@@ -1225,6 +1285,25 @@ mod tests {
         assert_eq!(matches[0].relative_path, "notes/topic.md");
 
         fs::remove_dir_all(root).expect("remove block workspace");
+    }
+
+    #[test]
+    fn searches_initialized_workspace_with_chinese_terms() {
+        let root = temp_workspace_path("chinese-search");
+        initialize_knowledge_workspace(&root).expect("initialize knowledge workspace");
+        fs::write(
+            root.join("notes/order.md"),
+            "# 订单流程\n\n用户下单后进入支付流程。\n",
+        )
+        .expect("write chinese note");
+
+        let matches = search_workspace_files(&root, "下单", 8).expect("search chinese term");
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].relative_path, "notes/order.md");
+        assert_eq!(matches[0].line_number, 3);
+
+        fs::remove_dir_all(root).expect("remove chinese workspace");
     }
 
     #[test]

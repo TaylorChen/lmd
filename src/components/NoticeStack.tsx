@@ -16,18 +16,18 @@ export function NoticeStack({
   onReloadCurrentFile,
 }: NoticeStackProps) {
   return (
-    <div className="notice-stack">
+    <div className="notice-stack" aria-live="polite">
       {notice && (
-        <div className={`notice ${notice.tone}`}>
+        <div className={`notice ${notice.tone}`} role="status">
           <span>{notice.message}</span>
-          <button type="button" onClick={onDismissNotice}>
+          <button type="button" onClick={onDismissNotice} aria-label="关闭通知">
             关闭
           </button>
         </div>
       )}
 
       {externalChange && (
-        <div className="notice warning">
+        <div className="notice warning" role="status">
           <span>
             {externalChange.kind === "missing"
               ? "该文件已从磁盘中删除。"

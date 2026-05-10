@@ -1649,8 +1649,47 @@ fn candidate_document_ids(
     let rows = statement
         .query_map(params![fts_query], |row| row.get::<_, String>(0))
         .map_err(|error| error.to_string())?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())
+    let mut ids = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    for id in substring_candidate_document_ids(connection, &query.content_terms)? {
+        if !ids.iter().any(|candidate| candidate == &id) {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
+}
+
+fn substring_candidate_document_ids(
+    connection: &Connection,
+    content_terms: &[String],
+) -> Result<Vec<String>, String> {
+    if content_terms.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut statement = connection
+        .prepare("SELECT document_id, title, content, tags, relative_path FROM document_fts ORDER BY relative_path")
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    let mut ids = Vec::new();
+    for row in rows {
+        let (id, title, content, tags, relative_path) = row.map_err(|error| error.to_string())?;
+        let haystack = format!("{title}\n{content}\n{tags}\n{relative_path}").to_ascii_lowercase();
+        if content_terms.iter().all(|term| haystack.contains(term)) {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
 }
 
 fn document_has_block(

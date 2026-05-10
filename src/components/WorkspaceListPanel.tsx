@@ -1,11 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { fileName } from "../lib/format";
 import type {
-  AppSettings,
-  AssistantCatalog,
-  EditorMode,
-  GitStatus,
-  HistorySnapshot,
   LibrarySection,
   RecentFile,
   SearchMatch,
@@ -21,17 +16,14 @@ type WorkspaceListPanelProps = {
   workspaceQuery: string;
   workspaceMatches: SearchMatch[];
   workspaceSearchActive: boolean;
-  historySnapshots: HistorySnapshot[];
-  gitStatus: GitStatus | null;
   recentFiles: RecentFile[];
   path: string | null;
   isLarge: boolean;
   visibleStartLine: number;
   visibleEndLine: number;
-  settings: AppSettings;
-  assistantCatalog: AssistantCatalog;
   onWorkspaceQueryChange: (query: string) => void;
   onWorkspaceSearch: () => void;
+  onOpenWorkspace: () => void;
   onOpenWorkspaceFile: (file: WorkspaceFile) => void;
   onCreateMarkdownInFolder: (directory: string) => void;
   onCreateFolder: (directory: string) => void;
@@ -41,15 +33,8 @@ type WorkspaceListPanelProps = {
   onDeleteWorkspaceFile: (file: WorkspaceFile) => void;
   onRevealWorkspaceFile: (file: WorkspaceFile) => void;
   onOpenSearchMatch: (match: SearchMatch) => void;
-  onRefreshHistorySnapshots: () => void;
-  onOpenHistorySnapshot: (snapshot: HistorySnapshot) => void;
-  onRestoreHistorySnapshot: (snapshot: HistorySnapshot) => void;
-  onRefreshGitStatus: () => void;
-  onGitCommit: () => void;
   onOpenRecentFile: (path: string, name: string) => void;
   onRemoveRecentFile: (path: string) => void;
-  onSettingsChange: (settings: AppSettings) => void;
-  onTestAssistantConnection: () => void;
 };
 
 type FileTreeNode = {
@@ -80,17 +65,70 @@ function sourceKindForPath(relativePath: string) {
   return "文件";
 }
 
-function assistantProviderLabel(provider: AssistantCatalog["providers"][number]) {
-  if (provider.id === "deepseek") return "DeepSeek";
-  if (provider.id === "minimax") return "MiniMax";
-  if (provider.id === "kimi") return "Kimi";
-  if (provider.id === "zhipu") return "智谱 GLM";
-  if (provider.id === "external_command") return "外部命令";
-  return provider.label;
-}
-
 function createFolderNode(name: string, path: string): FileTreeNode {
   return { name, path, type: "folder", children: [] };
+}
+
+function searchHighlightTerms(query: string) {
+  return query
+    .trim()
+    .split(/\s+/)
+    .map((token) => {
+      if (token.startsWith("path:")) return "";
+      if (token.startsWith("#")) return "";
+      if (token.startsWith("block:")) return `^${token.slice("block:".length).replace(/^\^/, "")}`;
+      return token;
+    })
+    .filter(Boolean);
+}
+
+function highlightedSearchLine(match: SearchMatch, query: string) {
+  const terms = searchHighlightTerms(query);
+  const lowerText = match.lineText.toLowerCase();
+  const ranges = terms
+    .map((term) => {
+      const start = lowerText.indexOf(term.toLowerCase());
+      return start === -1 ? null : { start, end: start + term.length };
+    })
+    .filter((range): range is { start: number; end: number } => Boolean(range))
+    .sort((left, right) => left.start - right.start);
+
+  const mergedRanges: Array<{ start: number; end: number }> = [];
+  for (const range of ranges) {
+    const previous = mergedRanges[mergedRanges.length - 1];
+    if (previous && range.start <= previous.end) {
+      previous.end = Math.max(previous.end, range.end);
+    } else {
+      mergedRanges.push({ ...range });
+    }
+  }
+
+  if (mergedRanges.length === 0 && match.matchEnd > match.matchStart) {
+    mergedRanges.push({
+      start: Math.max(0, match.matchStart),
+      end: Math.min(match.lineText.length, match.matchEnd),
+    });
+  }
+
+  if (mergedRanges.length === 0) return match.lineText;
+
+  const parts = [];
+  let cursor = 0;
+  for (const range of mergedRanges) {
+    if (range.start > cursor) {
+      parts.push(<span key={`text-${cursor}`}>{match.lineText.slice(cursor, range.start)}</span>);
+    }
+    parts.push(
+      <mark key={`mark-${range.start}-${range.end}`} className="search-highlight">
+        {match.lineText.slice(range.start, range.end)}
+      </mark>,
+    );
+    cursor = range.end;
+  }
+  if (cursor < match.lineText.length) {
+    parts.push(<span key={`text-${cursor}`}>{match.lineText.slice(cursor)}</span>);
+  }
+  return parts;
 }
 
 function buildFileTree(files: WorkspaceFile[]) {
@@ -137,17 +175,14 @@ export function WorkspaceListPanel({
   workspaceQuery,
   workspaceMatches,
   workspaceSearchActive,
-  historySnapshots,
-  gitStatus,
   recentFiles,
   path,
   isLarge,
   visibleStartLine,
   visibleEndLine,
-  settings,
-  assistantCatalog,
   onWorkspaceQueryChange,
   onWorkspaceSearch,
+  onOpenWorkspace,
   onOpenWorkspaceFile,
   onCreateMarkdownInFolder,
   onCreateFolder,
@@ -157,23 +192,12 @@ export function WorkspaceListPanel({
   onDeleteWorkspaceFile,
   onRevealWorkspaceFile,
   onOpenSearchMatch,
-  onRefreshHistorySnapshots,
-  onOpenHistorySnapshot,
-  onRestoreHistorySnapshot,
-  onRefreshGitStatus,
-  onGitCommit,
   onOpenRecentFile,
   onRemoveRecentFile,
-  onSettingsChange,
-  onTestAssistantConnection,
 }: WorkspaceListPanelProps) {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(["notes", "sources", "wiki", "wiki/inbox"]));
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState | null>(null);
   const [folderContextMenu, setFolderContextMenu] = useState<FolderContextMenuState | null>(null);
-
-  function updateSetting(nextSettings: Partial<AppSettings>) {
-    onSettingsChange({ ...settings, ...nextSettings });
-  }
 
   const fileTree = useMemo(() => buildFileTree(workspaceFiles), [workspaceFiles]);
 
@@ -213,6 +237,24 @@ export function WorkspaceListPanel({
       const next = new Set(current);
       if (next.has(folderPath)) next.delete(folderPath);
       else next.add(folderPath);
+      return next;
+    });
+  }
+
+  function collapseAllFolders() {
+    setExpandedFolders(new Set());
+  }
+
+  function expandAllFolders() {
+    setExpandedFolders((current) => {
+      const next = new Set(current);
+      const visit = (node: FileTreeNode) => {
+        if (node.type === "folder") {
+          next.add(node.path);
+          node.children.forEach(visit);
+        }
+      };
+      fileTree.forEach(visit);
       return next;
     });
   }
@@ -273,23 +315,6 @@ export function WorkspaceListPanel({
     );
   }
 
-  const selectedProvider =
-    assistantCatalog.providers.find((provider) => provider.id === settings.assistantProvider) ??
-    assistantCatalog.providers[0];
-  const primaryAssistantProviders = assistantCatalog.providers.filter(
-    (provider) => provider.id !== "external_command",
-  );
-  const externalCommandProvider = assistantCatalog.providers.find(
-    (provider) => provider.id === "external_command",
-  );
-  const primarySelectedProvider =
-    selectedProvider?.id === "external_command"
-      ? primaryAssistantProviders[0]
-      : selectedProvider;
-  const providerNeedsKey =
-    selectedProvider?.id !== "external_command" && Boolean(selectedProvider?.apiKeyEnv);
-  const providerHasEndpoint =
-    selectedProvider?.id !== "external_command" && Boolean(selectedProvider?.baseUrl);
   const sectionLabel = {
     inbox: "收件箱",
     "all-notes": "工作区",
@@ -303,7 +328,7 @@ export function WorkspaceListPanel({
   return (
     <aside className="workspace-list-panel" aria-label="工作区笔记">
       <div className="workspace-panel">
-        <div className="workspace-header">
+        <div className="workspace-header resource-tree-header">
           <span className="label">{sectionLabel}</span>
           <small>
             {librarySection === "recent"
@@ -352,10 +377,50 @@ export function WorkspaceListPanel({
         ) : workspace ? (
           <>
             <div className="workspace-summary">
-              <strong title={workspace.rootPath}>{fileName(workspace.rootPath)}</strong>
-              <span className={`workspace-mode ${workspace.knowledge.isInitialized ? "ready" : "pending"}`}>
-                {workspace.knowledge.isInitialized ? "知识库工作区已就绪" : "标准工作区"}
-              </span>
+              <div className="workspace-title-row">
+                <strong title={workspace.rootPath}>{fileName(workspace.rootPath)}</strong>
+                <span className={`workspace-mode ${workspace.knowledge.isInitialized ? "ready" : "pending"}`}>
+                  {workspace.knowledge.isInitialized ? "知识库" : "本地"}
+                </span>
+              </div>
+              <div className="resource-tree-toolbar" aria-label="资源树操作">
+                <button
+                  type="button"
+                  onClick={() => onCreateMarkdownInFolder("")}
+                  disabled={busy}
+                  aria-label="新建 Markdown"
+                  title="新建 Markdown"
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCreateFolder("")}
+                  disabled={busy}
+                  aria-label="新建文件夹"
+                  title="新建文件夹"
+                >
+                  ⊞
+                </button>
+                <button
+                  type="button"
+                  onClick={expandAllFolders}
+                  disabled={busy}
+                  aria-label="展开全部文件夹"
+                  title="展开全部文件夹"
+                >
+                  ⇅
+                </button>
+                <button
+                  type="button"
+                  onClick={collapseAllFolders}
+                  disabled={busy}
+                  aria-label="折叠全部文件夹"
+                  title="折叠全部文件夹"
+                >
+                  ×
+                </button>
+              </div>
             </div>
             <form
               className="workspace-search"
@@ -395,7 +460,7 @@ export function WorkspaceListPanel({
                     >
                       <span>{match.relativePath}</span>
                       <small className="file-kind">第 {match.lineNumber.toLocaleString()} 行</small>
-                      <em>{match.lineText}</em>
+                      <em>{highlightedSearchLine(match, workspaceQuery)}</em>
                     </button>
                   ))
                 ) : (
@@ -533,6 +598,9 @@ export function WorkspaceListPanel({
           <div className="workspace-empty-state">
             <strong>工作区</strong>
             <p className="empty-workspace">打开文件夹以浏览笔记。</p>
+            <button type="button" onClick={onOpenWorkspace} disabled={busy}>
+              打开工作区
+            </button>
           </div>
         )}
       </div>
@@ -574,324 +642,6 @@ export function WorkspaceListPanel({
         </div>
       )}
 
-      <details className="history-panel">
-        <summary className="settings-summary">
-          <span className="label">保存快照</span>
-          <small>{historySnapshots.length.toLocaleString()}</small>
-        </summary>
-        <div className="recent-list" aria-label="保存快照">
-          <button
-            type="button"
-            className="knowledge-action-button"
-            onClick={onRefreshHistorySnapshots}
-            disabled={busy || !path}
-          >
-            刷新快照
-          </button>
-          {historySnapshots.length > 0 ? (
-            historySnapshots.map((snapshot) => (
-              <div
-                key={snapshot.path}
-                className="history-snapshot-row"
-              >
-                <button
-                  type="button"
-                  className="recent-item"
-                  onClick={() => onOpenHistorySnapshot(snapshot)}
-                  disabled={busy}
-                  title={snapshot.path}
-                >
-                  {snapshot.name}
-                </button>
-                <button
-                  type="button"
-                  className="snapshot-restore-button"
-                  onClick={() => onRestoreHistorySnapshot(snapshot)}
-                  disabled={busy || !path}
-                  title="用该快照覆盖当前文件"
-                >
-                  恢复
-                </button>
-              </div>
-            ))
-          ) : (
-            <p className="empty-workspace">暂无快照。</p>
-          )}
-        </div>
-      </details>
-
-      <details className="history-panel">
-        <summary className="settings-summary">
-          <span className="label">Git</span>
-          <small>
-            {gitStatus?.isRepository
-              ? `${gitStatus.changes.length.toLocaleString()} 个改动`
-              : "未启用"}
-          </small>
-        </summary>
-        <div className="recent-list git-panel" aria-label="Git 状态">
-          <button
-            type="button"
-            className="knowledge-action-button"
-            onClick={onRefreshGitStatus}
-            disabled={busy || !workspace}
-          >
-            刷新 Git 状态
-          </button>
-          <button
-            type="button"
-            className="knowledge-action-button"
-            onClick={onGitCommit}
-            disabled={busy || !gitStatus?.isRepository || gitStatus.changes.length === 0}
-          >
-            提交改动
-          </button>
-          {gitStatus?.isRepository ? (
-            <>
-              <p className="git-summary">
-                分支：<strong>{gitStatus.branch ?? "detached"}</strong>
-              </p>
-              {gitStatus.changes.length > 0 ? (
-                <ul className="git-change-list">
-                  {gitStatus.changes.slice(0, 8).map((change) => (
-                    <li key={`${change.status}:${change.path}`}>
-                      <strong>{change.status}</strong>
-                      <span>{change.path}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="empty-workspace">暂无未提交改动。</p>
-              )}
-              {gitStatus.currentFileDiff && (
-                <details className="git-diff-panel">
-                  <summary>当前文件 diff</summary>
-                  <pre>{gitStatus.currentFileDiff}</pre>
-                </details>
-              )}
-              {gitStatus.recentCommits.length > 0 && (
-                <div className="git-log-panel">
-                  <span className="label">最近提交</span>
-                  {gitStatus.recentCommits.map((commit) => (
-                    <p key={commit.hash}>
-                      <strong>{commit.hash}</strong>
-                      <span>{commit.subject}</span>
-                    </p>
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <p className="empty-workspace">当前工作区不是 Git 仓库。</p>
-          )}
-        </div>
-      </details>
-
-      <details className="settings-panel">
-        <summary className="settings-summary">
-          <span className="label">设置</span>
-          <small>本地</small>
-        </summary>
-
-        <div className="settings-content">
-          <label>
-            <span>默认视图</span>
-            <select
-              aria-label="默认视图"
-              value={settings.defaultEditorMode}
-              onChange={(event) => updateSetting({ defaultEditorMode: event.target.value as EditorMode })}
-            >
-              <option value="edit">编辑</option>
-              <option value="split">分屏</option>
-              <option value="preview">预览</option>
-            </select>
-          </label>
-
-          <label>
-            <span>搜索结果</span>
-            <select
-              aria-label="搜索结果"
-              value={settings.searchResultLimit}
-              onChange={(event) => updateSetting({ searchResultLimit: Number(event.target.value) })}
-            >
-              <option value={40}>40</option>
-              <option value={80}>80</option>
-              <option value={120}>120</option>
-              <option value={200}>200</option>
-            </select>
-          </label>
-
-          <label>
-            <span>文件检查</span>
-            <select
-              aria-label="文件检查"
-              value={settings.externalCheckSeconds}
-              onChange={(event) => updateSetting({ externalCheckSeconds: Number(event.target.value) })}
-            >
-              <option value={2}>2 秒</option>
-              <option value={5}>5 秒</option>
-              <option value={10}>10 秒</option>
-              <option value={30}>30 秒</option>
-            </select>
-          </label>
-
-          <label>
-            <span>AI 助手</span>
-            <select
-              aria-label="AI 助手提供方"
-              value={primarySelectedProvider?.id ?? ""}
-              onChange={(event) => {
-                const nextProvider = assistantCatalog.providers.find(
-                  (provider) => provider.id === event.target.value,
-                );
-                if (!nextProvider) return;
-                updateSetting({
-                  assistantProvider: nextProvider.id,
-                  assistantModel: nextProvider.models[0] ?? settings.assistantModel,
-                });
-              }}
-            >
-              {primaryAssistantProviders.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {assistantProviderLabel(provider)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            <span>AI 模型</span>
-            <select
-              aria-label="AI 模型"
-              value={
-                selectedProvider?.id === "external_command"
-                  ? primarySelectedProvider?.models[0] ?? ""
-                  : settings.assistantModel
-              }
-              onChange={(event) =>
-                updateSetting({
-                  assistantProvider: primarySelectedProvider?.id ?? settings.assistantProvider,
-                  assistantModel: event.target.value,
-                })
-              }
-            >
-              {primarySelectedProvider?.models.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {selectedProvider?.id !== "external_command" && selectedProvider && (
-            <>
-              {providerNeedsKey && (
-                <label>
-                  <span>API Key</span>
-                  <input
-                    aria-label="AI API Key"
-                    type="password"
-                    value={settings.assistantApiKeys[selectedProvider.id] ?? ""}
-                    onChange={(event) =>
-                      updateSetting({
-                        assistantApiKeys: {
-                          ...settings.assistantApiKeys,
-                          [selectedProvider.id]: event.target.value,
-                        },
-                      })
-                    }
-                    placeholder={selectedProvider.apiKeyEnv ?? "API Key"}
-                  />
-                </label>
-              )}
-
-              {providerHasEndpoint && (
-                <label>
-                  <span>接口地址</span>
-                  <input
-                    aria-label="AI 接口地址"
-                    value={settings.assistantBaseUrls[selectedProvider.id] ?? selectedProvider.baseUrl ?? ""}
-                    onChange={(event) =>
-                      updateSetting({
-                        assistantBaseUrls: {
-                          ...settings.assistantBaseUrls,
-                          [selectedProvider.id]: event.target.value,
-                        },
-                      })
-                    }
-                    placeholder={selectedProvider.baseUrl ?? "https://.../chat/completions"}
-                  />
-                </label>
-              )}
-            </>
-          )}
-
-          {externalCommandProvider && (
-            <details className="advanced-settings-panel">
-              <summary>高级 AI 设置</summary>
-              <div className="advanced-settings-content">
-                <p className="advanced-settings-note">
-                  当前高级模式：{selectedProvider?.id === "external_command" ? "外部命令" : "未启用"}
-                </p>
-                <button
-                  type="button"
-                  className="knowledge-action-button"
-                  onClick={() =>
-                    updateSetting({
-                      assistantProvider: externalCommandProvider.id,
-                      assistantModel: externalCommandProvider.models[0] ?? settings.assistantModel,
-                    })
-                  }
-                >
-                  使用外部命令
-                </button>
-
-                <label>
-                  <span>命令路径</span>
-                  <input
-                    aria-label="外部命令路径"
-                    value={settings.assistantExternalCommand}
-                    onChange={(event) =>
-                      updateSetting({
-                        assistantExternalCommand: event.target.value,
-                      })
-                    }
-                    placeholder="例如 /absolute/path/to/assistant"
-                  />
-                </label>
-
-                <label>
-                  <span>超时时间</span>
-                  <select
-                    aria-label="外部命令超时时间"
-                    value={settings.assistantExternalTimeoutSeconds}
-                    onChange={(event) =>
-                      updateSetting({
-                        assistantExternalTimeoutSeconds: Number(event.target.value),
-                      })
-                    }
-                  >
-                    <option value={30}>30 秒</option>
-                    <option value={60}>60 秒</option>
-                    <option value={120}>120 秒</option>
-                    <option value={300}>300 秒</option>
-                    <option value={600}>600 秒</option>
-                  </select>
-                </label>
-              </div>
-            </details>
-          )}
-
-          <button
-            type="button"
-            className="knowledge-action-button"
-            onClick={onTestAssistantConnection}
-            disabled={busy}
-          >
-            测试 AI 连接
-          </button>
-        </div>
-      </details>
 
       {isLarge && (
         <div className="large-file-card">

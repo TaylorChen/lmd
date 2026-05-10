@@ -99,6 +99,8 @@ type DirectoryTarget = {
   directory: string;
 };
 
+type ManagementPanel = "settings" | "git" | "history" | "assistant-log";
+
 const defaultAssistantCatalog: AssistantCatalog = {
   defaultProvider: "deepseek",
   providers: [
@@ -145,6 +147,13 @@ const defaultAssistantCatalog: AssistantCatalog = {
     { id: "external_command", label: "外部命令", models: ["command-json-v1"] },
   ],
 };
+
+function managementPanelTitle(panel: ManagementPanel) {
+  if (panel === "settings") return "设置";
+  if (panel === "git") return "Git 状态";
+  if (panel === "history") return "保存快照";
+  return "AI 运行日志";
+}
 
 function createUntitledTab(): DocumentTab {
   return {
@@ -438,6 +447,15 @@ function lineOffset(content: string, lineNumber: number) {
   return content.length;
 }
 
+function assistantProviderLabel(provider: AssistantCatalog["providers"][number]) {
+  if (provider.id === "deepseek") return "DeepSeek";
+  if (provider.id === "minimax") return "MiniMax";
+  if (provider.id === "kimi") return "Kimi";
+  if (provider.id === "zhipu") return "智谱 GLM";
+  if (provider.id === "external_command") return "外部命令";
+  return provider.label;
+}
+
 function formatAssistantChatArchive(messages: AssistantMessage[]) {
   const body = messages
     .map((message) => {
@@ -504,6 +522,7 @@ export default function App() {
   const [splitOrientation, setSplitOrientation] = useState<"vertical" | "horizontal">("vertical");
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
+  const [managementPanel, setManagementPanel] = useState<ManagementPanel | null>(null);
   const [tabContextMenu, setTabContextMenu] = useState<TabContextMenuState | null>(null);
   const [nameDialog, setNameDialog] = useState<
     (NameDialogState & { kind: "new" | "rename" | "wiki" | "git" | "folder" | "new-in-folder" | "move" }) | null
@@ -1676,11 +1695,22 @@ export default function App() {
     }
   }
 
+  function openManagementPanel(panel: ManagementPanel) {
+    setManagementPanel(panel);
+    if (panel === "history") {
+      void handleLoadHistorySnapshots();
+    }
+    if (panel === "git") {
+      void handleRefreshGitStatus();
+    }
+  }
+
   async function handleGitCommit() {
     if (!workspace) {
       setNotice({ tone: "error", message: "请先打开工作区。" });
       return;
     }
+    setManagementPanel(null);
     setNameDialog({
       kind: "git",
       title: "提交 Git 改动",
@@ -2595,8 +2625,125 @@ export default function App() {
   }
 
   function handleAppMenuAction(action: string) {
+    if (action === "new-markdown") {
+      void handleNew();
+      return;
+    }
+    if (action === "open-file") {
+      void handleOpen();
+      return;
+    }
+    if (action === "open-workspace") {
+      void handleOpenWorkspace();
+      return;
+    }
+    if (action === "daily-note") {
+      void handleOpenDailyNote();
+      return;
+    }
+    if (action === "save") {
+      void handleSave();
+      return;
+    }
+    if (action === "rename-current") {
+      void handleRenameCurrentFile();
+      return;
+    }
+    if (action === "command-palette") {
+      setCommandPaletteQuery("");
+      setCommandPaletteOpen(true);
+      return;
+    }
+    if (action === "settings") {
+      openManagementPanel("settings");
+      return;
+    }
+    if (action === "export-html") {
+      void handleExportHtml();
+      return;
+    }
+    if (action === "export-pdf") {
+      void handleExportPdf();
+      return;
+    }
+    if (action === "export-docx") {
+      void handleExportDocx();
+      return;
+    }
     if (action === "insert-attachment") {
       void handleImportAttachment();
+      return;
+    }
+    if (action === "create-wiki-page") {
+      void handleCreateWikiPage();
+      return;
+    }
+    if (action === "initialize-knowledge") {
+      void handleInitializeKnowledgeWorkspace();
+      return;
+    }
+    if (action === "rebuild-knowledge-index") {
+      void handleRebuildKnowledgeIndex();
+      return;
+    }
+    if (action === "refresh-workspace") {
+      void handleRefreshWorkspace();
+      return;
+    }
+    if (action === "history-snapshots") {
+      openManagementPanel("history");
+      return;
+    }
+    if (action === "rename-tag") {
+      setTagRenameOpen(true);
+      return;
+    }
+    if (action === "git-status") {
+      openManagementPanel("git");
+      return;
+    }
+    if (action === "git-commit") {
+      void handleGitCommit();
+      return;
+    }
+    if (action === "ai-summarize") {
+      void handleAssistantRun("summarize");
+      return;
+    }
+    if (action === "ai-polish") {
+      void handleAssistantRun("polish");
+      return;
+    }
+    if (action === "ai-todos") {
+      void handleAssistantRun("todos");
+      return;
+    }
+    if (action === "ai-title") {
+      void handleAssistantRun("title");
+      return;
+    }
+    if (action === "ai-outline") {
+      void handleAssistantRun("outline");
+      return;
+    }
+    if (action === "ai-continue") {
+      void handleAssistantRun("continue");
+      return;
+    }
+    if (action === "ai-save-draft") {
+      void handleSaveAssistantDraft();
+      return;
+    }
+    if (action === "ai-save-chat") {
+      void handleSaveAssistantChat();
+      return;
+    }
+    if (action === "ai-run-log") {
+      openManagementPanel("assistant-log");
+      return;
+    }
+    if (action === "ai-test-connection") {
+      void handleTestAssistantConnection();
       return;
     }
     if (action === "focus-document-search") {
@@ -3040,6 +3187,28 @@ export default function App() {
     writeSettings(nextSettings);
   }
 
+  function updateSetting(nextSettings: Partial<typeof settings>) {
+    handleSettingsChange({ ...settings, ...nextSettings });
+  }
+
+  const selectedProvider =
+    assistantCatalog.providers.find((provider) => provider.id === settings.assistantProvider) ??
+    assistantCatalog.providers[0];
+  const primaryAssistantProviders = assistantCatalog.providers.filter(
+    (provider) => provider.id !== "external_command",
+  );
+  const externalCommandProvider = assistantCatalog.providers.find(
+    (provider) => provider.id === "external_command",
+  );
+  const primarySelectedProvider =
+    selectedProvider?.id === "external_command"
+      ? primaryAssistantProviders[0]
+      : selectedProvider;
+  const providerNeedsKey =
+    selectedProvider?.id !== "external_command" && Boolean(selectedProvider?.apiKeyEnv);
+  const providerHasEndpoint =
+    selectedProvider?.id !== "external_command" && Boolean(selectedProvider?.baseUrl);
+
   const commandItems = [
     {
       id: "new",
@@ -3102,14 +3271,21 @@ export default function App() {
       label: "查看保存快照",
       hint: "列出当前文件最近保存前版本",
       disabled: busy || !path,
-      run: () => void handleLoadHistorySnapshots(),
+      run: () => openManagementPanel("history"),
     },
     {
       id: "git-status",
       label: "刷新 Git 状态",
       hint: "查看改动、diff 和最近提交",
       disabled: busy || !workspace,
-      run: () => void handleRefreshGitStatus(),
+      run: () => openManagementPanel("git"),
+    },
+    {
+      id: "settings",
+      label: "打开设置",
+      hint: "编辑本地偏好和 AI 配置",
+      disabled: busy,
+      run: () => openManagementPanel("settings"),
     },
     {
       id: "rename-tag",
@@ -3117,6 +3293,13 @@ export default function App() {
       hint: "级联更新工作区内 #tag 和 Front Matter tags",
       disabled: busy || !workspace,
       run: () => setTagRenameOpen(true),
+    },
+    {
+      id: "initialize-knowledge",
+      label: "初始化知识库",
+      hint: "创建 notes / sources / wiki 工作区结构",
+      disabled: busy || !workspace || workspace.knowledge.isInitialized,
+      run: () => void handleInitializeKnowledgeWorkspace(),
     },
     {
       id: "rebuild-knowledge-index",
@@ -3138,6 +3321,13 @@ export default function App() {
       hint: settings.assistantModel,
       disabled: assistantBusy,
       run: () => void handleSummarizeContext(),
+    },
+    {
+      id: "assistant-log",
+      label: "查看 AI 运行日志",
+      hint: `${assistantEvents.length.toLocaleString()} 条记录`,
+      disabled: false,
+      run: () => openManagementPanel("assistant-log"),
     },
     {
       id: "export-html",
@@ -3186,6 +3376,334 @@ export default function App() {
         onCancel={() => setTagRenameOpen(false)}
         onSubmit={(oldTag, newTag) => void handleRenameWorkspaceTag(oldTag, newTag)}
       />
+      {managementPanel && (
+        <div className="management-dialog-backdrop" role="presentation" onMouseDown={() => setManagementPanel(null)}>
+          <section
+            className="management-dialog"
+            role="dialog"
+            aria-label={managementPanelTitle(managementPanel)}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="management-dialog-header">
+              <strong>{managementPanelTitle(managementPanel)}</strong>
+              <button type="button" onClick={() => setManagementPanel(null)} aria-label="关闭管理面板">
+                ×
+              </button>
+            </header>
+
+            <div className="management-dialog-body">
+              {managementPanel === "history" && (
+                <div className="management-section" aria-label="保存快照">
+                  <div className="management-actions">
+                    <button type="button" onClick={() => void handleLoadHistorySnapshots()} disabled={busy || !path}>
+                      刷新快照
+                    </button>
+                  </div>
+                  {historySnapshots.length > 0 ? (
+                    <div className="management-list">
+                      {historySnapshots.map((snapshot) => (
+                        <div key={snapshot.path} className="management-row">
+                          <button
+                            type="button"
+                            className="management-row-main"
+                            onClick={() => void handleOpenHistorySnapshot(snapshot)}
+                            disabled={busy}
+                            title={snapshot.path}
+                          >
+                            {snapshot.name}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleRestoreHistorySnapshot(snapshot)}
+                            disabled={busy || !path}
+                          >
+                            恢复
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="empty-workspace">暂无快照。</p>
+                  )}
+                </div>
+              )}
+
+              {managementPanel === "git" && (
+                <div className="management-section" aria-label="Git 状态">
+                  <div className="management-actions">
+                    <button type="button" onClick={() => void handleRefreshGitStatus()} disabled={busy || !workspace}>
+                      刷新 Git 状态
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleGitCommit()}
+                      disabled={busy || !gitStatus?.isRepository || gitStatus.changes.length === 0}
+                    >
+                      提交改动
+                    </button>
+                  </div>
+                  {gitStatus?.isRepository ? (
+                    <>
+                      <p className="git-summary">
+                        分支：<strong>{gitStatus.branch ?? "detached"}</strong>
+                      </p>
+                      {gitStatus.changes.length > 0 ? (
+                        <ul className="git-change-list">
+                          {gitStatus.changes.map((change) => (
+                            <li key={`${change.status}:${change.path}`}>
+                              <strong>{change.status}</strong>
+                              <span>{change.path}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="empty-workspace">暂无未提交改动。</p>
+                      )}
+                      {gitStatus.currentFileDiff && (
+                        <details className="git-diff-panel">
+                          <summary>当前文件 diff</summary>
+                          <pre>{gitStatus.currentFileDiff}</pre>
+                        </details>
+                      )}
+                      {gitStatus.recentCommits.length > 0 && (
+                        <div className="git-log-panel">
+                          <span className="label">最近提交</span>
+                          {gitStatus.recentCommits.map((commit) => (
+                            <p key={commit.hash}>
+                              <strong>{commit.hash}</strong>
+                              <span>{commit.subject}</span>
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="empty-workspace">当前工作区不是 Git 仓库。</p>
+                  )}
+                </div>
+              )}
+
+              {managementPanel === "assistant-log" && (
+                <div className="management-section assistant-log-panel" aria-label="AI 运行日志">
+                  {assistantEvents.length > 0 ? (
+                    <ol className="assistant-events" aria-label="AI 助手运行日志">
+                      {assistantEvents.map((event, index) => (
+                        <li key={`${event.label}-${index}`} className={`assistant-event ${event.tone}`}>
+                          <strong>{event.label}</strong>
+                          <span>{event.detail}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="empty-workspace">暂无 AI 助手活动。</p>
+                  )}
+                </div>
+              )}
+
+              {managementPanel === "settings" && (
+                <div className="settings-content management-settings" aria-label="设置表单">
+                  <label>
+                    <span>默认视图</span>
+                    <select
+                      aria-label="默认视图"
+                      value={settings.defaultEditorMode}
+                      onChange={(event) => updateSetting({ defaultEditorMode: event.target.value as EditorMode })}
+                    >
+                      <option value="edit">编辑</option>
+                      <option value="split">分屏</option>
+                      <option value="preview">预览</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>搜索结果</span>
+                    <select
+                      aria-label="搜索结果"
+                      value={settings.searchResultLimit}
+                      onChange={(event) => updateSetting({ searchResultLimit: Number(event.target.value) })}
+                    >
+                      <option value={40}>40</option>
+                      <option value={80}>80</option>
+                      <option value={120}>120</option>
+                      <option value={200}>200</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>文件检查</span>
+                    <select
+                      aria-label="文件检查"
+                      value={settings.externalCheckSeconds}
+                      onChange={(event) => updateSetting({ externalCheckSeconds: Number(event.target.value) })}
+                    >
+                      <option value={2}>2 秒</option>
+                      <option value={5}>5 秒</option>
+                      <option value={10}>10 秒</option>
+                      <option value={30}>30 秒</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>AI 助手</span>
+                    <select
+                      aria-label="AI 助手提供方"
+                      value={primarySelectedProvider?.id ?? ""}
+                      onChange={(event) => {
+                        const nextProvider = assistantCatalog.providers.find(
+                          (provider) => provider.id === event.target.value,
+                        );
+                        if (!nextProvider) return;
+                        updateSetting({
+                          assistantProvider: nextProvider.id,
+                          assistantModel: nextProvider.models[0] ?? settings.assistantModel,
+                        });
+                      }}
+                    >
+                      {primaryAssistantProviders.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {assistantProviderLabel(provider)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>AI 模型</span>
+                    <select
+                      aria-label="AI 模型"
+                      value={
+                        selectedProvider?.id === "external_command"
+                          ? primarySelectedProvider?.models[0] ?? ""
+                          : settings.assistantModel
+                      }
+                      onChange={(event) =>
+                        updateSetting({
+                          assistantProvider: primarySelectedProvider?.id ?? settings.assistantProvider,
+                          assistantModel: event.target.value,
+                        })
+                      }
+                    >
+                      {primarySelectedProvider?.models.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {selectedProvider?.id !== "external_command" && selectedProvider && (
+                    <>
+                      {providerNeedsKey && (
+                        <label>
+                          <span>API Key</span>
+                          <input
+                            aria-label="AI API Key"
+                            type="password"
+                            value={settings.assistantApiKeys[selectedProvider.id] ?? ""}
+                            onChange={(event) =>
+                              updateSetting({
+                                assistantApiKeys: {
+                                  ...settings.assistantApiKeys,
+                                  [selectedProvider.id]: event.target.value,
+                                },
+                              })
+                            }
+                            placeholder={selectedProvider.apiKeyEnv ?? "API Key"}
+                          />
+                        </label>
+                      )}
+
+                      {providerHasEndpoint && (
+                        <label>
+                          <span>接口地址</span>
+                          <input
+                            aria-label="AI 接口地址"
+                            value={settings.assistantBaseUrls[selectedProvider.id] ?? selectedProvider.baseUrl ?? ""}
+                            onChange={(event) =>
+                              updateSetting({
+                                assistantBaseUrls: {
+                                  ...settings.assistantBaseUrls,
+                                  [selectedProvider.id]: event.target.value,
+                                },
+                              })
+                            }
+                            placeholder={selectedProvider.baseUrl ?? "https://.../chat/completions"}
+                          />
+                        </label>
+                      )}
+                    </>
+                  )}
+
+                  {externalCommandProvider && (
+                    <details className="advanced-settings-panel">
+                      <summary>高级 AI 设置</summary>
+                      <div className="advanced-settings-content">
+                        <p className="advanced-settings-note">
+                          当前高级模式：{selectedProvider?.id === "external_command" ? "外部命令" : "未启用"}
+                        </p>
+                        <button
+                          type="button"
+                          className="knowledge-action-button"
+                          onClick={() =>
+                            updateSetting({
+                              assistantProvider: externalCommandProvider.id,
+                              assistantModel: externalCommandProvider.models[0] ?? settings.assistantModel,
+                            })
+                          }
+                        >
+                          使用外部命令
+                        </button>
+
+                        <label>
+                          <span>命令路径</span>
+                          <input
+                            aria-label="外部命令路径"
+                            value={settings.assistantExternalCommand}
+                            onChange={(event) =>
+                              updateSetting({
+                                assistantExternalCommand: event.target.value,
+                              })
+                            }
+                            placeholder="例如 /absolute/path/to/assistant"
+                          />
+                        </label>
+
+                        <label>
+                          <span>超时时间</span>
+                          <select
+                            aria-label="外部命令超时时间"
+                            value={settings.assistantExternalTimeoutSeconds}
+                            onChange={(event) =>
+                              updateSetting({
+                                assistantExternalTimeoutSeconds: Number(event.target.value),
+                              })
+                            }
+                          >
+                            <option value={30}>30 秒</option>
+                            <option value={60}>60 秒</option>
+                            <option value={120}>120 秒</option>
+                            <option value={300}>300 秒</option>
+                            <option value={600}>600 秒</option>
+                          </select>
+                        </label>
+                      </div>
+                    </details>
+                  )}
+
+                  <button
+                    type="button"
+                    className="knowledge-action-button"
+                    onClick={() => void handleTestAssistantConnection()}
+                    disabled={busy}
+                  >
+                    测试 AI 连接
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
       <button
         type="button"
         className="floating-panel-toggle"
@@ -3199,8 +3717,6 @@ export default function App() {
       <div className="left-workspace" aria-hidden={!leftPanelOpen}>
         <LibraryRail
           busy={busy}
-          readOnly={readOnly}
-          isDirty={isDirty}
           workspace={workspace}
           leftPanelOpen={leftPanelOpen}
           activeSection={librarySection}
@@ -3210,24 +3726,7 @@ export default function App() {
             setWorkspaceSearchActive(false);
             setWorkspaceMatches([]);
           }}
-          onNew={() => void handleNew()}
-          onOpen={() => void handleOpen()}
-          onOpenWorkspace={() => void handleOpenWorkspace()}
-          onSave={() => void handleSave()}
-          onOpenDailyNote={() => void handleOpenDailyNote()}
-          onRename={() => void handleRenameCurrentFile()}
-          onImportAttachment={() => void handleImportAttachment()}
-          onCreateWikiPage={() => void handleCreateWikiPage()}
-          onOpenCommandPalette={() => {
-            setCommandPaletteQuery("");
-            setCommandPaletteOpen(true);
-          }}
-          onInitializeKnowledgeWorkspace={() => void handleInitializeKnowledgeWorkspace()}
-          onRebuildKnowledgeIndex={() => void handleRebuildKnowledgeIndex()}
-          onRefreshWorkspace={() => void handleRefreshWorkspace()}
-          onExportHtml={() => void handleExportHtml()}
-          onExportPdf={() => void handleExportPdf()}
-          onExportDocx={() => void handleExportDocx()}
+          onOpenSettings={() => openManagementPanel("settings")}
         />
 
         <WorkspaceListPanel
@@ -3238,15 +3737,11 @@ export default function App() {
           workspaceQuery={workspaceQuery}
           workspaceMatches={workspaceMatches}
           workspaceSearchActive={workspaceSearchActive}
-          historySnapshots={historySnapshots}
-          gitStatus={gitStatus}
           recentFiles={recentFiles}
           path={path}
           isLarge={isLarge}
           visibleStartLine={visibleStartLine}
           visibleEndLine={visibleEndLine}
-          settings={settings}
-          assistantCatalog={assistantCatalog}
           onWorkspaceQueryChange={(query) => {
             setWorkspaceQuery(query);
             setWorkspaceSearchActive(false);
@@ -3255,6 +3750,7 @@ export default function App() {
             }
           }}
           onWorkspaceSearch={() => void handleWorkspaceSearch()}
+          onOpenWorkspace={() => void handleOpenWorkspace()}
           onOpenWorkspaceFile={(file) => void handleOpenWorkspaceFile(file)}
           onCreateMarkdownInFolder={handleCreateMarkdownInFolder}
           onCreateFolder={handleCreateFolder}
@@ -3264,15 +3760,8 @@ export default function App() {
           onDeleteWorkspaceFile={(file) => void handleDeleteWorkspaceFile(file)}
           onRevealWorkspaceFile={(file) => void handleRevealWorkspaceFile(file)}
           onOpenSearchMatch={(match) => void handleOpenSearchMatch(match)}
-          onRefreshHistorySnapshots={() => void handleLoadHistorySnapshots()}
-          onOpenHistorySnapshot={(snapshot) => void handleOpenHistorySnapshot(snapshot)}
-          onRestoreHistorySnapshot={(snapshot) => void handleRestoreHistorySnapshot(snapshot)}
-          onRefreshGitStatus={() => void handleRefreshGitStatus()}
-          onGitCommit={() => void handleGitCommit()}
           onOpenRecentFile={(recentPath, name) => void openPath(recentPath, name)}
           onRemoveRecentFile={handleRemoveRecentFile}
-          onSettingsChange={handleSettingsChange}
-          onTestAssistantConnection={() => void handleTestAssistantConnection()}
         />
       </div>
 
@@ -3537,6 +4026,7 @@ export default function App() {
             onSaveChat={() => void handleSaveAssistantChat()}
             onInsertDraft={insertAssistantDraft}
             onReplaceSelection={replaceSelectionWithAssistantDraft}
+            onOpenLog={() => openManagementPanel("assistant-log")}
           />
         )}
       </aside>

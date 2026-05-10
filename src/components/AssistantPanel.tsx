@@ -17,6 +17,7 @@ type AssistantPanelProps = {
   onSaveChat: () => void;
   onInsertDraft: () => void;
   onReplaceSelection: () => void;
+  onOpenLog: () => void;
 };
 
 export function AssistantPanel({
@@ -36,6 +37,7 @@ export function AssistantPanel({
   onSaveChat,
   onInsertDraft,
   onReplaceSelection,
+  onOpenLog,
 }: AssistantPanelProps) {
   const canChat = !busy;
   const canRunWithContext = !busy && (hasCurrentContent || Boolean(queryContext && queryContext.items.length > 0));
@@ -49,7 +51,12 @@ export function AssistantPanel({
           <strong>AI 助手</strong>
           <span>{queryContext?.items.length.toLocaleString() ?? "0"} 条上下文</span>
         </div>
-        <small>{settings.assistantModel}</small>
+        <div className="assistant-header-actions">
+          <small>{settings.assistantModel}</small>
+          <button type="button" className="assistant-log-button" onClick={onOpenLog} aria-label="打开运行日志">
+            运行日志 {events.length.toLocaleString()}
+          </button>
+        </div>
       </header>
 
       <div className="assistant-message-list" aria-label="AI 对话">
@@ -169,21 +176,6 @@ export function AssistantPanel({
           </div>
         </form>
 
-        <details className="assistant-debug-log" open={events.length > 0}>
-          <summary>运行日志 {events.length.toLocaleString()}</summary>
-          {events.length > 0 ? (
-            <ol className="assistant-events" aria-label="AI 助手运行日志">
-              {events.map((event, index) => (
-                <li key={`${event.label}-${index}`} className={`assistant-event ${event.tone}`}>
-                  <strong>{event.label}</strong>
-                  <span>{event.detail}</span>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="knowledge-empty">暂无 AI 助手活动。</p>
-          )}
-        </details>
       </div>
     </aside>
   );

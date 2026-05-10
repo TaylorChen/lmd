@@ -516,6 +516,17 @@ async function pressAppShortcut(page: Page, key: string, options: { shift?: bool
   await page.keyboard.up(modifier);
 }
 
+async function runCommand(page: Page, commandLabel: string) {
+  await pressAppShortcut(page, "k");
+  await expect(page.getByRole("dialog", { name: "命令面板" })).toBeVisible();
+  await page.getByLabel("搜索命令").fill(commandLabel);
+  const escapedLabel = commandLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await page
+    .getByRole("dialog", { name: "命令面板" })
+    .getByRole("button", { name: new RegExp(`^${escapedLabel}`) })
+    .click();
+}
+
 test.beforeEach(async ({ page }) => {
   await installTauriMock(page);
   await page.goto("/");
@@ -526,7 +537,7 @@ test.beforeEach(async ({ page }) => {
 test("edits markdown and renders preview modes", async ({ page }) => {
   await expect(page.getByRole("tab", { name: "未命名" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "资料库分区" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "全部笔记" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "文件" })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "工作区笔记" })).toBeVisible();
   await expect(page.getByLabel("检查器标签").getByRole("button", { name: "预览" })).toHaveCount(0);
 
@@ -620,8 +631,8 @@ test("applies markdown toolbar shortcuts to the editor", async ({ page }) => {
 });
 
 test("supports daily notes, lightweight table tools, and git status", async ({ page }) => {
-  await page.getByRole("button", { name: "工作区" }).click();
-  await page.getByRole("button", { name: "今日笔记" }).click();
+  await page.getByRole("button", { name: "打开工作区" }).click();
+  await runCommand(page, "打开今日笔记");
   await expect(page.getByRole("tab", { name: /\.md$/ })).toBeVisible();
   await expect(page.locator(".cm-content")).toContainText("# Daily");
 
@@ -639,11 +650,12 @@ test("supports daily notes, lightweight table tools, and git status", async ({ p
   await page.getByRole("button", { name: "加列" }).click();
   await expect(page.getByText("已添加表格列。")).toBeVisible();
 
-  await page.getByText("Git", { exact: true }).click();
-  await expect(page.getByLabel("Git 状态")).toContainText("main");
-  await expect(page.getByLabel("Git 状态")).toContainText("alpha.md");
-  await expect(page.getByLabel("Git 状态")).toContainText("Initial commit");
-  await page.getByRole("button", { name: "提交改动" }).click();
+  await runCommand(page, "刷新 Git 状态");
+  const gitDialog = page.getByRole("dialog", { name: "Git 状态" });
+  await expect(gitDialog).toContainText("main");
+  await expect(gitDialog).toContainText("alpha.md");
+  await expect(gitDialog).toContainText("Initial commit");
+  await gitDialog.getByRole("button", { name: "提交改动" }).click();
   await page.getByRole("dialog", { name: "提交 Git 改动" }).getByLabel("提交信息").fill("Save daily note");
   await page.getByRole("dialog", { name: "提交 Git 改动" }).getByRole("button", { name: "提交" }).click();
   await expect(page.getByText("Git 提交已完成。")).toBeVisible();
@@ -653,7 +665,7 @@ test("supports daily notes, lightweight table tools, and git status", async ({ p
 });
 
 test("persists settings across reload", async ({ page }) => {
-  await page.getByText("设置", { exact: true }).click();
+  await page.getByRole("button", { name: "设置" }).click();
   await page.getByLabel("默认视图").selectOption("preview");
   await page.getByLabel("搜索结果").selectOption("120");
   await page.getByLabel("文件检查").selectOption("10");
@@ -667,7 +679,7 @@ test("persists settings across reload", async ({ page }) => {
 
   await page.reload();
 
-  await page.getByText("设置", { exact: true }).click();
+  await page.getByRole("button", { name: "设置" }).click();
   await expect(page.locator(".editor-frame")).toHaveCount(0);
   await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
   await expect(page.getByLabel("默认视图")).toHaveValue("preview");
@@ -708,20 +720,17 @@ test("saves and exports the current document", async ({ page }) => {
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
   await page.keyboard.type("# Saved title\n\nBody");
 
-  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await runCommand(page, "保存");
   await expect(page.getByText("已保存 untitled.md。")).toBeVisible();
   await expect(page.getByRole("tab", { name: "untitled.md" })).toBeVisible();
 
-  await page.getByText("更多").click();
-  await page.getByRole("button", { name: "导出 HTML" }).click();
+  await runCommand(page, "导出 HTML");
   await expect(page.getByText("已导出 HTML 到 untitled.html。")).toBeVisible();
 
-  await page.getByText("更多").click();
-  await page.getByRole("button", { name: "导出 PDF" }).click();
+  await runCommand(page, "导出 PDF");
   await expect(page.getByText("已导出 PDF 到 untitled.pdf。")).toBeVisible();
 
-  await page.getByText("更多").click();
-  await page.getByRole("button", { name: "导出 DOCX" }).click();
+  await runCommand(page, "导出 DOCX");
   await expect(page.getByText("已导出 DOCX 到 untitled.docx。")).toBeVisible();
 
   const calls = await page.evaluate(() => window.__LMD_TEST_CALLS__);
@@ -740,7 +749,7 @@ test("removes files from the recent list without deleting the document", async (
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
   await page.keyboard.type("# Recent title\n\nBody");
 
-  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await runCommand(page, "保存");
   await expect(page.getByText("已保存 untitled.md。")).toBeVisible();
 
   await page.getByRole("navigation", { name: "资料库分区" }).getByRole("button", { name: "最近" }).click();
@@ -758,7 +767,7 @@ test("removes files from the recent list without deleting the document", async (
 });
 
 test("opens workspace, searches, and opens a match", async ({ page }) => {
-  await page.getByRole("button", { name: "工作区" }).click();
+  await page.getByRole("button", { name: "打开工作区" }).click();
   await expect(page.getByText("已打开工作区，共 5 个文件。")).toBeVisible();
   await expect(page.getByLabel("工作区目录树")).toBeVisible();
   await expect(page.getByRole("button", { name: "▾ wiki" })).toBeVisible();
@@ -767,6 +776,7 @@ test("opens workspace, searches, and opens a match", async ({ page }) => {
   await page.getByLabel("搜索工作区").fill("needle");
   await page.getByLabel("搜索工作区").press("Enter");
   await expect(page.getByText("找到 1 条工作区匹配结果。")).toBeVisible();
+  await expect(page.locator(".search-result .search-highlight")).toHaveText("needle");
 
   await page.getByRole("button", { name: /needle match/ }).focus();
   await page.keyboard.press("Enter");
@@ -783,7 +793,7 @@ test("opens workspace, searches, and opens a match", async ({ page }) => {
 });
 
 test("opens the workspace file context menu", async ({ page }) => {
-  await page.getByRole("button", { name: "工作区" }).click();
+  await page.getByRole("button", { name: "打开工作区" }).click();
   const fileItem = page.locator(".file-list .file-item").filter({ hasText: "notes/topic.md" }).first();
   await fileItem.dispatchEvent("contextmenu", {
     button: 2,
@@ -801,7 +811,7 @@ test("opens the workspace file context menu", async ({ page }) => {
 });
 
 test("manages folders and moves workspace files from context menus", async ({ page }) => {
-  await page.getByRole("button", { name: "工作区" }).click();
+  await page.getByRole("button", { name: "打开工作区" }).click();
 
   const folderItem = page.locator(".file-tree-folder").filter({ hasText: "notes" }).first();
   await folderItem.dispatchEvent("contextmenu", {
@@ -856,7 +866,7 @@ test("opens workspace files in closable document tabs", async ({ page }) => {
   await expect(page.getByLabel("缺省页").getByRole("heading", { name: "没有打开的笔记" })).toBeVisible();
   await expect(page.locator(".document-heading")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "工作区" }).click();
+  await page.getByRole("button", { name: "打开工作区" }).click();
 
   await page.locator(".file-list .file-item").filter({ hasText: "alpha.md" }).focus();
   await page.keyboard.press("Enter");
@@ -882,11 +892,8 @@ test("opens workspace files in closable document tabs", async ({ page }) => {
 });
 
 test("renames tags across the workspace", async ({ page }) => {
-  await page.getByRole("button", { name: "工作区" }).click();
-  await page.getByText("更多").click();
-  await page.getByRole("button", { name: "命令面板" }).click();
-  await page.getByLabel("搜索命令").fill("重命名标签");
-  await page.getByRole("button", { name: /重命名标签/ }).click();
+  await page.getByRole("button", { name: "打开工作区" }).click();
+  await runCommand(page, "重命名标签");
 
   await expect(page.getByRole("dialog", { name: "重命名标签" })).toBeVisible();
   await page.getByLabel("原标签").fill("focus");
@@ -905,9 +912,9 @@ test("renames tags across the workspace", async ({ page }) => {
 });
 
 test("creates named notes, renames files, imports attachments, and uses command palette", async ({ page }) => {
-  await page.getByRole("button", { name: "工作区" }).click();
+  await page.getByRole("button", { name: "打开工作区" }).click();
 
-  await page.getByRole("button", { name: "新建" }).click();
+  await runCommand(page, "新建 Markdown");
   await expect(page.getByRole("dialog", { name: "新建 Markdown" })).toBeVisible();
   await page.getByLabel("文件名").fill("daily.md");
   await page.getByRole("button", { name: "创建" }).click();
@@ -924,8 +931,7 @@ test("creates named notes, renames files, imports attachments, and uses command 
   await expect(page.getByText("该文件已从磁盘中删除。")).toHaveCount(0);
 
   await page.locator(".cm-content").click();
-  await page.getByText("更多").click();
-  await page.getByRole("button", { name: "添加附件" }).click();
+  await runCommand(page, "添加附件");
   await expect(page.locator(".cm-content")).toContainText("![diagram](../attachments/diagram.png)");
 
   await page.keyboard.press(process.platform === "darwin" ? "Meta+K" : "Control+K");
@@ -943,12 +949,12 @@ test("shows a clear message when native workspace actions run in web preview", a
     window.__LMD_TEST_API__ = undefined;
   });
 
-  await page.getByRole("button", { name: "工作区" }).click();
+  await page.getByRole("button", { name: "打开工作区" }).click();
   await expect(page.getByText(/本地文件和工作区操作需要在 Tauri 桌面应用中使用/)).toBeVisible();
 });
 
 test("filters workspace files from the library rail", async ({ page }) => {
-  await page.getByRole("button", { name: "工作区" }).click();
+  await page.getByRole("button", { name: "打开工作区" }).click();
   const libraryNav = page.getByRole("navigation", { name: "资料库分区" });
 
   await libraryNav.getByRole("button", { name: "笔记", exact: true }).click();
@@ -966,7 +972,7 @@ test("filters workspace files from the library rail", async ({ page }) => {
   await expect(page.getByRole("button", { name: /wiki\/inbox\/draft\.md/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /wiki\/overview\.md/ })).toHaveCount(0);
 
-  await libraryNav.getByRole("button", { name: "全部笔记", exact: true }).click();
+  await libraryNav.getByRole("button", { name: "文件", exact: true }).click();
   await expect(page.getByRole("button", { name: /alpha\.md/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /sources\/source-doc\.md/ })).toBeVisible();
   await expect(page.locator(".file-kind").filter({ hasText: "资料" })).toBeVisible();
@@ -985,15 +991,12 @@ test("collapses and restores the note library", async ({ page }) => {
 });
 
 test("initializes a knowledge workspace", async ({ page }) => {
-  await page.getByRole("button", { name: "工作区" }).click();
-  await expect(page.getByText("标准工作区")).toBeVisible();
+  await page.getByRole("button", { name: "打开工作区" }).click();
+  await expect(page.locator(".workspace-mode").filter({ hasText: "本地" })).toBeVisible();
 
-  await page.getByText("更多").click();
-  await page.getByRole("button", { name: "初始化知识库" }).click();
+  await runCommand(page, "初始化知识库");
   await expect(page.getByText("知识库工作区已初始化。")).toBeVisible();
-  await expect(page.getByText("知识库工作区已就绪")).toBeVisible();
-  await page.getByText("更多").click();
-  await expect(page.getByRole("button", { name: "初始化知识库" })).toBeDisabled();
+  await expect(page.locator(".workspace-mode").filter({ hasText: "知识库" })).toBeVisible();
 
   const initCall = await page.evaluate(() =>
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "initialize_knowledge_workspace"),
@@ -1002,9 +1005,8 @@ test("initializes a knowledge workspace", async ({ page }) => {
 });
 
 test("shows document knowledge for initialized workspaces", async ({ page }) => {
-  await page.getByRole("button", { name: "工作区" }).click();
-  await page.getByText("更多").click();
-  await page.getByRole("button", { name: "初始化知识库" }).click();
+  await page.getByRole("button", { name: "打开工作区" }).click();
+  await runCommand(page, "初始化知识库");
 
   await page.locator(".file-list .file-item").first().focus();
   await page.keyboard.press("Enter");
@@ -1064,43 +1066,61 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
 });
 
 test("builds and saves an assistant draft", async ({ page }) => {
-  await page.getByRole("button", { name: "工作区" }).click();
-  await page.getByText("更多").click();
-  await page.getByRole("button", { name: "初始化知识库" }).click();
+  async function openAssistantLog() {
+    await page.getByRole("button", { name: "打开运行日志" }).click();
+    const dialog = page.getByRole("dialog", { name: "AI 运行日志" });
+    await expect(dialog).toBeVisible();
+    return dialog.getByRole("list", { name: "AI 助手运行日志" });
+  }
+
+  async function closeAssistantLog() {
+    await page.getByRole("dialog", { name: "AI 运行日志" }).getByRole("button", { name: "关闭管理面板" }).click();
+  }
+
+  await page.getByRole("button", { name: "打开工作区" }).click();
+  await runCommand(page, "初始化知识库");
   await page.locator(".file-list .file-item").first().focus();
   await page.keyboard.press("Enter");
   await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
   await expect(page.locator(".editor-frame")).toBeVisible();
   await page.getByLabel("检查器标签").getByRole("button", { name: "AI 助手" }).click();
   await expect(page.getByRole("complementary", { name: "检查器" })).toBeVisible();
-  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("上下文已加载");
-  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("2 条，来自 alpha.md");
+  let assistantLog = await openAssistantLog();
+  await expect(assistantLog).toContainText("上下文已加载");
+  await expect(assistantLog).toContainText("2 条，来自 alpha.md");
+  await closeAssistantLog();
 
-  await page.getByText("设置", { exact: true }).click();
+  await page.getByRole("button", { name: "设置" }).click();
   await page.getByText("高级 AI 设置").click();
   await page.getByRole("button", { name: "使用外部命令" }).click();
   await page.getByLabel("外部命令路径").fill("/tmp/lmd-assistant");
-  await page.getByText("设置", { exact: true }).click();
+  await page.getByRole("button", { name: "关闭管理面板" }).click();
 
   await page.getByRole("button", { name: "总结笔记" }).click();
   await expect(page.getByLabel("AI 对话")).toContainText("# alpha summary");
   await expect(page.getByText("引用来源 2")).toBeVisible();
   await expect(page.getByText("Overview context excerpt.")).toBeVisible();
   await expect(page.getByText("AI 草稿已生成。")).toHaveCount(0);
-  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("已请求 AI");
-  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("external_command / command-json-v1");
-  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("草稿已生成");
+  assistantLog = await openAssistantLog();
+  await expect(assistantLog).toContainText("已请求 AI");
+  await expect(assistantLog).toContainText("external_command / command-json-v1");
+  await expect(assistantLog).toContainText("草稿已生成");
+  await closeAssistantLog();
 
   await page.getByRole("button", { name: "保存为 Wiki 页面" }).click();
   await expect(page.getByText("已将 Wiki 草稿保存到 alpha-summary.md。")).toBeVisible();
   await expect(page.getByRole("navigation", { name: "资料库分区" }).getByRole("button", { name: "收件箱" })).toHaveClass(/active/);
   await expect(page.locator(".file-list .file-item").filter({ hasText: "alpha-summary.md" })).toBeVisible();
-  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("草稿已保存");
-  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("alpha-summary.md");
+  assistantLog = await openAssistantLog();
+  await expect(assistantLog).toContainText("草稿已保存");
+  await expect(assistantLog).toContainText("alpha-summary.md");
+  await closeAssistantLog();
 
   await page.getByRole("button", { name: "保存对话" }).click();
   await expect(page.getByText("已将 AI 对话保存到 alpha-summary.md。")).toBeVisible();
-  await expect(page.getByRole("list", { name: "AI 助手运行日志" })).toContainText("对话已保存");
+  assistantLog = await openAssistantLog();
+  await expect(assistantLog).toContainText("对话已保存");
+  await closeAssistantLog();
 
   const summarizeCall = await page.evaluate(() =>
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "summarize_query_context"),
