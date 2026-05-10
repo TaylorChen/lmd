@@ -14,6 +14,31 @@ export type TransclusionEntry = {
 
 export type TransclusionMap = Record<string, TransclusionEntry>;
 
+type HeadingEntry = {
+  level: number;
+  title: string;
+  slug: string;
+};
+
+type FootnoteEntry = {
+  id: string;
+  content: string;
+};
+
+type CalloutEntry = {
+  type: string;
+  title: string;
+  content: string;
+  folded: boolean;
+};
+
+type RenderContext = {
+  headings: HeadingEntry[];
+  footnotes: FootnoteEntry[];
+  callouts: CalloutEntry[];
+  marks: string[];
+};
+
 export function stripFrontmatter(content: string) {
   const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   if (!normalized.startsWith("---\n")) return content;
@@ -35,6 +60,218 @@ function highlightCode(code: string, language: string): string {
     }
   }
   return htmlEscape(code);
+}
+
+function stripInlineMarkdown(content: string) {
+  return content
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/#+\s*/g, "")
+    .trim();
+}
+
+function slugifyHeading(title: string, used: Map<string, number>) {
+  const base =
+    title
+      .toLowerCase()
+      .trim()
+      .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+      .replace(/\s+/g, "-") || "section";
+  const count = used.get(base) ?? 0;
+  used.set(base, count + 1);
+  return count === 0 ? base : `${base}-${count + 1}`;
+}
+
+function collectHeadings(source: string) {
+  const headings: HeadingEntry[] = [];
+  const used = new Map<string, number>();
+  let inFence = false;
+
+  for (const line of source.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+
+    const match = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+    if (!match) continue;
+
+    const title = stripInlineMarkdown(match[2]);
+    if (!title) continue;
+    headings.push({
+      level: match[1].length,
+      title,
+      slug: slugifyHeading(title, used),
+    });
+  }
+
+  return headings;
+}
+
+function extractFootnotes(source: string) {
+  const footnotes: FootnoteEntry[] = [];
+  const output: string[] = [];
+  const lines = source.split("\n");
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^\[\^([^\]\s]+)\]:\s*(.*)$/.exec(lines[index]);
+    if (!match) {
+      output.push(lines[index]);
+      continue;
+    }
+
+    const content = [match[2]];
+    while (index + 1 < lines.length && /^(?: {2,}|\t)/.test(lines[index + 1])) {
+      index += 1;
+      content.push(lines[index].replace(/^(?: {2,}|\t)/, ""));
+    }
+
+    footnotes.push({
+      id: match[1],
+      content: content.join("\n").trim(),
+    });
+  }
+
+  return { source: output.join("\n"), footnotes };
+}
+
+function replaceMarksOutsideFences(source: string, context: RenderContext) {
+  let inFence = false;
+  return source
+    .split("\n")
+    .map((line) => {
+      if (/^\s*```/.test(line)) {
+        inFence = !inFence;
+        return line;
+      }
+      if (inFence) return line;
+      return line.replace(/==([^=\n]+)==/g, (_match, value: string) => {
+        const index = context.marks.push(value.trim()) - 1;
+        return `LMD_MARK_${index}_`;
+      });
+    })
+    .join("\n");
+}
+
+function replaceCallouts(source: string, context: RenderContext) {
+  const lines = source.split("\n");
+  const output: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^>\s*\[!([A-Za-z][A-Za-z0-9_-]*)\]([+-]?)(?:\s+(.*))?\s*$/.exec(lines[index]);
+    if (!match) {
+      output.push(lines[index]);
+      continue;
+    }
+
+    const content: string[] = [];
+    while (index + 1 < lines.length && /^>\s?/.test(lines[index + 1])) {
+      index += 1;
+      content.push(lines[index].replace(/^>\s?/, ""));
+    }
+
+    const type = match[1].toLowerCase();
+    const calloutIndex =
+      context.callouts.push({
+        type,
+        title: match[3]?.trim() || type.toUpperCase(),
+        content: content.join("\n").trim(),
+        folded: match[2] === "-",
+      }) - 1;
+    output.push(`LMD_CALLOUT_${calloutIndex}_`);
+  }
+
+  return output.join("\n");
+}
+
+function prepareExtendedMarkdown(source: string) {
+  const context: RenderContext = {
+    headings: collectHeadings(source),
+    footnotes: [],
+    callouts: [],
+    marks: [],
+  };
+  const footnoteResult = extractFootnotes(source);
+  context.footnotes = footnoteResult.footnotes;
+
+  const byFootnoteId = new Map(context.footnotes.map((footnote, index) => [footnote.id, index]));
+  let prepared = footnoteResult.source.replace(/^\s*\[TOC\]\s*$/gim, "LMD_TOC_MARKER");
+  prepared = replaceCallouts(prepared, context);
+  prepared = replaceMarksOutsideFences(prepared, context);
+  prepared = prepared.replace(/\[\^([^\]\s]+)\]/g, (match, id: string) => {
+    const index = byFootnoteId.get(id);
+    return index === undefined ? match : `LMD_FOOTNOTE_REF_${index}_`;
+  });
+
+  return { source: prepared, context };
+}
+
+function renderToc(headings: HeadingEntry[]) {
+  if (headings.length === 0) {
+    return '<nav class="markdown-toc empty" aria-label="目录"><p>当前文档还没有标题。</p></nav>';
+  }
+
+  const items = headings
+    .map(
+      (heading) =>
+        `<li class="toc-level-${heading.level}"><a href="#${markdown.utils.escapeHtml(heading.slug)}">${markdown.utils.escapeHtml(heading.title)}</a></li>`,
+    )
+    .join("");
+  return `<nav class="markdown-toc" aria-label="目录"><strong>目录</strong><ol>${items}</ol></nav>`;
+}
+
+function renderFootnotes(footnotes: FootnoteEntry[]) {
+  if (footnotes.length === 0) return "";
+  const items = footnotes
+    .map((footnote, index) => {
+      const number = index + 1;
+      return `<li id="fn-${number}"><span>${markdown.renderInline(footnote.content || footnote.id)}</span> <a href="#fnref-${number}" class="footnote-backref" aria-label="返回正文">↩</a></li>`;
+    })
+    .join("");
+  return `<section class="footnotes" aria-label="脚注"><hr><ol>${items}</ol></section>`;
+}
+
+function renderCallout(callout: CalloutEntry) {
+  const title = markdown.utils.escapeHtml(callout.title);
+  const body = callout.content ? markdown.render(callout.content) : "";
+  if (callout.folded) {
+    return `<details class="markdown-callout callout-${markdown.utils.escapeHtml(callout.type)}"><summary>${title}</summary>${body}</details>`;
+  }
+  return `<aside class="markdown-callout callout-${markdown.utils.escapeHtml(callout.type)}"><strong>${title}</strong>${body}</aside>`;
+}
+
+function applyExtendedMarkdownHtml(html: string, context: RenderContext) {
+  let rendered = html;
+
+  for (const [index, heading] of context.headings.entries()) {
+    const escapedTitle = markdown.utils.escapeHtml(heading.title);
+    const headingPattern = new RegExp(
+      `<h${heading.level}>\\s*${escapedTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*</h${heading.level}>`,
+    );
+    rendered = rendered.replace(headingPattern, `<h${heading.level} id="${markdown.utils.escapeHtml(heading.slug)}">${escapedTitle}</h${heading.level}>`);
+    if (index > 200) break;
+  }
+
+  rendered = rendered.replace(/<p>LMD_TOC_MARKER<\/p>/g, renderToc(context.headings));
+  rendered = rendered.replace(/LMD_MARK_(\d+)_/g, (_match, rawIndex: string) => {
+    const value = context.marks[Number(rawIndex)] ?? "";
+    return `<mark>${markdown.utils.escapeHtml(value)}</mark>`;
+  });
+  rendered = rendered.replace(/LMD_FOOTNOTE_REF_(\d+)_/g, (_match, rawIndex: string) => {
+    const number = Number(rawIndex) + 1;
+    return `<sup id="fnref-${number}" class="footnote-ref"><a href="#fn-${number}">${number}</a></sup>`;
+  });
+  rendered = rendered.replace(/<p>LMD_CALLOUT_(\d+)_<\/p>/g, (_match, rawIndex: string) => {
+    const callout = context.callouts[Number(rawIndex)];
+    return callout ? renderCallout(callout) : "";
+  });
+
+  return `${rendered}${renderFootnotes(context.footnotes)}`;
 }
 
 const markdown: MarkdownIt = new MarkdownIt({
@@ -104,7 +341,8 @@ function transclusionKey(target: string) {
 }
 
 function renderEmbeddedMarkdown(content: string) {
-  return withWikiLinks(withBlockAnchors(markdown.render(stripFrontmatter(content))));
+  const { source, context } = prepareExtendedMarkdown(stripFrontmatter(content));
+  return withWikiLinks(withBlockAnchors(applyExtendedMarkdownHtml(markdown.render(source), context)));
 }
 
 function withTransclusions(html: string, transclusions: TransclusionMap = {}) {
@@ -134,7 +372,8 @@ function withWikiLinks(html: string) {
 }
 
 export function renderMarkdownBody(content: string, transclusions?: TransclusionMap) {
-  return withWikiLinks(withTransclusions(withBlockAnchors(markdown.render(stripFrontmatter(content))), transclusions));
+  const { source, context } = prepareExtendedMarkdown(stripFrontmatter(content));
+  return withWikiLinks(withTransclusions(withBlockAnchors(applyExtendedMarkdownHtml(markdown.render(source), context)), transclusions));
 }
 
 export function renderMarkdownDocument(title: string, content: string) {
@@ -152,6 +391,7 @@ export function renderMarkdownDocument(title: string, content: string) {
     th { background: #f6faf8; }
     code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; }
     code { background: #f6faf8; padding: 0.1em 0.32em; border: 1px solid #dce7e2; border-radius: 6px; }
+    mark { background: #fff2a8; padding: 0.05em 0.2em; border-radius: 4px; }
     pre { overflow: auto; padding: 14px; background: #f6faf8; border: 1px solid #dce7e2; border-radius: 8px; }
     pre code { border: 0; padding: 0; }
     blockquote { margin-left: 0; padding: 10px 14px; border-left: 4px solid #6d8f81; background: #f6faf8; color: #4c5d56; }
@@ -161,6 +401,10 @@ export function renderMarkdownDocument(title: string, content: string) {
     .task-list-item-checkbox { margin-right: 8px; }
     .katex-display { overflow-x: auto; overflow-y: hidden; }
     .mermaid { display: flex; justify-content: center; padding: 18px; background: #f6faf8; border: 1px solid #dce7e2; border-radius: 8px; }
+    .markdown-callout { margin: 0 0 1em; padding: 12px 14px; border-left: 4px solid #6d8f81; background: #f6faf8; border-radius: 8px; }
+    .markdown-toc { margin: 0 0 1.25em; padding: 12px 16px; background: #f6faf8; border: 1px solid #dce7e2; border-radius: 8px; }
+    .markdown-toc ol { margin: 8px 0 0; padding-left: 18px; }
+    .footnotes { margin-top: 2em; color: #5f6d67; font-size: 0.92em; }
     .plantuml-block { margin: 0 0 1em; padding: 12px; background: #f6faf8; border: 1px solid #dce7e2; border-radius: 8px; }
     .plantuml-block figcaption { margin-bottom: 8px; color: #6f7f78; font-size: 0.85em; }
     .plantuml-block pre { margin: 0; }

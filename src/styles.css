@@ -2368,6 +2368,13 @@ button:disabled {
   color: var(--body);
 }
 
+.markdown-preview mark {
+  padding: 0.05em 0.22em;
+  border-radius: 5px;
+  background: #fff0a8;
+  color: inherit;
+}
+
 .markdown-preview code {
   padding: 0.1em 0.32em;
   border: 1px solid var(--soft-line);
@@ -2378,6 +2385,7 @@ button:disabled {
 }
 
 .markdown-preview pre {
+  position: relative;
   overflow: auto;
   padding: 14px;
   border: 1px solid var(--soft-line);
@@ -2388,6 +2396,128 @@ button:disabled {
   padding: 0;
   border: 0;
   background: transparent;
+}
+
+.code-copy-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 8px;
+  border-color: var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--muted);
+  font-size: 0.75rem;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.markdown-preview pre:hover .code-copy-button,
+.code-copy-button:focus-visible {
+  opacity: 1;
+}
+
+.code-copy-button:hover:not(:disabled) {
+  background: var(--panel);
+  color: var(--accent-strong);
+}
+
+.markdown-callout {
+  margin: 0 0 1em;
+  padding: 12px 14px;
+  border: 1px solid var(--soft-line);
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel-muted);
+  color: var(--body);
+}
+
+.markdown-callout > strong,
+.markdown-callout > summary {
+  display: block;
+  margin-bottom: 0.45em;
+  color: var(--text);
+  font-weight: 760;
+}
+
+.markdown-callout > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-callout.callout-warning,
+.markdown-callout.callout-danger,
+.markdown-callout.callout-error {
+  border-left-color: #d26b4c;
+  background: #fff6f0;
+}
+
+.markdown-callout.callout-tip,
+.markdown-callout.callout-success {
+  border-left-color: #6d8f81;
+  background: #f5faf2;
+}
+
+.markdown-callout.callout-info,
+.markdown-callout.callout-note {
+  border-left-color: #7188b7;
+  background: #f4f7ff;
+}
+
+.markdown-toc {
+  margin: 0 0 1.25em;
+  padding: 12px 16px;
+  border: 1px solid var(--soft-line);
+  border-radius: 8px;
+  background: var(--panel-muted);
+}
+
+.markdown-toc > strong {
+  display: block;
+  margin-bottom: 0.5em;
+  color: var(--text);
+}
+
+.markdown-toc ol {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 1.25em;
+}
+
+.markdown-toc li {
+  margin: 0;
+}
+
+.markdown-toc .toc-level-3 {
+  margin-left: 1em;
+}
+
+.markdown-toc .toc-level-4,
+.markdown-toc .toc-level-5,
+.markdown-toc .toc-level-6 {
+  margin-left: 2em;
+}
+
+.footnotes {
+  margin-top: 2em;
+  color: var(--muted);
+  font-size: 0.92em;
+}
+
+.footnotes ol {
+  padding-left: 1.35em;
+}
+
+.footnote-ref {
+  margin-left: 0.12em;
+}
+
+.footnote-backref {
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .markdown-preview a {

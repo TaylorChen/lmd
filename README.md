@@ -13,7 +13,7 @@ LMD is a local-first Markdown note app for macOS, built with Tauri, React, CodeM
 - Source, reading, and split views controlled from the macOS `View` menu
 - Native `Insert`, `Format`, and `View` menus for Markdown operations and layout controls
 - On-demand document search via `Edit -> 在文档中查找` or `Cmd+F`
-- Markdown preview with Front Matter hiding, KaTeX math, Mermaid, PlantUML blocks, task lists, tables, and highlighted code
+- Markdown preview with Front Matter hiding, KaTeX math, Mermaid, PlantUML blocks, callouts, footnotes, `[TOC]`, task lists, tables, and highlighted code
 - Knowledge workspace protocol with `notes/`, `sources/`, `wiki/`, and `wiki/inbox/`
 - Wiki links, backlinks, block IDs, block references, tags, linting, and source context
 - AI assistant chat with DeepSeek, MiniMax, Kimi, 智谱 GLM, Ollama, LM Studio, or an external command
@@ -39,10 +39,14 @@ LMD is a local-first Markdown note app for macOS, built with Tauri, React, CodeM
 
 - YAML Front Matter is hidden in preview and export output
 - GFM-style tables, task lists, strikethrough, images, links, and autolinks
+- `==highlight==` text marks
+- Footnotes with return links
+- Obsidian-style callouts such as `> [!NOTE]`
+- `[TOC]` automatic document table of contents
 - KaTeX block and inline math
 - Mermaid diagrams
 - PlantUML / `puml` blocks with dedicated rendering style
-- Syntax-highlighted code blocks
+- Syntax-highlighted code blocks with copy buttons in preview
 - Block anchors such as `^block-id`
 - Wiki-style links such as `[[note]]` and `[[note#^block-id]]`
 

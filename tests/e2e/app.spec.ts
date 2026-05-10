@@ -544,7 +544,7 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await page.locator(".cm-content").click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
   await page.keyboard.type(
-    "---\ntitle: Preview title\ntags: [math, diagram]\n---\n\n# Preview title\n\nInline math $a^2 + b^2 = c^2$.\n\n$$E=mc^2$$\n\n```mermaid\ngraph TD\nA-->B\n```\n\n```plantuml\n@startuml\nAlice -> Bob: Hi\n@enduml\n```\n\n```javascript\nconst answer = 42;\n```\n\n| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n\n- [x] done item\n\nhttps://example.com",
+    "---\ntitle: Preview title\ntags: [math, diagram]\n---\n\n[TOC]\n\n# Preview title\n\nInline ==highlight text== and footnote[^note].\n\nInline math $a^2 + b^2 = c^2$.\n\n$$E=mc^2$$\n\n```mermaid\ngraph TD\nA-->B\n```\n\n```plantuml\n@startuml\nAlice -> Bob: Hi\n@enduml\n```\n\n```javascript\nconst answer = 42;\n```\n\n| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n\n- [x] done item\n\nhttps://example.com\n\n[^note]: Footnote detail\n\n> [!NOTE] Focus\n> Keep important context visible.",
   );
   await page.keyboard.type(
     Array.from({ length: 12 }, (_, index) => `\n\n## Long section ${index + 1}\n\nScrollable source line ${index + 1}`).join(""),
@@ -572,10 +572,10 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await pressAppShortcut(page, "\\");
   await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
   await expect(page.locator(".document-main .markdown-preview h1")).toHaveText("Preview title");
-  const firstPreviewBlockOffset = await page.locator(".document-main .markdown-preview h1").evaluate((heading) => {
-    const preview = heading.closest(".markdown-preview");
+  const firstPreviewBlockOffset = await page.locator(".document-main .markdown-preview .markdown-toc").evaluate((toc) => {
+    const preview = toc.closest(".markdown-preview");
     if (!preview) return Number.POSITIVE_INFINITY;
-    return heading.getBoundingClientRect().top - preview.getBoundingClientRect().top;
+    return toc.getBoundingClientRect().top - preview.getBoundingClientRect().top;
   });
   expect(firstPreviewBlockOffset).toBeLessThan(20);
   await expect(page.locator(".document-main .markdown-preview")).not.toContainText("tags: [math, diagram]");
@@ -583,6 +583,14 @@ test("edits markdown and renders preview modes", async ({ page }) => {
   await expect(page.locator(".document-main .markdown-preview .mermaid svg").first()).toBeVisible();
   await expect(page.locator(".document-main .markdown-preview .plantuml-block")).toContainText("Alice -> Bob");
   await expect(page.locator(".document-main .markdown-preview pre code .hljs-keyword").first()).toHaveText("const");
+  await expect(page.locator(".document-main .markdown-preview mark")).toHaveText("highlight text");
+  await expect(page.locator(".document-main .markdown-preview .markdown-callout")).toContainText("Focus");
+  await expect(page.locator(".document-main .markdown-preview .markdown-toc")).toContainText("Preview title");
+  await expect(page.locator(".document-main .markdown-preview .footnotes")).toContainText("Footnote detail");
+  const javascriptBlock = page.locator(".document-main .markdown-preview pre").filter({ hasText: "const answer = 42" });
+  await javascriptBlock.hover();
+  await javascriptBlock.getByRole("button", { name: "复制代码块" }).click();
+  await expect(javascriptBlock.getByRole("button", { name: "复制代码块" })).toHaveText("已复制");
   await expect(page.locator(".document-main .markdown-preview table")).toContainText("Alpha");
   await expect(page.locator(".document-main").getByRole("checkbox", { name: "done item" })).toBeChecked();
   await expect(page.locator(".document-main").getByRole("link", { name: "https://example.com" })).toBeVisible();
