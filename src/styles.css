@@ -129,7 +129,7 @@ button:disabled {
 .app-shell {
   position: relative;
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 320px;
+  grid-template-columns: 284px minmax(0, 1fr) 320px;
   grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
@@ -142,7 +142,7 @@ button:disabled {
 }
 
 .app-shell.right-closed {
-  grid-template-columns: 260px minmax(0, 1fr) 0;
+  grid-template-columns: 284px minmax(0, 1fr) 0;
 }
 
 .app-shell.workspace-dock-closed.right-closed {
@@ -168,7 +168,7 @@ button:disabled {
 
 .left-workspace {
   display: grid;
-  grid-template-columns: 44px 216px;
+  grid-template-columns: 44px 240px;
   grid-row: 1;
   min-width: 0;
   min-height: 0;
@@ -360,10 +360,28 @@ button:disabled {
   list-style: none;
 }
 
+.workspace-menu {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
 .workspace-menu summary {
-  max-width: 132px;
+  max-width: none;
+  gap: 4px;
   padding: 0 4px;
   font-weight: 650;
+}
+
+.workspace-menu-caret {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.workspace-menu-divider {
+  margin: 5px 2px;
+  border: 0;
+  border-top: 1px solid var(--line);
 }
 
 .workspace-more-menu summary {
@@ -379,6 +397,8 @@ button:disabled {
 }
 
 .workspace-menu .label {
+  min-width: 0;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -430,8 +450,10 @@ button:disabled {
 
 .resource-tree-header-actions {
   display: flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .workspace-header {
@@ -567,8 +589,9 @@ button:disabled {
 
 .workspace-sidebar .file-tree-folder:focus-visible,
 .workspace-sidebar .tree-file-item:focus-visible {
-  outline: 2px solid var(--accent-strong);
-  outline-offset: -2px;
+  outline: none;
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .workspace-sidebar .tree-file-name {
@@ -2634,7 +2657,7 @@ button:disabled {
 
   .app-shell,
   .app-shell.right-closed {
-    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-columns: 284px minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
   }
 

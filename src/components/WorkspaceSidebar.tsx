@@ -29,6 +29,7 @@ type WorkspaceSidebarProps = {
   onViewChange: (view: SidebarView) => void;
   onRevealComplete: () => void;
   onOpenWorkspace: () => void;
+  onCloseWorkspace: () => void;
   onRefreshWorkspace: () => void;
   onRevealWorkspace: () => void;
   onOpenSettings: () => void;
@@ -110,6 +111,7 @@ export function WorkspaceSidebar({
   onViewChange,
   onRevealComplete,
   onOpenWorkspace,
+  onCloseWorkspace,
   onRefreshWorkspace,
   onRevealWorkspace,
   onOpenSettings,
@@ -209,6 +211,29 @@ export function WorkspaceSidebar({
       window.removeEventListener("resize", closeMenus);
     };
   }, [fileContextMenu, folderContextMenu]);
+
+  // Native <details> menus only toggle on their summary; without this they stay stuck
+  // open. Dismiss any open workspace dropdown on outside click or Escape.
+  useEffect(() => {
+    const closeOpenMenus = (event: Event) => {
+      const target = event.target as Node | null;
+      const menus = sidebarRef.current?.querySelectorAll<HTMLDetailsElement>(
+        "details.workspace-menu[open], details.workspace-more-menu[open]",
+      );
+      menus?.forEach((menu) => {
+        if (event.type === "keydown" || !menu.contains(target)) menu.open = false;
+      });
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") closeOpenMenus(event);
+    };
+    document.addEventListener("pointerdown", closeOpenMenus);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", closeOpenMenus);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
 
   function updateExpanded(updater: (current: Set<string>) => Set<string>) {
     setExpandedFolders((current) => {
@@ -408,25 +433,22 @@ export function WorkspaceSidebar({
           <details className="workspace-menu">
             <summary aria-label="工作区菜单" title="工作区操作">
               <span className="label">{workspace ? workspace.rootPath.split(/[\\/]/).filter(Boolean).pop() : "工作区"}</span>
+              <span className="workspace-menu-caret" aria-hidden="true">▾</span>
             </summary>
             <div className="workspace-menu-actions" role="menu" aria-label="工作区操作">
               <button type="button" role="menuitem" onClick={onOpenWorkspace} disabled={busy}>打开工作区</button>
               <button type="button" role="menuitem" onClick={() => openTemporaryView("recent")}>最近文件</button>
               <button type="button" role="menuitem" onClick={onRefreshWorkspace} disabled={busy || !workspace}>刷新</button>
               <button type="button" role="menuitem" onClick={onRevealWorkspace} disabled={busy || !workspace}>在 Finder 中显示</button>
+              <button type="button" role="menuitem" className="danger" onClick={onCloseWorkspace} disabled={busy || !workspace}>关闭工作区</button>
+              <hr className="workspace-menu-divider" />
+              <button type="button" role="menuitem" onClick={expandAllFolders} disabled={busy || !workspace}>展开全部文件夹</button>
+              <button type="button" role="menuitem" onClick={() => updateExpanded(() => new Set())} disabled={busy || !workspace}>折叠全部文件夹</button>
               <button type="button" role="menuitem" onClick={onOpenSettings} disabled={busy}>设置</button>
             </div>
           </details>
           <div className="resource-tree-header-actions">
-            <button ref={searchTriggerRef} type="button" onClick={() => openTemporaryView("search")} disabled={!workspace} aria-label="搜索工作区" title="搜索工作区">搜索</button>
             <button type="button" onClick={() => onCreateMarkdown("")} disabled={busy || !workspace} aria-label="新建 Markdown" title="新建 Markdown">+</button>
-            <details className="workspace-more-menu">
-              <summary aria-label="更多工作区操作" title="更多工作区操作">…</summary>
-              <div className="workspace-menu-actions" role="menu" aria-label="更多工作区操作">
-                <button type="button" role="menuitem" onClick={expandAllFolders} disabled={busy || !workspace}>展开全部文件夹</button>
-                <button type="button" role="menuitem" onClick={() => updateExpanded(() => new Set())} disabled={busy || !workspace}>折叠全部文件夹</button>
-              </div>
-            </details>
             <button type="button" className="panel-toggle workspace-panel-toggle" onClick={onCollapse} disabled={busy} aria-label="隐藏笔记栏" title="隐藏笔记栏">◧</button>
           </div>
         </div>

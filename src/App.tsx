@@ -479,7 +479,6 @@ export default function App() {
   const moveTargetRef = useRef<WorkspaceFile | null>(null);
   const activeRibbonButtonRef = useRef<HTMLButtonElement | null>(null);
   const workspaceSidebarPreferenceRef = useRef<boolean | null>(readWorkspaceSidebarOpen());
-  const handledFirstWorkspaceRef = useRef(false);
   if (!initialTabRef.current) {
     initialTabRef.current = createUntitledTab();
   }
@@ -1615,6 +1614,9 @@ export default function App() {
       setWorkspaceMatches([]);
       setWorkspaceSearchActive(false);
       setSidebarView("tree");
+      // Deliberately opening a folder reveals the tree once as feedback, without writing
+      // the open preference — so the next launch still starts collapsed (writing-first).
+      openWorkspacePanelForReveal();
       setNotice({
         tone: "info",
         message: `已打开工作区，共 ${nextWorkspace.files.length.toLocaleString()} 个文件。`,
@@ -1624,6 +1626,17 @@ export default function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleCloseWorkspace() {
+    setWorkspace(null);
+    setKnowledgeIndexStatus(null);
+    setWorkspaceQuery("");
+    setWorkspaceMatches([]);
+    setWorkspaceSearchActive(false);
+    setSidebarView("tree");
+    window.localStorage.removeItem(storageKeys.lastWorkspaceRoot);
+    setNotice({ tone: "info", message: "已关闭工作区，下次启动不再自动加载。" });
   }
 
   async function handleRefreshWorkspace(showNotice = true) {
@@ -2914,15 +2927,6 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (!workspace || handledFirstWorkspaceRef.current) return;
-    handledFirstWorkspaceRef.current = true;
-    if (workspaceSidebarPreferenceRef.current === null) {
-      setSidebarView("tree");
-      setLeftPanelOpen(true);
-    }
-  }, [workspace]);
-
-  useEffect(() => {
     if (!nativeRuntime) return;
     let cancelled = false;
     const disposers: Array<() => void> = [];
@@ -3338,6 +3342,13 @@ export default function App() {
       hint: "选择文件夹作为笔记库",
       disabled: busy,
       run: () => void handleOpenWorkspace(),
+    },
+    {
+      id: "close-workspace",
+      label: "关闭工作区",
+      hint: "卸载当前笔记库，下次启动不再加载",
+      disabled: busy || !workspace,
+      run: () => handleCloseWorkspace(),
     },
     {
       id: "toggle-left-panel",
@@ -3887,6 +3898,7 @@ export default function App() {
           }}
           onSearch={() => void handleWorkspaceSearch()}
           onOpenWorkspace={() => void handleOpenWorkspace()}
+          onCloseWorkspace={handleCloseWorkspace}
           onRefreshWorkspace={() => void handleRefreshWorkspace()}
           onRevealWorkspace={() => void handleRevealWorkspace()}
           onOpenSettings={() => openManagementPanel("settings")}

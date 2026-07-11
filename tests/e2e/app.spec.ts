@@ -670,14 +670,14 @@ test("keeps a 44px Ribbon while the workspace dock opens responsively", async ({
   await page.setViewportSize({ width: 1280, height: 800 });
   await expect.poll(gridColumns).toBe("44px 916px 320px");
   await filesButton.click();
-  await expect.poll(gridColumns).toBe("260px 700px 320px");
+  await expect.poll(gridColumns).toBe("284px 676px 320px");
   await filesButton.click();
   await expect.poll(gridColumns).toBe("44px 916px 320px");
 
   await page.setViewportSize({ width: 1024, height: 800 });
   await expect.poll(gridColumns).toBe("44px 980px");
   await filesButton.click();
-  await expect.poll(gridColumns).toBe("260px 764px");
+  await expect.poll(gridColumns).toBe("284px 740px");
   await expect(page.locator(".right-companion")).toHaveCSS("display", "none");
   await filesButton.click();
   await expect.poll(gridColumns).toBe("44px 980px");
@@ -1254,6 +1254,19 @@ test("jumps to a workspace file from the command palette", async ({ page }) => {
   await fileEntry.click();
 
   await expect(page.getByRole("tab", { name: "topic.md" })).toBeVisible();
+});
+
+test("closes the workspace and forgets it for the next launch", async ({ page }) => {
+  await openWorkspace(page);
+  await expect(page.getByRole("treeitem", { name: "alpha.md", exact: true })).toBeVisible();
+
+  await runCommand(page, "关闭工作区");
+
+  await expect(page.getByRole("treeitem", { name: "alpha.md", exact: true })).toHaveCount(0);
+  await expect(page.getByText(/打开文件夹以浏览笔记/)).toBeVisible();
+  await expect(
+    page.evaluate(() => window.localStorage.getItem("lmd:last-workspace-root")),
+  ).resolves.toBeNull();
 });
 
 test("shows a clear message when native workspace actions run in web preview", async ({ page }) => {
