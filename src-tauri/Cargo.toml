@@ -1,6 +1,6 @@
 [package]
 name = "lmd"
-version = "0.1.0"
+version = "0.1.1"
 description = "A native Markdown editor for large documents"
 authors = ["LMD"]
 edition = "2021"
