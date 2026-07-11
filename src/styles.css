@@ -129,7 +129,7 @@ button:disabled {
 .app-shell {
   position: relative;
   display: grid;
-  grid-template-columns: 284px minmax(0, 1fr) 320px;
+  grid-template-columns: 284px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
@@ -138,22 +138,13 @@ button:disabled {
 }
 
 .app-shell.workspace-dock-closed {
-  grid-template-columns: 44px minmax(0, 1fr) 320px;
-}
-
-.app-shell.right-closed {
-  grid-template-columns: 284px minmax(0, 1fr) 0;
-}
-
-.app-shell.workspace-dock-closed.right-closed {
-  grid-template-columns: 44px minmax(0, 1fr) 0;
+  grid-template-columns: 44px minmax(0, 1fr);
 }
 
 /* Writing focus mode: collapse both side rails and fade the tabs/toolbar so only the
    text is left. Move the mouse or press Escape to bring the chrome back. */
-.app-shell.writing,
-.app-shell.workspace-dock-closed.right-closed.writing {
-  grid-template-columns: 0 minmax(0, 1fr) 0;
+.app-shell.writing {
+  grid-template-columns: 0 minmax(0, 1fr);
 }
 
 .app-shell.writing .document-tabs,
@@ -277,18 +268,6 @@ button:disabled {
   display: inline-flex;
 }
 
-.right-panel-restore {
-  right: 0;
-  left: auto;
-  border-right: 0;
-  border-left: 1px solid var(--line);
-  border-radius: 10px 0 0 10px;
-}
-
-.right-closed .right-panel-restore {
-  display: inline-flex;
-}
-
 .sidebar,
 .workspace-sidebar {
   display: flex;
@@ -318,13 +297,6 @@ button:disabled {
 }
 
 .workspace-panel-toggle {
-  border-color: var(--line);
-  background: var(--panel-muted);
-  font-size: 1rem;
-}
-
-.inspector-panel-toggle {
-  flex: 0 0 auto;
   border-color: var(--line);
   background: var(--panel-muted);
   font-size: 1rem;
@@ -814,6 +786,7 @@ button:disabled {
 }
 
 .editor-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
   grid-row: 1;
@@ -821,6 +794,140 @@ button:disabled {
   height: 100%;
   overflow: hidden;
   padding: 0;
+}
+
+.utility-launcher {
+  position: absolute;
+  z-index: 8;
+  top: 8px;
+  right: 12px;
+  display: flex;
+  gap: 4px;
+}
+
+.utility-launcher button {
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid var(--soft-line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.utility-launcher button:hover,
+.utility-launcher button[aria-expanded="true"] {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.utility-surface {
+  position: absolute;
+  z-index: 18;
+  top: 44px;
+  right: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.outline-popover {
+  width: min(260px, calc(100vw - 24px));
+  max-height: min(520px, calc(100vh - 64px));
+}
+
+.outline-popover .document-outline {
+  max-height: inherit;
+  overflow: auto;
+}
+
+.overlay-inspector {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(360px, 90vw);
+  max-height: calc(100vh - 64px);
+}
+
+.utility-surface-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.utility-surface-header button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.utility-surface-content {
+  min-height: 0;
+  overflow: auto;
+}
+
+.assistant-drawer-backdrop {
+  position: fixed;
+  z-index: 19;
+  inset: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.assistant-drawer {
+  position: fixed;
+  z-index: 20;
+  top: 0;
+  right: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(400px, 90vw);
+  height: 100vh;
+  max-height: none;
+  border-width: 0 0 0 1px;
+  border-radius: 0;
+}
+
+.assistant-drawer-content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.assistant-more-actions {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.assistant-more-actions summary {
+  cursor: pointer;
+}
+
+.assistant-more-actions > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.assistant-more-actions button {
+  min-height: 30px;
+  border: 1px solid var(--soft-line);
+  border-radius: 7px;
+  background: var(--panel-muted);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.assistant-composer-bar {
+  justify-content: flex-end;
 }
 
 .document-tabs {
@@ -1519,8 +1626,7 @@ button:disabled {
 
 .editor-frame,
 .markdown-preview,
-.knowledge-panel,
-.inspector-rail {
+.knowledge-panel {
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -1532,54 +1638,6 @@ button:disabled {
 
 .editor-frame {
   overflow: auto;
-}
-
-.inspector-rail {
-  display: grid;
-  background: var(--panel);
-}
-
-.right-companion {
-  grid-template-rows: auto minmax(0, 1fr);
-  grid-row: 1;
-  height: 100%;
-  margin: 0;
-  border-left: 1px solid var(--line);
-}
-
-.right-closed .right-companion {
-  pointer-events: none;
-  opacity: 0;
-  overflow: hidden;
-}
-
-.inspector-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  padding: 16px 16px 0;
-}
-
-.companion-tabs {
-  min-width: 0;
-  justify-self: stretch;
-}
-
-.companion-tabs button {
-  flex: 1 1 0;
-}
-
-.inspector-rail > .markdown-preview,
-.inspector-rail > .knowledge-panel,
-.inspector-rail > .assistant-chat-panel {
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.inspector-rail > .markdown-preview {
-  padding: 24px;
 }
 
 .markdown-preview {
@@ -2668,27 +2726,21 @@ button:disabled {
     min-width: 900px;
   }
 
-  .app-shell,
-  .app-shell.right-closed {
+  .app-shell {
     grid-template-columns: 284px minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
   }
 
-  .app-shell.workspace-dock-closed,
-  .app-shell.workspace-dock-closed.right-closed {
+  .app-shell.workspace-dock-closed {
     grid-template-columns: 44px minmax(0, 1fr);
   }
 
   .app-shell.writing {
-    grid-template-columns: 0 minmax(0, 1fr) 0;
+    grid-template-columns: 0 minmax(0, 1fr);
   }
 
   .document-workspace {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .right-companion {
-    display: none;
   }
 
   .document-main.split {

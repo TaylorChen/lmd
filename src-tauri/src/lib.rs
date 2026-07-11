@@ -261,7 +261,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                     &checked_app_menu_item(app, "view-source", "源码模式", None)?,
                     &PredefinedMenuItem::separator(app)?,
                     &checked_app_menu_item(app, "toggle-left-panel", "折叠/展开左侧边栏", None)?,
-                    &checked_app_menu_item(app, "toggle-right-panel", "折叠/展开右侧边栏", None)?,
+                    &checked_app_menu_item(app, "toggle-right-panel", "显示/隐藏 AI 助手", None)?,
                     &PredefinedMenuItem::separator(app)?,
                     &checked_app_menu_item(app, "toggle-feature-area", "显示/隐藏功能区", None)?,
                     &PredefinedMenuItem::separator(app)?,

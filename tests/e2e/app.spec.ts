@@ -614,6 +614,32 @@ test("shows native drop feedback only while dragging", async ({ page }) => {
   await expect(page.getByRole("status", { name: "文件拖放" })).toHaveCount(0);
 });
 
+test("starts without a persistent inspector and exposes contextual utilities", async ({ page }) => {
+  await expect(page.getByRole("complementary", { name: "检查器" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "打开大纲" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "打开 AI 助手" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "打开知识" })).toHaveCount(0);
+});
+
+test("opens outline as a dismissible popover", async ({ page }) => {
+  const trigger = page.getByRole("button", { name: "打开大纲" });
+  await trigger.click();
+  await expect(page.getByRole("dialog", { name: "文档大纲" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "文档大纲" })).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
+test("opens AI as an overlay without resizing the editor", async ({ page }) => {
+  const before = await page.locator(".editor-pane").evaluate((node) => node.getBoundingClientRect().width);
+  await page.getByRole("button", { name: "打开 AI 助手" }).click();
+  await expect(page.getByRole("dialog", { name: "AI 助手" })).toBeVisible();
+  const after = await page.locator(".editor-pane").evaluate((node) => node.getBoundingClientRect().width);
+  expect(after).toBe(before);
+  await expect(page.locator(".assistant-drawer-backdrop")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(page.getByRole("button", { name: "+" })).toHaveCount(0);
+});
+
 test("opens a dropped folder and all dropped markdown files", async ({ page }) => {
   await page.evaluate(() => window.__LMD_TEST_DROP_EVENT__?.({
     type: "drop",
@@ -762,24 +788,24 @@ test("keeps a 44px Ribbon while the workspace dock opens responsively", async ({
   const gridColumns = () => shell.evaluate((node) => getComputedStyle(node).gridTemplateColumns);
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  await expect.poll(gridColumns).toBe("44px 916px 320px");
+  await expect.poll(gridColumns).toBe("44px 1236px");
   await filesButton.click();
-  await expect.poll(gridColumns).toBe("284px 676px 320px");
+  await expect.poll(gridColumns).toBe("284px 996px");
   await filesButton.click();
-  await expect.poll(gridColumns).toBe("44px 916px 320px");
+  await expect.poll(gridColumns).toBe("44px 1236px");
 
   await page.setViewportSize({ width: 1024, height: 800 });
   await expect.poll(gridColumns).toBe("44px 980px");
   await filesButton.click();
   await expect.poll(gridColumns).toBe("284px 740px");
-  await expect(page.locator(".right-companion")).toHaveCSS("display", "none");
+  await expect(page.getByRole("complementary", { name: "检查器" })).toHaveCount(0);
   await filesButton.click();
   await expect.poll(gridColumns).toBe("44px 980px");
 
   await page.locator(".cm-content").click();
   await page.keyboard.type("focus");
   await expect(shell).toHaveClass(/writing/);
-  await expect.poll(gridColumns).toBe("0px 1024px 0px");
+  await expect.poll(gridColumns).toBe("0px 1024px");
   await expect(leftWorkspace).toHaveAttribute("aria-hidden", "true");
   await expect(leftWorkspace).toHaveAttribute("inert", "");
   await expect(page.getByRole("navigation", { name: "工作区工具" })).toHaveCount(0);
@@ -793,16 +819,14 @@ test("keeps a 44px Ribbon while the workspace dock opens responsively", async ({
   await expect(ribbon).toBeVisible();
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.getByRole("button", { name: "隐藏检查器" }).click();
   await expect(shell).toHaveClass(/workspace-dock-closed/);
-  await expect(shell).toHaveClass(/right-closed/);
   await page.locator(".cm-content").click();
   await page.keyboard.type(" combined");
   await expect(shell).toHaveClass(/writing/);
-  await expect.poll(gridColumns).toBe("0px 1280px 0px");
+  await expect.poll(gridColumns).toBe("0px 1280px");
 
   await page.setViewportSize({ width: 1024, height: 800 });
-  await expect.poll(gridColumns).toBe("0px 1024px 0px");
+  await expect.poll(gridColumns).toBe("0px 1024px");
 });
 
 test("edits markdown and renders preview modes", async ({ page }) => {
@@ -921,7 +945,7 @@ test("uses one compact workspace sidebar with on-demand search and recent files"
   await page.setViewportSize({ width: 1024, height: 800 });
   const narrowGrid = await page.locator(".app-shell").evaluate((node) => getComputedStyle(node).gridTemplateColumns);
   expect(narrowGrid.split(" ")[0]).toBe("284px");
-  await expect(page.locator(".right-companion")).toHaveCSS("display", "none");
+  await expect(page.getByRole("complementary", { name: "检查器" })).toHaveCount(0);
 });
 
 test("reveals nested files and supports keyboard tree navigation", async ({ page }) => {
@@ -1053,7 +1077,7 @@ test("persists settings across reload", async ({ page }) => {
 });
 
 test("allows assistant chat without knowledge context", async ({ page }) => {
-  await page.getByLabel("检查器标签").getByRole("button", { name: "AI 助手" }).click();
+  await page.getByRole("button", { name: "打开 AI 助手" }).click();
   const sendButton = page.getByRole("button", { name: "发送" });
 
   await expect(sendButton).toBeDisabled();
@@ -1157,8 +1181,8 @@ test("opens workspace, searches, and opens a match", async ({ page }) => {
   await expect(page.getByRole("tab", { name: "alpha.md" })).toBeVisible();
   await expect(page.getByRole("search", { name: "文档查找" })).toBeVisible();
   await expect(page.locator(".cm-content")).toContainText("Opened from workspace.");
-  await page.getByLabel("检查器标签").getByRole("button", { name: "大纲" }).click();
-  await expect(page.getByLabel("文档大纲").getByRole("button", { name: /Alpha/ })).toBeVisible();
+  await page.getByRole("button", { name: "打开大纲" }).click();
+  await expect(page.getByRole("dialog", { name: "文档大纲" }).getByRole("button", { name: /Alpha/ })).toBeVisible();
 
   const searchCall = await page.evaluate(() =>
     window.__LMD_TEST_CALLS__?.find((call) => call.command === "search_workspace"),
@@ -1408,16 +1432,13 @@ test("collapses and restores the note library", async ({ page }) => {
   await expect(filesButton).toHaveAttribute("aria-pressed", "true");
 });
 
-test("collapses and restores the inspector panel", async ({ page }) => {
-  await expect(page.getByRole("complementary", { name: "检查器" })).toBeVisible();
+test("keeps on-demand utilities mutually exclusive", async ({ page }) => {
+  await page.getByRole("button", { name: "打开大纲" }).click();
+  await expect(page.getByRole("dialog", { name: "文档大纲" })).toBeVisible();
 
-  await page.getByRole("button", { name: "隐藏检查器" }).click();
-  await expect(page.locator(".app-shell")).toHaveClass(/right-closed/);
-  await expect(page.getByRole("button", { name: "显示检查器" })).toBeVisible();
-
-  await page.getByRole("button", { name: "显示检查器" }).click();
-  await expect(page.locator(".app-shell")).toHaveClass(/right-open/);
-  await expect(page.getByRole("complementary", { name: "检查器" })).toBeVisible();
+  await page.getByRole("button", { name: "打开 AI 助手" }).click();
+  await expect(page.getByRole("dialog", { name: "文档大纲" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "AI 助手" })).toBeVisible();
 });
 
 test("initializes a knowledge workspace", async ({ page }) => {
@@ -1441,7 +1462,8 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
   await page.keyboard.press("Enter");
   await expect(page.getByRole("tab", { name: "alpha.md" })).toBeVisible();
   await pressAppShortcut(page, "\\");
-  await page.getByLabel("检查器标签").getByRole("button", { name: "知识" }).click();
+  await page.getByRole("button", { name: "打开知识" }).click();
+  await expect(page.getByRole("dialog", { name: "知识" })).toBeVisible();
 
   await expect(page.locator(".knowledge-link-item span").filter({ hasText: "wiki/overview.md" }).first()).toBeVisible();
   await pressAppShortcut(page, "E");
@@ -1496,7 +1518,9 @@ test("shows document knowledge for initialized workspaces", async ({ page }) => 
 
 test("builds and saves an assistant draft", async ({ page }) => {
   async function openAssistantLog() {
-    await page.getByRole("button", { name: "打开运行日志" }).click();
+    const logButton = page.getByRole("button", { name: "打开运行日志" });
+    if (!(await logButton.isVisible())) await page.getByText("更多", { exact: true }).click();
+    await logButton.click();
     const dialog = page.getByRole("dialog", { name: "AI 运行日志" });
     await expect(dialog).toBeVisible();
     return dialog.getByRole("list", { name: "AI 助手运行日志" });
@@ -1512,12 +1536,13 @@ test("builds and saves an assistant draft", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(page.locator(".document-main .markdown-preview")).toBeVisible();
   await expect(page.locator(".editor-frame")).toBeVisible();
-  await page.getByLabel("检查器标签").getByRole("button", { name: "AI 助手" }).click();
-  await expect(page.getByRole("complementary", { name: "检查器" })).toBeVisible();
+  await page.getByRole("button", { name: "打开 AI 助手" }).click();
+  await expect(page.getByRole("dialog", { name: "AI 助手" })).toBeVisible();
   let assistantLog = await openAssistantLog();
   await expect(assistantLog).toContainText("上下文已加载");
   await expect(assistantLog).toContainText("2 条，来自 alpha.md");
   await closeAssistantLog();
+  await page.getByRole("dialog", { name: "AI 助手" }).getByRole("button", { name: "关闭 AI 助手" }).click();
 
   await page.getByLabel("工作区菜单").click();
   await page.getByRole("menuitem", { name: "设置" }).click();
@@ -1525,6 +1550,7 @@ test("builds and saves an assistant draft", async ({ page }) => {
   await page.getByRole("button", { name: "使用外部命令" }).click();
   await page.getByLabel("外部命令路径").fill("/tmp/lmd-assistant");
   await page.getByRole("button", { name: "关闭管理面板" }).click();
+  await page.getByRole("button", { name: "打开 AI 助手" }).click();
 
   await page.getByRole("button", { name: "总结笔记" }).click();
   await expect(page.getByLabel("AI 对话")).toContainText("# alpha summary");

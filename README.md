@@ -68,13 +68,15 @@ LMD moves editing controls out of the document canvas and into native menus.
   - inline math, comments, code blocks
 - `View`
   - source mode, reading mode, vertical split, horizontal split
-  - left/right sidebar visibility
+  - left workspace visibility and on-demand AI assistant
   - feature area visibility
   - navigation, zoom, reload, and developer tools
 - `Edit`
   - `在文档中查找` with `Cmd+F`
 
 The checked state in the `View` menu is synchronized from the actual app state.
+
+Document utilities stay out of the layout until requested: use the compact controls at the upper-right of the editor for a 260px outline popover, a contextual knowledge inspector, or a 400px overlay AI drawer. Only one utility is open at a time; Escape closes it and restores focus to its trigger. The AI drawer keeps Summary, Polish, and Todos as primary actions, with Title, Outline, Continue, and Run Log under More.
 
 ### Workspace and Knowledge
 

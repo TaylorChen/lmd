@@ -48,14 +48,11 @@ export function AssistantPanel({
     <aside className="assistant-chat-panel" aria-label="AI 助手面板">
       <header className="assistant-chat-header">
         <div>
-          <strong>AI 助手</strong>
+          <strong>当前上下文</strong>
           <span>{queryContext?.items.length.toLocaleString() ?? "0"} 条上下文</span>
         </div>
         <div className="assistant-header-actions">
           <small>{settings.assistantModel}</small>
-          <button type="button" className="assistant-log-button" onClick={onOpenLog} aria-label="打开运行日志">
-            运行日志 {events.length.toLocaleString()}
-          </button>
         </div>
       </header>
 
@@ -95,16 +92,18 @@ export function AssistantPanel({
           <button type="button" onClick={() => onRunTask("todos")} disabled={!canRunWithContext}>
             提取待办
           </button>
-          <button type="button" onClick={() => onRunTask("title")} disabled={!canRunWithContext}>
-            生成标题
-          </button>
-          <button type="button" onClick={() => onRunTask("outline")} disabled={!canRunWithContext}>
-            生成大纲
-          </button>
-          <button type="button" onClick={() => onRunTask("continue")} disabled={!canRunWithContext}>
-            续写
-          </button>
         </div>
+        <details className="assistant-more-actions">
+          <summary>更多</summary>
+          <div>
+            <button type="button" onClick={() => onRunTask("title")} disabled={!canRunWithContext}>生成标题</button>
+            <button type="button" onClick={() => onRunTask("outline")} disabled={!canRunWithContext}>生成大纲</button>
+            <button type="button" onClick={() => onRunTask("continue")} disabled={!canRunWithContext}>续写</button>
+            <button type="button" onClick={onOpenLog} aria-label="打开运行日志">
+              运行日志 {events.length.toLocaleString()}
+            </button>
+          </div>
+        </details>
 
         {draft && (
           <div className="assistant-draft-actions" aria-label="AI 回复操作">
@@ -161,10 +160,6 @@ export function AssistantPanel({
             rows={3}
           />
           <div className="assistant-composer-bar">
-            <button type="button" className="assistant-plus-button" disabled>
-              +
-            </button>
-            <span>{settings.assistantModel}</span>
             <button
               type="submit"
               className="assistant-send-button"

@@ -4,11 +4,13 @@ import { foldAll, foldCode, unfoldAll, unfoldCode } from "@codemirror/language";
 import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { listen } from "@tauri-apps/api/event";
-import { AssistantPanel } from "./components/AssistantPanel";
 import { CommandPalette } from "./components/CommandPalette";
-import { DocumentOutline } from "./components/DocumentOutline";
-import { EditorToolbar, type MarkdownAction } from "./components/EditorToolbar";
+import { AssistantDrawer } from "./components/AssistantDrawer";
+import { AssistantPanel } from "./components/AssistantPanel";
 import { KnowledgePanel } from "./components/KnowledgePanel";
+import { OutlinePopover } from "./components/OutlinePopover";
+import { OverlayInspector } from "./components/OverlayInspector";
+import { EditorToolbar, type MarkdownAction } from "./components/EditorToolbar";
 import { MarkdownPreview } from "./components/MarkdownPreview";
 import { NameDialog, type NameDialogState } from "./components/NameDialog";
 import { NativeDropOverlay } from "./components/NativeDropOverlay";
@@ -16,6 +18,7 @@ import { NoticeStack } from "./components/NoticeStack";
 import { TagRenameDialog } from "./components/TagRenameDialog";
 import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import { WorkspaceRibbon } from "./components/WorkspaceRibbon";
+import { UtilityLauncher, type ActiveUtility } from "./components/UtilityLauncher";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { createEditorTheme, useEditorExtensions } from "./hooks/useEditorExtensions";
 import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
@@ -486,6 +489,9 @@ export default function App() {
   const directoryTargetRef = useRef<DirectoryTarget>({ directory: "" });
   const moveTargetRef = useRef<WorkspaceFile | null>(null);
   const activeRibbonButtonRef = useRef<HTMLButtonElement | null>(null);
+  const outlineTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const knowledgeTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const assistantTriggerRef = useRef<HTMLButtonElement | null>(null);
   const workspaceSidebarPreferenceRef = useRef<boolean | null>(readWorkspaceSidebarOpen());
   if (!initialTabRef.current) {
     initialTabRef.current = createUntitledTab();
@@ -519,9 +525,7 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [activeSearchMatch, setActiveSearchMatch] = useState(0);
   const [editorMode, setEditorMode] = useState<EditorMode>(() => settings.defaultEditorMode);
-  // The inspector opens on the calm outline rather than greeting the writer with a chat
-  // box; the AI assistant is summoned on demand (its tab, Cmd+K, or the AI menu).
-  const [inspectorTab, setInspectorTab] = useState<"knowledge" | "assistant" | "outline">("outline");
+  const [activeUtility, setActiveUtility] = useState<ActiveUtility>(null);
   const [documentKnowledge, setDocumentKnowledge] = useState<DocumentKnowledge | null>(null);
   const [knowledgeLint, setKnowledgeLint] = useState<KnowledgeLintReport | null>(null);
   const [queryContext, setQueryContext] = useState<QueryContext | null>(null);
@@ -533,7 +537,6 @@ export default function App() {
   const [assistantPrompt, setAssistantPrompt] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => workspaceSidebarPreferenceRef.current ?? false);
-  const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [featureAreaOpen, setFeatureAreaOpen] = useState(true);
   const [splitOrientation, setSplitOrientation] = useState<"vertical" | "horizontal">("vertical");
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -1561,7 +1564,7 @@ export default function App() {
       rememberDocument(document.path);
       await handleRefreshWorkspace(false);
       revealInWorkspaceTree(relativePathInWorkspace(document.path));
-      setInspectorTab("knowledge");
+      setActiveUtility("knowledge");
       setNotice({ tone: "info", message: `已创建 Wiki 页面 ${fileName(result.path)}。` });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -2276,6 +2279,7 @@ export default function App() {
   }
 
   async function handleAssistantRun(task: string, prompt = "") {
+    setActiveUtility("assistant");
     appendAssistantMessage({ role: "user", content: assistantTaskLabel(task, prompt) });
     if (!workspace || !path) {
       await handleAssistantEditorRun(task, prompt);
@@ -2928,7 +2932,7 @@ export default function App() {
       return;
     }
     if (action === "toggle-right-panel") {
-      setRightPanelOpen((open) => !open);
+      setActiveUtility((utility) => (utility === "assistant" ? null : "assistant"));
       return;
     }
     if (action === "toggle-feature-area") {
@@ -3016,14 +3020,14 @@ export default function App() {
       state: {
         editorMode,
         leftPanelOpen,
-        rightPanelOpen,
+        rightPanelOpen: activeUtility !== null,
         featureAreaOpen,
         splitOrientation,
       },
     }).catch(() => {
       // Menu synchronization is best-effort; editing must not fail if the native menu is unavailable.
     });
-  }, [editorMode, featureAreaOpen, leftPanelOpen, nativeRuntime, rightPanelOpen, splitOrientation]);
+  }, [activeUtility, editorMode, featureAreaOpen, leftPanelOpen, nativeRuntime, splitOrientation]);
 
   useEffect(() => {
     if (!tabContextMenu) return;
@@ -3573,8 +3577,7 @@ export default function App() {
       hint: "召出 AI 助手面板",
       disabled: false,
       run: () => {
-        setRightPanelOpen(true);
-        setInspectorTab("assistant");
+        setActiveUtility("assistant");
       },
     },
     {
@@ -3626,9 +3629,7 @@ export default function App() {
 
   return (
     <main
-      className={`app-shell ${leftPanelOpen ? "left-open" : "workspace-dock-closed"} ${
-        rightPanelOpen ? "right-open" : "right-closed"
-      } ${writing ? "writing" : ""}`}
+      className={`app-shell ${leftPanelOpen ? "left-open" : "workspace-dock-closed"} ${writing ? "writing" : ""}`}
     >
       <NativeDropOverlay active={nativeDrop.active} itemCount={nativeDrop.paths.length} />
       <CommandPalette
@@ -3977,16 +3978,6 @@ export default function App() {
           </section>
         </div>
       )}
-      <button
-        type="button"
-        className="floating-panel-toggle right-panel-restore"
-        onClick={() => setRightPanelOpen(true)}
-        aria-label="显示检查器"
-        title="显示检查器"
-      >
-        &lt;
-      </button>
-
       <div
         className="left-workspace"
         aria-hidden={writing ? true : undefined}
@@ -4048,6 +4039,69 @@ export default function App() {
       </div>
 
       <section className="editor-pane" onPaste={handlePaste}>
+        <UtilityLauncher
+          activeUtility={activeUtility}
+          showOutline={hasOpenTab}
+          showKnowledge={Boolean(workspace?.knowledge.isInitialized && path)}
+          onToggle={(utility) => setActiveUtility((current) => (current === utility ? null : utility))}
+          outlineRef={outlineTriggerRef}
+          knowledgeRef={knowledgeTriggerRef}
+          assistantRef={assistantTriggerRef}
+        />
+        <OutlinePopover
+          open={activeUtility === "outline" && hasOpenTab}
+          triggerRef={outlineTriggerRef}
+          headings={documentHeadings}
+          busy={busy}
+          onOpenHeading={handleOpenHeading}
+          onClose={() => setActiveUtility(null)}
+        />
+        <OverlayInspector
+          open={activeUtility === "knowledge" && Boolean(workspace?.knowledge.isInitialized && path)}
+          title="知识"
+          triggerRef={knowledgeTriggerRef}
+          onClose={() => setActiveUtility(null)}
+        >
+          <KnowledgePanel
+            knowledge={documentKnowledge}
+            lint={knowledgeLint}
+            queryContext={queryContext}
+            frontmatterDraft={editableFrontmatter}
+            workspaceIndexPath={workspace ? `${workspace.knowledge.wikiPath}/index.md` : null}
+            workspaceLogPath={workspace ? `${workspace.knowledge.wikiPath}/log.md` : null}
+            indexStatus={knowledgeIndexStatus}
+            busy={busy || assistantBusy}
+            onOpenPath={(nextPath, name, anchor) => void openPath(nextPath, name, anchor)}
+            onCreateWikiPage={(target) => void createWikiPageForTarget(target)}
+            onRebuildIndex={() => void handleRebuildKnowledgeIndex()}
+            onApplyFrontmatter={handleApplyFrontmatter}
+          />
+        </OverlayInspector>
+        <AssistantDrawer
+          open={activeUtility === "assistant"}
+          triggerRef={assistantTriggerRef}
+          onClose={() => setActiveUtility(null)}
+        >
+          <AssistantPanel
+            busy={assistantBusy}
+            queryContext={queryContext}
+            hasCurrentContent={hasOpenTab && Boolean(content.trim())}
+            draft={assistantDraft}
+            messages={assistantMessages}
+            events={assistantEvents}
+            settings={settings}
+            prompt={assistantPrompt}
+            onPromptChange={setAssistantPrompt}
+            onSummarize={() => void handleSummarizeContext()}
+            onRunTask={(task) => void handleAssistantRun(task)}
+            onSubmitPrompt={(prompt) => void handleAssistantPromptSubmit(prompt)}
+            onSaveDraft={() => void handleSaveAssistantDraft()}
+            onSaveChat={() => void handleSaveAssistantChat()}
+            onInsertDraft={insertAssistantDraft}
+            onReplaceSelection={replaceSelectionWithAssistantDraft}
+            onOpenLog={() => openManagementPanel("assistant-log")}
+          />
+        </AssistantDrawer>
         {tabs.length > 0 && (
           <div className="document-tabs" role="tablist" aria-label="打开的笔记">
             {tabs.map((tab) => {
@@ -4247,82 +4301,6 @@ export default function App() {
         )}
       </section>
 
-      <aside className="right-companion inspector-rail" aria-label="检查器" aria-hidden={!rightPanelOpen}>
-        <div className="inspector-header">
-          <div className="companion-tabs mode-switch" aria-label="检查器标签">
-            <button
-              type="button"
-              className={inspectorTab === "assistant" ? "active" : ""}
-              onClick={() => setInspectorTab("assistant")}
-            >
-              AI 助手
-            </button>
-            <button
-              type="button"
-              className={inspectorTab === "knowledge" ? "active" : ""}
-              onClick={() => setInspectorTab("knowledge")}
-              disabled={!workspace?.knowledge.isInitialized || !path}
-            >
-              知识
-            </button>
-            <button
-              type="button"
-              className={inspectorTab === "outline" ? "active" : ""}
-              onClick={() => setInspectorTab("outline")}
-              disabled={!hasOpenTab}
-            >
-              大纲
-            </button>
-          </div>
-          <button
-            type="button"
-            className="panel-toggle inspector-panel-toggle"
-            onClick={() => setRightPanelOpen(false)}
-            aria-label="隐藏检查器"
-            title="隐藏检查器"
-          >
-            ◨
-          </button>
-        </div>
-        {inspectorTab === "outline" ? (
-          <DocumentOutline headings={documentHeadings} busy={busy} onOpenHeading={handleOpenHeading} />
-        ) : inspectorTab === "knowledge" ? (
-          <KnowledgePanel
-            knowledge={documentKnowledge}
-            lint={knowledgeLint}
-            queryContext={queryContext}
-            frontmatterDraft={editableFrontmatter}
-            workspaceIndexPath={workspace ? `${workspace.knowledge.wikiPath}/index.md` : null}
-            workspaceLogPath={workspace ? `${workspace.knowledge.wikiPath}/log.md` : null}
-            indexStatus={knowledgeIndexStatus}
-            busy={busy || assistantBusy}
-            onOpenPath={(nextPath, name, anchor) => void openPath(nextPath, name, anchor)}
-            onCreateWikiPage={(target) => void createWikiPageForTarget(target)}
-            onRebuildIndex={() => void handleRebuildKnowledgeIndex()}
-            onApplyFrontmatter={handleApplyFrontmatter}
-          />
-        ) : (
-          <AssistantPanel
-            busy={assistantBusy}
-            queryContext={queryContext}
-            hasCurrentContent={hasOpenTab && Boolean(content.trim())}
-            draft={assistantDraft}
-            messages={assistantMessages}
-            events={assistantEvents}
-            settings={settings}
-            prompt={assistantPrompt}
-            onPromptChange={setAssistantPrompt}
-            onSummarize={() => void handleSummarizeContext()}
-            onRunTask={(task) => void handleAssistantRun(task)}
-            onSubmitPrompt={(prompt) => void handleAssistantPromptSubmit(prompt)}
-            onSaveDraft={() => void handleSaveAssistantDraft()}
-            onSaveChat={() => void handleSaveAssistantChat()}
-            onInsertDraft={insertAssistantDraft}
-            onReplaceSelection={replaceSelectionWithAssistantDraft}
-            onOpenLog={() => openManagementPanel("assistant-log")}
-          />
-        )}
-      </aside>
     </main>
   );
 }

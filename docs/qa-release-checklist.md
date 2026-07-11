@@ -39,11 +39,13 @@ DMG creation uses macOS disk image tooling. If it fails in a sandboxed shell, re
 16. Use the Ribbon to open Files, Search, and Recent; verify the active item is clear, keyboard focus is visible, and closing the dock returns focus to its active Ribbon button.
 17. With a saved closed preference, reveal a nested file from command search; verify the dock opens transiently, expands the file's ancestors, and keeps the saved closed preference unchanged after restart.
 18. Enter writing mode and verify the entire left workspace area, including the Ribbon, collapses to 0px; press Escape or move the pointer and verify the normal Ribbon/dock state returns.
-19. At 1280px and 1024px widths, verify light and dark mode each use exactly 284px when the file dock is open and 44px when it is closed; at 1024px verify the inspector is hidden and the editor remains usable.
+19. At 1280px and 1024px widths, verify light and dark mode each use exactly 284px when the file dock is open and 44px when it is closed; verify no permanent right column is reserved and the editor remains usable.
 20. From Finder, drag one Markdown file into LMD and verify it opens in a tab; drag multiple `.md`/`.markdown` files and verify every file opens in source order.
 21. Drag a folder into LMD and verify it opens in place as the workspace without closing existing or unsaved tabs; dropping the active workspace should refresh it.
 22. Drag a folder together with Markdown files and verify the folder becomes the workspace and all Markdown files open; drag multiple folders or unsupported files and verify LMD opens only the first folder and summarizes skipped items.
 23. Verify the drop overlay appears only while dragging, `Cmd+O` opens Markdown, `Cmd+Shift+O` opens a workspace, and recent workspaces appear only in Recent/menu surfaces.
+24. Open Outline, Knowledge, and AI from the editor utilities; verify only one is visible at a time, Escape closes it and restores trigger focus, and Knowledge is absent without an initialized knowledge context.
+25. Open the AI drawer and verify the editor width does not change, the drawer is at most 400px/90vw, Summary/Polish/Todos remain primary, and Title/Outline/Continue/Run Log are under More.
 
 ## Current Limits
 
