@@ -32,6 +32,10 @@ DMG creation uses macOS disk image tooling. If it fails in a sandboxed shell, re
 9. Modify the active file outside LMD and verify the external-change warning appears.
 10. Export HTML and open the result in a browser.
 11. Export PDF and open the result in Preview.
+12. Open a workspace for the first time and verify root files are visible while folders are collapsed; open a nested file from a command/search result and verify its ancestors expand and the file is revealed.
+13. Open workspace search and Recent Files, then press Escape in each view; verify the sidebar returns to the tree and restores a sensible tree focus target.
+14. In the workspace tree, verify Arrow Up/Down/Left/Right, Home, End, and Enter navigate/open files without losing the visible focus outline.
+15. At 1280px and 1024px widths, verify light and dark mode each present one 260px workspace hierarchy, retain usable editor space, and do not regress the inspector’s hide/show behavior.
 
 ## Current Limits
 

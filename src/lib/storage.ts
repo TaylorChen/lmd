@@ -20,6 +20,29 @@ export const storageKeys = {
   settings: "lmd:settings",
 };
 
+export function workspaceTreeStorageKey(rootPath: string) {
+  return `lmd:workspace-tree:v1:${rootPath}`;
+}
+
+export function readWorkspaceTreeExpanded(rootPath: string): Set<string> {
+  try {
+    const rawValue = window.localStorage.getItem(workspaceTreeStorageKey(rootPath));
+    if (!rawValue) return new Set();
+    const parsedValue = JSON.parse(rawValue);
+    if (!Array.isArray(parsedValue)) return new Set();
+    return new Set(
+      parsedValue.filter((path): path is string => typeof path === "string" && path.length > 0),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+export function writeWorkspaceTreeExpanded(rootPath: string, paths: Set<string>) {
+  const validPaths = [...paths].filter((path) => typeof path === "string" && path.length > 0);
+  window.localStorage.setItem(workspaceTreeStorageKey(rootPath), JSON.stringify(validPaths));
+}
+
 function isEditorMode(value: unknown): value is EditorMode {
   return value === "edit" || value === "split" || value === "preview";
 }

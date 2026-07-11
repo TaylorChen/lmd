@@ -9,12 +9,11 @@ import { CommandPalette } from "./components/CommandPalette";
 import { DocumentOutline } from "./components/DocumentOutline";
 import { EditorToolbar, type MarkdownAction } from "./components/EditorToolbar";
 import { KnowledgePanel } from "./components/KnowledgePanel";
-import { LibraryRail } from "./components/LibraryRail";
 import { MarkdownPreview } from "./components/MarkdownPreview";
 import { NameDialog, type NameDialogState } from "./components/NameDialog";
 import { NoticeStack } from "./components/NoticeStack";
 import { TagRenameDialog } from "./components/TagRenameDialog";
-import { WorkspaceListPanel } from "./components/WorkspaceListPanel";
+import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { createEditorTheme, useEditorExtensions } from "./hooks/useEditorExtensions";
 import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
@@ -45,13 +44,13 @@ import type {
   HistorySnapshot,
   KnowledgeIndexStatus,
   KnowledgeLintReport,
-  LibrarySection,
   LineRange,
   MarkdownDocument,
   Notice,
   RecentFile,
   SaveResult,
   SearchMatch,
+  SidebarView,
   QueryContext,
   TagRenameResult,
   Workspace,
@@ -493,7 +492,8 @@ export default function App() {
   const [workspaceQuery, setWorkspaceQuery] = useState("");
   const [workspaceMatches, setWorkspaceMatches] = useState<SearchMatch[]>([]);
   const [workspaceSearchActive, setWorkspaceSearchActive] = useState(false);
-  const [librarySection, setLibrarySection] = useState<LibrarySection>("all-notes");
+  const [sidebarView, setSidebarView] = useState<SidebarView>("tree");
+  const [sidebarRevealPath, setSidebarRevealPath] = useState<string | null>(null);
   const [historySnapshots, setHistorySnapshots] = useState<HistorySnapshot[]>([]);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => readRecentFiles());
@@ -580,17 +580,7 @@ export default function App() {
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [writing]);
-  const workspaceFiles = useMemo(() => {
-    if (!workspace) return [];
-
-    return workspace.files.filter((file) => {
-      if (librarySection === "notes") return file.relativePath.startsWith("notes/");
-      if (librarySection === "sources") return file.relativePath.startsWith("sources/");
-      if (librarySection === "wiki") return file.relativePath.startsWith("wiki/");
-      if (librarySection === "inbox") return file.relativePath.startsWith("wiki/inbox/");
-      return true;
-    });
-  }, [librarySection, workspace]);
+  const workspaceFiles = workspace?.files ?? [];
 
   useEffect(() => {
     let cancelled = false;
@@ -946,9 +936,19 @@ export default function App() {
         ...workspace.files.filter((file) => file.path !== savedPath),
       ],
     });
-    setLibrarySection("inbox");
+    revealInWorkspaceTree(relativePath);
+  }
+
+  function relativePathInWorkspace(documentPath: string) {
+    if (!workspace || !isPathInsideRoot(documentPath, workspace.rootPath)) return null;
+    return documentPath.slice(workspace.rootPath.length).replace(/^[/\\]+/, "");
+  }
+
+  function revealInWorkspaceTree(relativePath: string | null) {
+    setSidebarView("tree");
     setWorkspaceSearchActive(false);
     setWorkspaceMatches([]);
+    setSidebarRevealPath(relativePath);
   }
 
   function rememberDocument(documentPath: string) {
@@ -1382,6 +1382,15 @@ export default function App() {
     }
   }
 
+  async function handleRevealWorkspace() {
+    if (!workspace) return;
+    try {
+      await invokeCommand<void>("reveal_in_finder", { path: workspace.rootPath });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error) });
+    }
+  }
+
   async function handleImportAttachment() {
     if (readOnly) return;
     setBusy(true);
@@ -1452,7 +1461,7 @@ export default function App() {
     setBusy(true);
     setNotice(null);
     try {
-      await invokeCommand<SaveResult>("create_markdown_file", {
+      const result = await invokeCommand<SaveResult>("create_markdown_file", {
         rootPath: workspace.rootPath,
         directory: "wiki",
         name,
@@ -1460,7 +1469,7 @@ export default function App() {
       });
       await handleRefreshWorkspace(false);
       insertTextAtCursor(`[[${title}]]`, `已创建并插入 Wiki Link：${title}。`);
-      setLibrarySection("wiki");
+      revealInWorkspaceTree(relativePathInWorkspace(result.path));
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -1488,7 +1497,7 @@ export default function App() {
       applyDocument(document);
       rememberDocument(document.path);
       await handleRefreshWorkspace(false);
-      setLibrarySection("wiki");
+      revealInWorkspaceTree(relativePathInWorkspace(document.path));
       setInspectorTab("knowledge");
       setNotice({ tone: "info", message: `已创建 Wiki 页面 ${fileName(result.path)}。` });
     } catch (error) {
@@ -1573,6 +1582,7 @@ export default function App() {
       setWorkspaceQuery("");
       setWorkspaceMatches([]);
       setWorkspaceSearchActive(false);
+      setSidebarView("tree");
       setNotice({
         tone: "info",
         message: `已打开工作区，共 ${nextWorkspace.files.length.toLocaleString()} 个文件。`,
@@ -1776,12 +1786,15 @@ export default function App() {
   }
 
   async function openPath(pathToOpen: string, displayName: string, anchor?: string | null) {
+    const relativePath = relativePathInWorkspace(pathToOpen);
     if (pathToOpen === path) {
+      revealInWorkspaceTree(relativePath);
       scrollToBlockAnchor(anchor);
       return;
     }
     const existingTab = tabs.find((tab) => tab.path === pathToOpen);
     if (existingTab) {
+      revealInWorkspaceTree(relativePath);
       setActiveTabId(existingTab.id);
       applyTab(existingTab);
       scrollToBlockAnchor(anchor, existingTab.content);
@@ -1794,6 +1807,7 @@ export default function App() {
       const document = await invokeCommand<MarkdownDocument>("open_markdown_path", { path: pathToOpen });
       applyDocument(document);
       rememberDocument(document.path);
+      revealInWorkspaceTree(relativePathInWorkspace(document.path));
       scrollToBlockAnchor(anchor, document.content);
       setNotice({
         tone: "info",
@@ -1828,7 +1842,7 @@ export default function App() {
       applyDocument(document);
       rememberDocument(document.path);
       await handleRefreshWorkspace(false);
-      setLibrarySection("all-notes");
+      revealInWorkspaceTree(relativePathInWorkspace(document.path));
       setNotice({ tone: "info", message: `已打开今日笔记 ${date}.md。` });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -1945,18 +1959,11 @@ export default function App() {
         query,
         maxResults: settings.searchResultLimit,
       });
-      const filteredMatches = matches.filter((match) => {
-        if (librarySection === "notes") return match.relativePath.startsWith("notes/");
-        if (librarySection === "sources") return match.relativePath.startsWith("sources/");
-        if (librarySection === "wiki") return match.relativePath.startsWith("wiki/");
-        if (librarySection === "inbox") return match.relativePath.startsWith("wiki/inbox/");
-        return true;
-      });
-      setWorkspaceMatches(filteredMatches);
+      setWorkspaceMatches(matches);
       setWorkspaceSearchActive(true);
       setNotice({
         tone: "info",
-        message: `找到 ${filteredMatches.length.toLocaleString()} 条工作区匹配结果。`,
+        message: `找到 ${matches.length.toLocaleString()} 条工作区匹配结果。`,
       });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -2319,6 +2326,7 @@ export default function App() {
       });
       window.localStorage.setItem(storageKeys.lastWorkspaceRoot, refreshedWorkspace.rootPath);
       setWorkspaceSearchActive(false);
+      revealInWorkspaceTree(savedRelativePath);
     } catch (error) {
       appendAssistantEvent({
         label: "保存失败",
@@ -2351,7 +2359,7 @@ export default function App() {
         tone: "info",
       });
       await handleRefreshWorkspace(false);
-      setLibrarySection("inbox");
+      revealInWorkspaceTree(relativePathInWorkspace(savedPath));
       setNotice({ tone: "info", message: `已将 AI 对话保存到 ${fileName(savedPath)}。` });
     } catch (error) {
       appendAssistantEvent({
@@ -3803,43 +3811,43 @@ export default function App() {
       </button>
 
       <div className="left-workspace" aria-hidden={!leftPanelOpen}>
-        <LibraryRail
+        <WorkspaceSidebar
           busy={busy}
           workspace={workspace}
-          activeSection={librarySection}
-          onSectionChange={(section) => {
-            setLibrarySection(section);
-            setWorkspaceSearchActive(false);
-            setWorkspaceMatches([]);
-          }}
-          onOpenSettings={() => openManagementPanel("settings")}
-        />
-
-        <WorkspaceListPanel
-          busy={busy}
-          workspace={workspace}
-          librarySection={librarySection}
-          workspaceFiles={workspaceFiles}
-          workspaceQuery={workspaceQuery}
-          workspaceMatches={workspaceMatches}
-          workspaceSearchActive={workspaceSearchActive}
+          view={sidebarView}
+          files={workspaceFiles}
           recentFiles={recentFiles}
-          path={path}
-          isLarge={isLarge}
-          visibleStartLine={visibleStartLine}
-          visibleEndLine={visibleEndLine}
-          onCollapsePanel={() => setLeftPanelOpen(false)}
-          onWorkspaceQueryChange={(query) => {
+          activePath={path}
+          searchQuery={workspaceQuery}
+          searchMatches={workspaceMatches}
+          searchActive={workspaceSearchActive}
+          revealPath={sidebarRevealPath}
+          onViewChange={(view) => {
+            setSidebarView(view);
+            if (view !== "search") {
+              setWorkspaceSearchActive(false);
+              setWorkspaceMatches([]);
+            }
+            if (view === "tree") {
+              setWorkspaceQuery("");
+            }
+          }}
+          onRevealComplete={() => setSidebarRevealPath(null)}
+          onCollapse={() => setLeftPanelOpen(false)}
+          onSearchQueryChange={(query) => {
             setWorkspaceQuery(query);
             setWorkspaceSearchActive(false);
             if (!query.trim()) {
               setWorkspaceMatches([]);
             }
           }}
-          onWorkspaceSearch={() => void handleWorkspaceSearch()}
+          onSearch={() => void handleWorkspaceSearch()}
           onOpenWorkspace={() => void handleOpenWorkspace()}
-          onOpenWorkspaceFile={(file) => void handleOpenWorkspaceFile(file)}
-          onCreateMarkdownInFolder={handleCreateMarkdownInFolder}
+          onRefreshWorkspace={() => void handleRefreshWorkspace()}
+          onRevealWorkspace={() => void handleRevealWorkspace()}
+          onOpenSettings={() => openManagementPanel("settings")}
+          onOpenFile={(file) => void handleOpenWorkspaceFile(file)}
+          onCreateMarkdown={handleCreateMarkdownInFolder}
           onCreateFolder={handleCreateFolder}
           onDeleteFolder={(directory) => void handleDeleteFolder(directory)}
           onMoveWorkspaceFile={handleMoveWorkspaceFile}
@@ -3847,8 +3855,8 @@ export default function App() {
           onDeleteWorkspaceFile={(file) => void handleDeleteWorkspaceFile(file)}
           onRevealWorkspaceFile={(file) => void handleRevealWorkspaceFile(file)}
           onOpenSearchMatch={(match) => void handleOpenSearchMatch(match)}
-          onOpenRecentFile={(recentPath, name) => void openPath(recentPath, name)}
-          onRemoveRecentFile={handleRemoveRecentFile}
+          onOpenRecent={(recentPath, name) => void openPath(recentPath, name)}
+          onRemoveRecent={handleRemoveRecentFile}
         />
       </div>
 

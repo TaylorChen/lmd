@@ -61,7 +61,7 @@ export type DocumentHeading = {
   offset: number;
 };
 
-export type LibrarySection = "inbox" | "all-notes" | "notes" | "sources" | "wiki" | "recent";
+export type SidebarView = "tree" | "search" | "recent";
 
 export type Workspace = {
   rootPath: string;
