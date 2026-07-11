@@ -21,6 +21,7 @@
     "@codemirror/view": "^6.36.8",
     "@tauri-apps/api": "^2.4.0",
     "@uiw/react-codemirror": "^4.23.8",
+    "dompurify": "^3.4.11",
     "highlight.js": "^11.11.1",
     "katex": "^0.16.45",
     "markdown-it": "^14.1.1",

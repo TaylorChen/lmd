@@ -16,7 +16,7 @@ import { NoticeStack } from "./components/NoticeStack";
 import { TagRenameDialog } from "./components/TagRenameDialog";
 import { WorkspaceListPanel } from "./components/WorkspaceListPanel";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
-import { useEditorExtensions } from "./hooks/useEditorExtensions";
+import { createEditorTheme, useEditorExtensions } from "./hooks/useEditorExtensions";
 import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
 import { fileName, isPathInsideRoot, localStats } from "./lib/format";
 import { renderMarkdownDocument, type TransclusionMap } from "./lib/markdown";
@@ -505,7 +505,9 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [activeSearchMatch, setActiveSearchMatch] = useState(0);
   const [editorMode, setEditorMode] = useState<EditorMode>(() => settings.defaultEditorMode);
-  const [inspectorTab, setInspectorTab] = useState<"knowledge" | "assistant" | "outline">("assistant");
+  // The inspector opens on the calm outline rather than greeting the writer with a chat
+  // box; the AI assistant is summoned on demand (its tab, Cmd+K, or the AI menu).
+  const [inspectorTab, setInspectorTab] = useState<"knowledge" | "assistant" | "outline">("outline");
   const [documentKnowledge, setDocumentKnowledge] = useState<DocumentKnowledge | null>(null);
   const [knowledgeLint, setKnowledgeLint] = useState<KnowledgeLintReport | null>(null);
   const [queryContext, setQueryContext] = useState<QueryContext | null>(null);
@@ -544,7 +546,40 @@ export default function App() {
   const blockIds = useMemo(() => extractBlockIds(content), [content]);
   const documentHeadings = useMemo(() => extractDocumentHeadings(content), [content]);
 
-  const extensions = useEditorExtensions(isLarge, readOnly, visibleStartLine, workspace?.files ?? [], blockIds);
+  const extensions = useEditorExtensions(
+    isLarge,
+    readOnly,
+    visibleStartLine,
+    workspace?.files ?? [],
+    blockIds,
+    markdownActionRef,
+  );
+  const [prefersDark, setPrefersDark] = useState(
+    () => typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = () => setPrefersDark(query.matches);
+    query.addEventListener("change", handleChange);
+    return () => query.removeEventListener("change", handleChange);
+  }, []);
+  const editorTheme = useMemo(() => createEditorTheme(prefersDark), [prefersDark]);
+  // Focus-while-writing: typing fades the surrounding chrome so only the text remains;
+  // moving the mouse or pressing Escape brings it back.
+  const [writing, setWriting] = useState(false);
+  useEffect(() => {
+    if (!writing) return;
+    const restore = () => setWriting(false);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setWriting(false);
+    };
+    window.addEventListener("mousemove", restore);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousemove", restore);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [writing]);
   const workspaceFiles = useMemo(() => {
     if (!workspace) return [];
 
@@ -1930,6 +1965,25 @@ export default function App() {
     }
   }
 
+  // Invokes the save command with an optional expected-mtime guard. Returns the save
+  // result, "conflict" when the backend refused because the file changed on disk, or
+  // null when a "save as" dialog was cancelled.
+  async function saveWithConflictGuard(
+    expectedModifiedMs: number | null,
+  ): Promise<SaveResult | null | "conflict"> {
+    try {
+      return await invokeCommand<SaveResult | null>("save_markdown_file", {
+        path,
+        rootPath: workspace?.rootPath,
+        content,
+        expectedModifiedMs,
+      });
+    } catch (error) {
+      if (String(error).startsWith("save-conflict:")) return "conflict";
+      throw error;
+    }
+  }
+
   async function handleSave() {
     if (readOnly) {
       setNotice({ tone: "error", message: "当前版本中大文件为只读模式。" });
@@ -1951,12 +2005,16 @@ export default function App() {
     setBusy(true);
     setNotice(null);
     try {
-      const result = await invokeCommand<SaveResult | null>("save_markdown_file", {
-        path,
-        rootPath: workspace?.rootPath,
-        content,
-      });
-      if (!result) return;
+      // Guard against overwriting a file that changed on disk since we last read it.
+      // If the user already acknowledged an external change above, force the write.
+      let result = await saveWithConflictGuard(externalChange ? null : knownModifiedMs);
+      if (result === "conflict") {
+        if (!window.confirm("该文件在磁盘上已被外部修改。仍要保存并覆盖外部更改吗？")) {
+          return;
+        }
+        result = await saveWithConflictGuard(null);
+      }
+      if (!result || result === "conflict") return;
       if (!activeTabId) {
         const savedTab: DocumentTab = {
           ...createUntitledTab(),
@@ -1982,7 +2040,7 @@ export default function App() {
         void handleRefreshWorkspace(false);
       }
       void handleLoadHistorySnapshots(false);
-      setNotice({ tone: "info", message: `已保存 ${fileName(result.path)}。` });
+      setNotice({ tone: "info", message: `已保存 ${fileName(result.path)}。`, dismissAfterMs: null });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -1999,7 +2057,7 @@ export default function App() {
         html: renderMarkdownDocument(fileName(path), content),
       });
       if (!exportedPath) return;
-      setNotice({ tone: "info", message: `已导出 HTML 到 ${fileName(exportedPath)}。` });
+      setNotice({ tone: "info", message: `已导出 HTML 到 ${fileName(exportedPath)}。`, dismissAfterMs: null });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -2016,7 +2074,7 @@ export default function App() {
         content,
       });
       if (!exportedPath) return;
-      setNotice({ tone: "info", message: `已导出 PDF 到 ${fileName(exportedPath)}。` });
+      setNotice({ tone: "info", message: `已导出 PDF 到 ${fileName(exportedPath)}。`, dismissAfterMs: null });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -2033,7 +2091,7 @@ export default function App() {
         content,
       });
       if (!exportedPath) return;
-      setNotice({ tone: "info", message: `已导出 DOCX 到 ${fileName(exportedPath)}。` });
+      setNotice({ tone: "info", message: `已导出 DOCX 到 ${fileName(exportedPath)}。`, dismissAfterMs: null });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -2309,6 +2367,7 @@ export default function App() {
 
   function handleChange(nextContent: string) {
     if (readOnly) return;
+    setWriting(true);
     if (!activeTabId) {
       const nextTab = { ...createUntitledTab(), content: nextContent };
       setTabs([nextTab]);
@@ -3316,6 +3375,16 @@ export default function App() {
       run: () => void handleCreateWikiPage(),
     },
     {
+      id: "open-assistant",
+      label: "打开 AI 助手",
+      hint: "召出 AI 助手面板",
+      disabled: false,
+      run: () => {
+        setRightPanelOpen(true);
+        setInspectorTab("assistant");
+      },
+    },
+    {
       id: "summarize",
       label: "AI 总结当前笔记",
       hint: settings.assistantModel,
@@ -3350,13 +3419,23 @@ export default function App() {
       disabled: busy,
       run: () => void handleExportDocx(),
     },
+    // Workspace files as jump targets. They only surface once the user types a query
+    // (the palette hides file-type items when empty), turning Cmd+K into a quick switcher.
+    ...(workspace?.files ?? []).map((file) => ({
+      id: `file:${file.path}`,
+      label: file.name.replace(/\.(md|markdown|mdown)$/i, ""),
+      hint: file.relativePath,
+      type: "file" as const,
+      disabled: busy,
+      run: () => void handleOpenWorkspaceFile(file),
+    })),
   ];
 
   return (
     <main
       className={`app-shell ${leftPanelOpen ? "left-open" : "left-closed"} ${
         rightPanelOpen ? "right-open" : "right-closed"
-      }`}
+      } ${writing ? "writing" : ""}`}
     >
       <CommandPalette
         open={commandPaletteOpen}
@@ -3955,7 +4034,7 @@ export default function App() {
                       onCreateEditor={(view) => {
                         editorViewRef.current = view;
                       }}
-                      theme="light"
+                      theme={editorTheme}
                     />
                   </div>
                 )}

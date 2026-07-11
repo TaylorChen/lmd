@@ -474,7 +474,7 @@ async function installTauriMock(page: Page) {
         }
 
         if (command === "export_markdown_html") {
-          if (!String(args?.html ?? "").includes("<h1>Saved title</h1>")) {
+          if (!/<h1(?:\s[^>]*)?>Saved title<\/h1>/.test(String(args?.html ?? ""))) {
             throw new Error("HTML export did not receive rendered markdown");
           }
           if (!String(args?.html ?? "").startsWith("<!doctype html>")) {
@@ -638,6 +638,22 @@ test("applies markdown toolbar shortcuts to the editor", async ({ page }) => {
   await expect(page.locator(".document-main .markdown-preview .wiki-link").first()).toContainText("当前笔记#^block-");
 });
 
+test("opens and filters the slash command menu", async ({ page }) => {
+  await page.locator(".cm-content").click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+  await page.keyboard.press("Delete");
+
+  // Typing "/" at line start opens the insert menu with every command.
+  await page.keyboard.type("/");
+  await expect(page.getByRole("option", { name: /表格/ }).first()).toBeVisible();
+  await expect(page.getByRole("option", { name: /任务列表/ })).toBeVisible();
+
+  // Keywords narrow the menu (the "math" keyword maps to 数学公式).
+  await page.keyboard.type("math");
+  await expect(page.getByRole("option", { name: "数学公式" })).toBeVisible();
+  await expect(page.getByRole("option", { name: /任务列表/ })).toHaveCount(0);
+});
+
 test("supports daily notes, lightweight table tools, and git status", async ({ page }) => {
   await page.getByRole("button", { name: "打开工作区" }).click();
   await runCommand(page, "打开今日笔记");
@@ -700,6 +716,7 @@ test("persists settings across reload", async ({ page }) => {
 });
 
 test("allows assistant chat without knowledge context", async ({ page }) => {
+  await page.getByLabel("检查器标签").getByRole("button", { name: "AI 助手" }).click();
   const sendButton = page.getByRole("button", { name: "发送" });
 
   await expect(sendButton).toBeDisabled();
@@ -721,6 +738,12 @@ test("allows assistant chat without knowledge context", async ({ page }) => {
     task: "chat",
     prompt: "你好",
   });
+});
+
+test("summons the assistant from the command palette", async ({ page }) => {
+  await runCommand(page, "打开 AI 助手");
+
+  await expect(page.getByLabel("输入 AI 指令")).toBeVisible();
 });
 
 test("saves and exports the current document", async ({ page }) => {
@@ -950,6 +973,23 @@ test("creates named notes, renames files, imports attachments, and uses command 
   await page.getByLabel("页面文件名").fill("概念.md");
   await page.getByRole("button", { name: "创建" }).click();
   await expect(page.locator(".cm-content")).toContainText("[[概念]]");
+});
+
+test("jumps to a workspace file from the command palette", async ({ page }) => {
+  await page.getByRole("button", { name: "打开工作区" }).click();
+
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+K" : "Control+K");
+  await expect(page.getByRole("dialog", { name: "命令面板" })).toBeVisible();
+
+  // Files only surface once a query is typed; the fuzzy match finds it by name.
+  await page.getByLabel("搜索命令").fill("topic");
+  const fileEntry = page
+    .getByRole("dialog", { name: "命令面板" })
+    .getByRole("button", { name: /notes\/topic\.md/ });
+  await expect(fileEntry).toBeVisible();
+  await fileEntry.click();
+
+  await expect(page.getByRole("tab", { name: "topic.md" })).toBeVisible();
 });
 
 test("shows a clear message when native workspace actions run in web preview", async ({ page }) => {

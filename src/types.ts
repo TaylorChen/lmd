@@ -239,6 +239,8 @@ export type ExternalChange =
 export type Notice = {
   tone: "info" | "error";
   message: string;
+  /** Undefined uses the default transient timeout; null keeps the notice visible. */
+  dismissAfterMs?: number | null;
 };
 
 export type EditorMode = "edit" | "split" | "preview";

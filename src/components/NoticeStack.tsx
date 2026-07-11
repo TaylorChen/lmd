@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { ExternalChange, Notice } from "../types";
 
 type NoticeStackProps = {
@@ -15,6 +16,17 @@ export function NoticeStack({
   onDismissNotice,
   onReloadCurrentFile,
 }: NoticeStackProps) {
+  // Notification discipline: routine success is quiet, but important results remain
+  // visible until dismissed. Errors always demand attention. The callback is held in
+  // a ref so an unrelated re-render can't restart the timer.
+  const dismissRef = useRef(onDismissNotice);
+  dismissRef.current = onDismissNotice;
+  useEffect(() => {
+    if (notice?.tone !== "info" || notice.dismissAfterMs === null) return;
+    const timer = window.setTimeout(() => dismissRef.current(), notice.dismissAfterMs ?? 3000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
   return (
     <div className="notice-stack" aria-live="polite">
       {notice && (

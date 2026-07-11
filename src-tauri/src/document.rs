@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     ffi::OsStr,
     fs::{self, File},
+    io::Write,
     path::{Component, Path, PathBuf},
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
@@ -12,6 +13,107 @@ use serde::Serialize;
 
 const LARGE_FILE_THRESHOLD_BYTES: u64 = 5 * 1024 * 1024;
 const DEFAULT_WINDOW_LINES: usize = 600;
+
+/// Prefix that marks a save-conflict error so the frontend can offer to overwrite.
+pub(crate) const SAVE_CONFLICT_PREFIX: &str = "save-conflict:";
+
+fn ensure_expected_modified(
+    target_path: &Path,
+    expected_modified_ms: Option<u64>,
+) -> Result<(), String> {
+    let Some(expected) = expected_modified_ms else {
+        return Ok(());
+    };
+    let metadata = fs::metadata(target_path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            format!(
+                "{SAVE_CONFLICT_PREFIX}{} 已从磁盘中删除。",
+                target_path.display()
+            )
+        } else {
+            format!("Could not inspect {}: {error}", target_path.display())
+        }
+    })?;
+    if metadata_modified_ms(&metadata) != Some(expected) {
+        return Err(format!(
+            "{SAVE_CONFLICT_PREFIX}{} 已在磁盘中被修改。",
+            target_path.display()
+        ));
+    }
+    Ok(())
+}
+
+/// Write `bytes` to `target_path` atomically: write to a sibling temp file, flush it
+/// to disk, then rename over the target. This avoids exposing a partially-written
+/// target file and preserves permissions when replacing an existing document.
+fn atomic_write(
+    target_path: &Path,
+    bytes: &[u8],
+    expected_modified_ms: Option<u64>,
+) -> Result<(), String> {
+    let parent = target_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let file_name = target_path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("document");
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_nanos())
+        .unwrap_or(0);
+    let temp_path = parent.join(format!(
+        ".{file_name}.lmd-tmp-{}-{nonce}",
+        std::process::id()
+    ));
+
+    let existing_permissions = match fs::metadata(target_path) {
+        Ok(metadata) => Some(metadata.permissions()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(format!(
+                "Could not inspect {}: {error}",
+                target_path.display()
+            ))
+        }
+    };
+
+    let write_result = (|| {
+        let mut file = File::create(&temp_path)
+            .map_err(|error| format!("Could not create {}: {error}", temp_path.display()))?;
+        if let Some(permissions) = existing_permissions {
+            file.set_permissions(permissions).map_err(|error| {
+                format!(
+                    "Could not set permissions on {}: {error}",
+                    temp_path.display()
+                )
+            })?;
+        }
+        file.write_all(bytes)
+            .map_err(|error| format!("Could not write {}: {error}", temp_path.display()))?;
+        file.sync_all()
+            .map_err(|error| format!("Could not flush {}: {error}", temp_path.display()))?;
+        Ok(())
+    })();
+
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error);
+    }
+
+    if let Err(error) = ensure_expected_modified(target_path, expected_modified_ms) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error);
+    }
+
+    if let Err(error) = fs::rename(&temp_path, target_path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("Could not save {}: {error}", target_path.display()));
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct IndexedFile {
@@ -287,10 +389,11 @@ pub(crate) fn save_markdown_file(
     target_path: &Path,
     content: &str,
     root_path: Option<&Path>,
+    expected_modified_ms: Option<u64>,
 ) -> Result<SaveResult, String> {
+    ensure_expected_modified(target_path, expected_modified_ms)?;
     write_history_snapshot(target_path, root_path, content)?;
-    fs::write(target_path, content)
-        .map_err(|error| format!("Could not save {}: {error}", target_path.display()))?;
+    atomic_write(target_path, content.as_bytes(), expected_modified_ms)?;
     let metadata = fs::metadata(target_path)
         .map_err(|error| format!("Could not inspect {}: {error}", target_path.display()))?;
     cache
@@ -363,8 +466,7 @@ fn write_history_snapshot(
         .map_err(|error| format!("Could not create history timestamp: {error}"))?
         .as_millis();
     let snapshot_path = snapshot_dir.join(format!("{timestamp}.md"));
-    fs::write(&snapshot_path, previous_content)
-        .map_err(|error| format!("Could not write {}: {error}", snapshot_path.display()))?;
+    atomic_write(&snapshot_path, previous_content.as_bytes(), None)?;
     Ok(())
 }
 
@@ -474,7 +576,7 @@ pub(crate) fn create_markdown_file(
     if target_path.exists() {
         return Err(format!("{} already exists", target_path.display()));
     }
-    save_markdown_file(cache, &target_path, content, Some(root))
+    save_markdown_file(cache, &target_path, content, Some(root), None)
 }
 
 pub(crate) fn create_folder(root: &Path, directory: &str) -> Result<String, String> {
@@ -516,7 +618,7 @@ pub(crate) fn rename_markdown_file(
         .remove(&path.to_string_lossy().to_string());
     let content = fs::read_to_string(&target_path)
         .map_err(|error| format!("Could not read {}: {error}", target_path.display()))?;
-    save_markdown_file(cache, &target_path, &content, None)
+    save_markdown_file(cache, &target_path, &content, None, None)
 }
 
 pub(crate) fn delete_markdown_file(cache: &DocumentCache, path: &Path) -> Result<(), String> {
@@ -599,7 +701,7 @@ pub(crate) fn move_markdown_file(
         .remove(&source_path.to_string_lossy().to_string());
     let content = fs::read_to_string(&target_path)
         .map_err(|error| format!("Could not read {}: {error}", target_path.display()))?;
-    save_markdown_file(cache, &target_path, &content, Some(root))
+    save_markdown_file(cache, &target_path, &content, Some(root), None)
 }
 
 fn unique_target_path(directory: &Path, file_name: &str) -> PathBuf {
@@ -745,8 +847,7 @@ pub(crate) fn import_attachment_bytes(
         safe_name
     };
     let target_path = unique_target_path(&attachment_dir, &safe_name);
-    fs::write(&target_path, bytes)
-        .map_err(|error| format!("Could not write {}: {error}", target_path.display()))?;
+    atomic_write(&target_path, bytes, None)?;
 
     let current_dir = current_path.and_then(Path::parent).unwrap_or(&base_root);
     let link_target = relative_path(current_dir, &target_path);

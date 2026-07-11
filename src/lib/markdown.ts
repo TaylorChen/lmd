@@ -3,6 +3,18 @@ import taskLists from "markdown-it-task-lists";
 import texmath from "markdown-it-texmath";
 import katex from "katex";
 import hljs from "highlight.js";
+import DOMPurify from "dompurify";
+
+// Markdown is untrusted input (files from others, AI drafts, clipped web content).
+// Sanitize the rendered HTML before it is injected so a crafted document cannot run
+// script or reach the Tauri command bridge. Mermaid SVG is rendered separately, after
+// this step, so it is unaffected.
+function sanitizeHtml(html: string): string {
+  return DOMPurify.sanitize(html, {
+    ADD_ATTR: ["target"],
+    ADD_TAGS: ["annotation", "semantics", "annotation-xml"],
+  });
+}
 
 const htmlEscape = new MarkdownIt().utils.escapeHtml;
 
@@ -373,7 +385,8 @@ function withWikiLinks(html: string) {
 
 export function renderMarkdownBody(content: string, transclusions?: TransclusionMap) {
   const { source, context } = prepareExtendedMarkdown(stripFrontmatter(content));
-  return withWikiLinks(withTransclusions(withBlockAnchors(applyExtendedMarkdownHtml(markdown.render(source), context)), transclusions));
+  const html = withWikiLinks(withTransclusions(withBlockAnchors(applyExtendedMarkdownHtml(markdown.render(source), context)), transclusions));
+  return sanitizeHtml(html);
 }
 
 export function renderMarkdownDocument(title: string, content: string) {

@@ -1,12 +1,13 @@
 :root {
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #15161f;
-  background: #ffffff;
+  color: var(--text);
+  background: var(--surface);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: light;
   --text: #15161f;
   --body: #242633;
   --muted: #6a6f7c;
@@ -27,6 +28,61 @@
   --danger: #c64545;
   --danger-soft: #fff0ee;
   --shadow: none;
+  /* Semantic tokens for values that were previously hardcoded, so dark mode adapts. */
+  --on-accent: #ffffff;
+  --btn-hover-border: #d8c9bc;
+  --overlay: rgba(255, 255, 255, 0.98);
+  --bubble-user: #f0efed;
+  --mark-bg: #fff1a8;
+  --mark-text: #5c4500;
+  --mark-preview-bg: #fff0a8;
+  --callout-warn-border: #d26b4c;
+  --callout-warn-bg: #fff6f0;
+  --callout-tip-border: #6d8f81;
+  --callout-tip-bg: #f5faf2;
+  --callout-info-border: #7188b7;
+  --callout-info-bg: #f4f7ff;
+}
+
+/* Dark theme. Follows the macOS appearance setting; every token below overrides the
+   light default, so the 257 var() usages across the app adapt in one place. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --text: #e8e9ef;
+    --body: #c6c8d2;
+    --muted: #9095a1;
+    --faint: #6c7180;
+    --line: #2c2e39;
+    --soft-line: #24262f;
+    --panel: #17181f;
+    --panel-muted: #1d1f27;
+    --surface: #121319;
+    --surface-strong: #21232c;
+    --accent: #8983f2;
+    --accent-strong: #a49ef6;
+    --accent-soft: #23253a;
+    --success: #43c1b0;
+    --success-soft: #14312c;
+    --warning: #d9a441;
+    --warning-soft: #33290f;
+    --danger: #e87070;
+    --danger-soft: #331d1d;
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    --on-accent: #14151b;
+    --btn-hover-border: #3a3d49;
+    --overlay: rgba(29, 31, 39, 0.98);
+    --bubble-user: #23252e;
+    --mark-bg: #6a5a12;
+    --mark-text: #ffe9a3;
+    --mark-preview-bg: #6a5a12;
+    --callout-warn-border: #e0805f;
+    --callout-warn-bg: #2c1d16;
+    --callout-tip-border: #6d8f81;
+    --callout-tip-bg: #16241f;
+    --callout-info-border: #7f93c4;
+    --callout-info-bg: #1a2033;
+  }
 }
 
 * {
@@ -61,7 +117,7 @@ button {
 }
 
 button:hover:not(:disabled) {
-  border-color: #d8c9bc;
+  border-color: var(--btn-hover-border);
   background: var(--panel-muted);
 }
 
@@ -91,6 +147,24 @@ button:disabled {
 
 .app-shell.left-closed.right-closed {
   grid-template-columns: 0 minmax(0, 1fr) 0;
+}
+
+/* Writing focus mode: collapse both side rails and fade the tabs/toolbar so only the
+   text is left. Move the mouse or press Escape to bring the chrome back. */
+.app-shell.writing {
+  grid-template-columns: 0 minmax(0, 1fr) 0;
+}
+
+.app-shell.writing .document-tabs,
+.app-shell.writing .toolbar,
+.app-shell.writing .library-rail {
+  opacity: 0;
+}
+
+.document-tabs,
+.toolbar,
+.library-rail {
+  transition: opacity 180ms ease;
 }
 
 .left-workspace {
@@ -311,7 +385,7 @@ button:disabled {
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--overlay);
   box-shadow: var(--shadow);
 }
 
@@ -552,8 +626,8 @@ button:disabled {
 
 .search-highlight {
   border-radius: 4px;
-  background: #fff1a8;
-  color: #5c4500;
+  background: var(--mark-bg);
+  color: var(--mark-text);
   box-shadow: 0 0 0 1px rgba(157, 116, 23, 0.18);
 }
 
@@ -1054,7 +1128,7 @@ button:disabled {
 
 .mode-switch button.active {
   background: var(--text);
-  color: #ffffff;
+  color: var(--surface);
 }
 
 .document-findbar {
@@ -1134,7 +1208,7 @@ button:disabled {
   padding: 10px 12px 10px 16px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--overlay);
   box-shadow: 0 14px 36px rgba(20, 20, 24, 0.12);
   color: var(--text);
   pointer-events: auto;
@@ -1153,7 +1227,7 @@ button:disabled {
 
 .notice.info {
   border-color: rgba(15, 118, 110, 0.22);
-  background: linear-gradient(90deg, rgba(236, 253, 245, 0.98), rgba(255, 255, 255, 0.96));
+  background: var(--success-soft);
   color: var(--success);
 }
 
@@ -1163,7 +1237,7 @@ button:disabled {
 
 .notice.error {
   border-color: rgba(198, 69, 69, 0.24);
-  background: linear-gradient(90deg, rgba(255, 240, 238, 0.98), rgba(255, 255, 255, 0.96));
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
@@ -1173,7 +1247,7 @@ button:disabled {
 
 .notice.warning {
   border-color: rgba(157, 116, 23, 0.28);
-  background: linear-gradient(90deg, rgba(255, 247, 230, 0.98), rgba(255, 255, 255, 0.96));
+  background: var(--warning-soft);
   color: var(--warning);
 }
 
@@ -1235,7 +1309,7 @@ button:disabled {
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--overlay);
   box-shadow: var(--shadow);
 }
 
@@ -1286,7 +1360,7 @@ button:disabled {
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--overlay);
   box-shadow: var(--shadow);
 }
 
@@ -1358,7 +1432,7 @@ button:disabled {
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--overlay);
   box-shadow: var(--shadow);
 }
 
@@ -1390,8 +1464,13 @@ button:disabled {
   text-align: left;
 }
 
-.command-list button:not(:disabled):hover {
+.command-list button:not(:disabled):hover,
+.command-list button.is-active:not(:disabled) {
   background: var(--panel-muted);
+}
+
+.command-list button.is-active:not(:disabled) {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .command-list small {
@@ -2008,7 +2087,7 @@ button:disabled {
 .assistant-message.user .assistant-message-body {
   padding: 12px 16px;
   border-radius: 18px;
-  background: #f0efed;
+  background: var(--bubble-user);
   color: var(--text);
 }
 
@@ -2371,7 +2450,7 @@ button:disabled {
 .markdown-preview mark {
   padding: 0.05em 0.22em;
   border-radius: 5px;
-  background: #fff0a8;
+  background: var(--mark-preview-bg);
   color: inherit;
 }
 
@@ -2405,7 +2484,7 @@ button:disabled {
   padding: 4px 8px;
   border-color: var(--line);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.88);
+  background: var(--overlay);
   color: var(--muted);
   font-size: 0.75rem;
   opacity: 0;
@@ -2450,20 +2529,20 @@ button:disabled {
 .markdown-callout.callout-warning,
 .markdown-callout.callout-danger,
 .markdown-callout.callout-error {
-  border-left-color: #d26b4c;
-  background: #fff6f0;
+  border-left-color: var(--callout-warn-border);
+  background: var(--callout-warn-bg);
 }
 
 .markdown-callout.callout-tip,
 .markdown-callout.callout-success {
-  border-left-color: #6d8f81;
-  background: #f5faf2;
+  border-left-color: var(--callout-tip-border);
+  background: var(--callout-tip-bg);
 }
 
 .markdown-callout.callout-info,
 .markdown-callout.callout-note {
-  border-left-color: #7188b7;
-  background: #f4f7ff;
+  border-left-color: var(--callout-info-border);
+  background: var(--callout-info-bg);
 }
 
 .markdown-toc {

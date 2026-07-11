@@ -812,9 +812,10 @@ fn save_markdown_file(
     path: Option<String>,
     root_path: Option<String>,
     content: String,
+    expected_modified_ms: Option<u64>,
 ) -> Result<Option<document::SaveResult>, String> {
-    let target_path = match path {
-        Some(path) if !path.trim().is_empty() => PathBuf::from(path),
+    let (target_path, expected_modified_ms) = match path {
+        Some(path) if !path.trim().is_empty() => (PathBuf::from(path), expected_modified_ms),
         _ => {
             let Some(path) = rfd::FileDialog::new()
                 .add_filter("Markdown", &["md", "markdown"])
@@ -823,13 +824,20 @@ fn save_markdown_file(
             else {
                 return Ok(None);
             };
-            path
+            // A chosen "save as" target has no prior known mtime to guard against.
+            (path, None)
         }
     };
 
     let root = root_path.as_deref().map(PathBuf::from);
-    document::save_markdown_file(&state.documents, &target_path, &content, root.as_deref())
-        .map(Some)
+    document::save_markdown_file(
+        &state.documents,
+        &target_path,
+        &content,
+        root.as_deref(),
+        expected_modified_ms,
+    )
+    .map(Some)
 }
 
 #[tauri::command]
@@ -1136,6 +1144,13 @@ fn update_native_menu_state(app: tauri::AppHandle, state: NativeMenuState) -> Re
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Must be the first plugin. A second launch focuses the running window instead
+        // of opening a rival instance that would fight over the workspace and its index.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+        }))
         .manage(AppState::default())
         .menu(build_app_menu)
         .on_menu_event(|app, event| {
@@ -1255,7 +1270,8 @@ mod tests {
         let path = temp_markdown_path("save-open");
         let content = "# Saved\n\nBody text";
 
-        let save_result = save_markdown_file(&cache, &path, content, None).expect("save markdown");
+        let save_result =
+            save_markdown_file(&cache, &path, content, None, None).expect("save markdown");
         let save_json = to_value(save_result).expect("serialize save result");
         assert_eq!(fs::read_to_string(&path).expect("read saved file"), content);
         assert_eq!(save_json["path"], path.to_string_lossy().to_string());
@@ -1278,8 +1294,8 @@ mod tests {
         fs::create_dir_all(&root).expect("create history workspace");
         let path = root.join("note.md");
 
-        save_markdown_file(&cache, &path, "# First", Some(&root)).expect("initial save");
-        save_markdown_file(&cache, &path, "# Second", Some(&root)).expect("second save");
+        save_markdown_file(&cache, &path, "# First", Some(&root), None).expect("initial save");
+        save_markdown_file(&cache, &path, "# Second", Some(&root), None).expect("second save");
 
         let snapshots =
             super::document::list_history_snapshots(&path, Some(&root), 8).expect("list snapshots");
@@ -1290,6 +1306,64 @@ mod tests {
         );
 
         fs::remove_dir_all(root).expect("remove history workspace");
+    }
+
+    #[test]
+    fn rejects_save_when_disk_modified_time_differs() {
+        let cache = DocumentCache::default();
+        let path = temp_markdown_path("conflict");
+
+        let first = save_markdown_file(&cache, &path, "# First", None, None).expect("initial save");
+        let stale = first.modified_ms.map(|value| value.saturating_sub(1000));
+
+        // A save guarded by a stale mtime must be refused, not silently overwrite.
+        let conflict = save_markdown_file(&cache, &path, "# Second", None, stale)
+            .expect_err("stale save should conflict");
+        assert!(conflict.starts_with(super::document::SAVE_CONFLICT_PREFIX));
+        assert_eq!(fs::read_to_string(&path).expect("read file"), "# First");
+
+        // Saving with the correct known mtime succeeds.
+        save_markdown_file(&cache, &path, "# Second", None, first.modified_ms)
+            .expect("matching mtime save");
+        assert_eq!(fs::read_to_string(&path).expect("read file"), "# Second");
+
+        fs::remove_file(path).expect("remove conflict file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_save_preserves_existing_file_permissions() {
+        let cache = DocumentCache::default();
+        let path = temp_markdown_path("permissions");
+        fs::write(&path, "# First").expect("create markdown");
+        let mut permissions = fs::metadata(&path).expect("inspect markdown").permissions();
+        permissions.set_mode(0o600);
+        fs::set_permissions(&path, permissions).expect("restrict markdown permissions");
+
+        save_markdown_file(&cache, &path, "# Second", None, None).expect("save markdown");
+
+        assert_eq!(
+            fs::metadata(&path)
+                .expect("inspect saved markdown")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        fs::remove_file(path).expect("remove markdown");
+    }
+
+    #[test]
+    fn rejects_guarded_save_when_file_was_deleted() {
+        let cache = DocumentCache::default();
+        let path = temp_markdown_path("deleted-conflict");
+        let first = save_markdown_file(&cache, &path, "# First", None, None).expect("initial save");
+        fs::remove_file(&path).expect("delete markdown");
+
+        let conflict = save_markdown_file(&cache, &path, "# Second", None, first.modified_ms)
+            .expect_err("deleted file should conflict");
+        assert!(conflict.starts_with(super::document::SAVE_CONFLICT_PREFIX));
+        assert!(!path.exists());
     }
 
     #[test]

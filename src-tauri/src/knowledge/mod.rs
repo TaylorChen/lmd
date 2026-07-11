@@ -8,6 +8,7 @@ use std::{
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use unicode_normalization::UnicodeNormalization;
 
 use crate::workspace::{
     Backlink, DocumentKnowledge, FrontmatterField, KnowledgeLink, KnowledgeLintIssue,
@@ -1818,15 +1819,25 @@ fn hash_text(value: &str) -> String {
 }
 
 fn normalize_lookup_key(value: &str) -> String {
+    // NFC-normalize so a typed `[[café]]` (NFC) matches a macOS filename (NFD) whose
+    // bytes differ but render identically. Without this, links to files with accented
+    // or CJK-adjacent characters silently fail to resolve.
     value
         .replace('\\', "/")
         .trim_start_matches("./")
         .trim()
         .to_ascii_lowercase()
+        .nfc()
+        .collect()
 }
 
 fn normalize_tag(value: &str) -> String {
-    value.trim().trim_start_matches('#').to_ascii_lowercase()
+    value
+        .trim()
+        .trim_start_matches('#')
+        .to_ascii_lowercase()
+        .nfc()
+        .collect()
 }
 
 fn split_link_anchor(target: &str) -> (&str, Option<&str>) {
@@ -1875,4 +1886,19 @@ fn now_secs() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_lookup_key, normalize_tag};
+
+    #[test]
+    fn lookup_key_matches_across_unicode_forms() {
+        // "café" written as NFC (é = U+00E9) and NFD (e + U+0301 combining accent).
+        let nfc = "café";
+        let nfd = "cafe\u{0301}";
+        assert_ne!(nfc, nfd, "the two forms must differ byte-wise");
+        assert_eq!(normalize_lookup_key(nfc), normalize_lookup_key(nfd));
+        assert_eq!(normalize_tag(nfc), normalize_tag(nfd));
+    }
 }
