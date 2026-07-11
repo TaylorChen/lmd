@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
-import type { RecentFile, SearchMatch, SidebarView, Workspace, WorkspaceFile } from "../types";
+import type { RecentFile, RecentWorkspace, SearchMatch, SidebarView, Workspace, WorkspaceFile } from "../types";
 import {
   ancestorFolderPaths,
   buildWorkspaceTree,
@@ -21,6 +21,7 @@ type WorkspaceSidebarProps = {
   view: SidebarView;
   files: WorkspaceFile[];
   recentFiles: RecentFile[];
+  recentWorkspaces: RecentWorkspace[];
   activePath: string | null;
   searchQuery: string;
   searchMatches: SearchMatch[];
@@ -43,6 +44,8 @@ type WorkspaceSidebarProps = {
   onOpenFile: (file: WorkspaceFile) => void;
   onOpenRecent: (path: string, name: string) => void;
   onRemoveRecent: (path: string) => void;
+  onOpenRecentWorkspace: (path: string) => void;
+  onRemoveRecentWorkspace: (path: string) => void;
   onSearchQueryChange: (query: string) => void;
   onSearch: () => void;
   onOpenSearchMatch: (match: SearchMatch) => void;
@@ -103,6 +106,7 @@ export function WorkspaceSidebar({
   view,
   files,
   recentFiles,
+  recentWorkspaces,
   activePath,
   searchQuery,
   searchMatches,
@@ -125,6 +129,8 @@ export function WorkspaceSidebar({
   onOpenFile,
   onOpenRecent,
   onRemoveRecent,
+  onOpenRecentWorkspace,
+  onRemoveRecentWorkspace,
   onSearchQueryChange,
   onSearch,
   onOpenSearchMatch,
@@ -437,7 +443,7 @@ export function WorkspaceSidebar({
             </summary>
             <div className="workspace-menu-actions" role="menu" aria-label="工作区操作">
               <button type="button" role="menuitem" onClick={onOpenWorkspace} disabled={busy}>打开工作区</button>
-              <button type="button" role="menuitem" onClick={() => openTemporaryView("recent")}>最近文件</button>
+              <button type="button" role="menuitem" onClick={() => openTemporaryView("recent")}>最近项目</button>
               <button type="button" role="menuitem" onClick={onRefreshWorkspace} disabled={busy || !workspace}>刷新</button>
               <button type="button" role="menuitem" onClick={onRevealWorkspace} disabled={busy || !workspace}>在 Finder 中显示</button>
               <button type="button" role="menuitem" className="danger" onClick={onCloseWorkspace} disabled={busy || !workspace}>关闭工作区</button>
@@ -475,17 +481,31 @@ export function WorkspaceSidebar({
 
         <div className="file-list" aria-label="工作区文件">
           {view === "recent" ? (
-            recentFiles.length > 0 ? recentFiles.map((file) => (
-              <div key={file.path} className={`recent-file-row ${file.path === activePath ? "active" : ""}`}>
-                <button type="button" className="file-item" onClick={() => onOpenRecent(file.path, file.name)} disabled={busy} title={file.path}>
-                  <span>{file.name}</span>
-                </button>
-                <button type="button" className="recent-remove-button" onClick={() => onRemoveRecent(file.path)} disabled={busy} aria-label={`移除最近文件 ${file.name}`}>移除</button>
-              </div>
-            )) : <p className="empty-workspace">暂无最近文件。</p>
-          ) : !workspace ? (
-            <div className="workspace-empty-state"><strong>工作区</strong><p className="empty-workspace">打开文件夹以浏览笔记。</p><button type="button" onClick={onOpenWorkspace} disabled={busy}>打开工作区</button></div>
-          ) : view === "search" && searchActive ? (
+            recentFiles.length > 0 || recentWorkspaces.length > 0 ? <>
+              {recentWorkspaces.length > 0 && <section className="recent-section" aria-label="最近工作区">
+                <small className="recent-section-title">工作区</small>
+                {recentWorkspaces.map((item) => (
+                  <div key={item.path} className="recent-file-row">
+                    <button type="button" className="file-item" onClick={() => onOpenRecentWorkspace(item.path)} disabled={busy} title={item.path}>
+                      <span>{item.name}</span>
+                    </button>
+                    <button type="button" className="recent-remove-button" onClick={() => onRemoveRecentWorkspace(item.path)} disabled={busy} aria-label={`移除最近工作区 ${item.name}`}>移除</button>
+                  </div>
+                ))}
+              </section>}
+              {recentFiles.length > 0 && <section className="recent-section" aria-label="最近文件">
+                <small className="recent-section-title">文件</small>
+                {recentFiles.map((file) => (
+                  <div key={file.path} className={`recent-file-row ${file.path === activePath ? "active" : ""}`}>
+                    <button type="button" className="file-item" onClick={() => onOpenRecent(file.path, file.name)} disabled={busy} title={file.path}>
+                      <span>{file.name}</span>
+                    </button>
+                    <button type="button" className="recent-remove-button" onClick={() => onRemoveRecent(file.path)} disabled={busy} aria-label={`移除最近文件 ${file.name}`}>移除</button>
+                  </div>
+                ))}
+              </section>}
+            </> : <p className="empty-workspace">暂无最近文件。</p>
+          ) : !workspace ? null : view === "search" && searchActive ? (
             searchMatches.length > 0 ? searchMatches.map((match, index) => (
               <button type="button" key={`${match.path}:${match.lineNumber}:${index}`} className={`file-item search-result ${match.path === activePath ? "active" : ""}`} onClick={() => onOpenSearchMatch(match)} disabled={busy} title={`${match.relativePath}:${match.lineNumber}`}>
                 <span>{match.relativePath}</span><small className="file-kind">第 {match.lineNumber.toLocaleString()} 行</small><em>{highlightedSearchLine(match, searchQuery)}</em>

@@ -668,6 +668,19 @@ button:disabled {
   min-width: 0;
 }
 
+.recent-section + .recent-section {
+  margin-top: 14px;
+}
+
+.recent-section-title {
+  display: block;
+  padding: 5px 10px;
+  color: var(--faint);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .recent-file-row .file-item {
   min-width: 0;
 }
@@ -2691,4 +2704,39 @@ button:disabled {
   .toolbar {
     gap: 12px;
   }
+}
+
+.native-drop-overlay {
+  position: fixed;
+  inset: 14px;
+  z-index: 120;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--text);
+  text-align: center;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+  animation: native-drop-in 120ms ease-out;
+}
+
+.native-drop-overlay strong {
+  font-size: 22px;
+}
+
+.native-drop-overlay span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+@keyframes native-drop-in {
+  from { opacity: 0; transform: scale(0.99); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .native-drop-overlay { animation: none; }
 }

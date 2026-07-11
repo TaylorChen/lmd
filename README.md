@@ -28,6 +28,8 @@ LMD is a local-first Markdown note app for macOS, built with Tauri, React, CodeM
 
 - CodeMirror 6 Markdown source editor
 - Document tabs with close buttons and right-click menu actions
+- Native Finder drag and drop: open multiple Markdown files as tabs or open a folder as a workspace
+- `Cmd+O` opens Markdown and `Cmd+Shift+O` opens a workspace
 - Tab right-click actions for rename and close
 - Unsaved tabs are marked with `*`
 - `Cmd+F` opens a temporary find bar instead of occupying permanent toolbar space
@@ -93,6 +95,7 @@ wiki/log.md
 Workspace capabilities include:
 
 - folder scanning for Markdown files
+- recently opened workspaces in the Recent view
 - recent files and removable recent entries
 - SQLite-backed knowledge indexing in `.lmd/knowledge/lmd.db`
 - workspace search with `path:`, `#tag`, and `block:^id` queries through the local index

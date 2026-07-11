@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { classifyDropPaths, dropOverlayMessage } from "../../src/lib/nativeDrop";
+import { promoteRecentWorkspace } from "../../src/lib/storage";
 
 type TestCall = {
   command: string;
@@ -11,6 +13,7 @@ declare global {
       invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
     };
     __LMD_TEST_CALLS__?: TestCall[];
+    __LMD_TEST_DROP_EVENT__?: (event: { type: "enter" | "leave" | "drop"; paths: string[] }) => void;
   }
 }
 
@@ -27,7 +30,15 @@ async function installTauriMock(page: Page) {
           return { exists: true, byteSize: 32, modifiedMs: 2000 };
         }
 
-        if (command === "open_workspace" || command === "refresh_workspace") {
+        if (command === "inspect_drop_path") {
+          const path = String(args?.path ?? "");
+          return {
+            path,
+            kind: /\.(md|markdown)$/i.test(path) ? "markdown" : path.includes(".") ? "unsupported" : "directory",
+          };
+        }
+
+        if (command === "open_workspace" || command === "open_workspace_path" || command === "refresh_workspace") {
           return {
             rootPath: "/workspace",
             files: [
@@ -546,10 +557,11 @@ async function openWorkspaceDock(page: Page) {
   await expect(dock).toBeVisible();
 }
 
-async function openWorkspace(page: Page) {
-  await openWorkspaceDock(page);
-  const openButton = page.getByRole("button", { name: "打开工作区" });
-  await openButton.click();
+async function openWorkspace(page: Page, expectSuccess = true) {
+  await pressAppShortcut(page, "o", { shift: true });
+  if (expectSuccess) {
+    await expect(page.getByRole("tree", { name: "工作区目录" })).toBeVisible();
+  }
 }
 
 test.beforeEach(async ({ page }) => {
@@ -557,6 +569,88 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => window.localStorage.clear());
   await page.reload();
+});
+
+test("classifies mixed native drop paths in source order", () => {
+  const plan = classifyDropPaths([
+    { path: "/notes", kind: "directory" },
+    { path: "/a.md", kind: "markdown" },
+    { path: "/other", kind: "directory" },
+    { path: "/b.MARKDOWN", kind: "markdown" },
+    { path: "/image.png", kind: "unsupported" },
+  ]);
+
+  expect(plan).toEqual({
+    workspacePath: "/notes",
+    markdownPaths: ["/a.md", "/b.MARKDOWN"],
+    extraFolderPaths: ["/other"],
+    unsupportedPaths: ["/image.png"],
+  });
+  expect(dropOverlayMessage(plan)).toBe("打开工作区和 2 个 Markdown 文件");
+});
+
+test("promotes, deduplicates and limits recent workspaces", () => {
+  const initial = Array.from({ length: 8 }, (_, index) => ({
+    path: `/workspace-${index}`,
+    name: `workspace-${index}`,
+    openedAt: index,
+  }));
+  const next = promoteRecentWorkspace(initial, {
+    path: "/workspace-3",
+    name: "workspace-3",
+    openedAt: 99,
+  });
+
+  expect(next).toHaveLength(8);
+  expect(next[0].path).toBe("/workspace-3");
+  expect(new Set(next.map((item) => item.path)).size).toBe(8);
+});
+
+test("shows native drop feedback only while dragging", async ({ page }) => {
+  await page.evaluate(() => window.__LMD_TEST_DROP_EVENT__?.({ type: "enter", paths: ["/workspace"] }));
+  await expect(page.getByRole("status", { name: "文件拖放" })).toContainText("松开以打开");
+
+  await page.evaluate(() => window.__LMD_TEST_DROP_EVENT__?.({ type: "leave", paths: [] }));
+  await expect(page.getByRole("status", { name: "文件拖放" })).toHaveCount(0);
+});
+
+test("opens a dropped folder and all dropped markdown files", async ({ page }) => {
+  await page.evaluate(() => window.__LMD_TEST_DROP_EVENT__?.({
+    type: "drop",
+    paths: ["/workspace", "/tmp/a.md", "/tmp/b.markdown"],
+  }));
+
+  await expect(page.getByRole("tab", { name: "a.md" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "b.markdown" })).toBeVisible();
+  const commands = await page.evaluate(() => window.__LMD_TEST_CALLS__?.map((call) => call.command));
+  expect(commands).toEqual(expect.arrayContaining(["open_workspace_path", "open_markdown_path"]));
+});
+
+test("keeps the workspace empty state visually blank", async ({ page }) => {
+  await page.getByRole("button", { name: "文件" }).click();
+  await expect(page.getByRole("button", { name: "打开工作区" })).toHaveCount(0);
+  await expect(page.getByText("打开文件夹以浏览笔记。")).toHaveCount(0);
+});
+
+test("keeps recent workspaces out of the editor and exposes them from Recent", async ({ page }) => {
+  await page.evaluate(() => window.__LMD_TEST_DROP_EVENT__?.({ type: "drop", paths: ["/workspace"] }));
+  await page.getByRole("button", { name: "最近" }).click();
+
+  await expect(page.getByRole("region", { name: "最近工作区" })).toContainText("workspace");
+  const stored = await page.evaluate(() => window.localStorage.getItem("lmd:recent-workspaces:v1"));
+  expect(JSON.parse(stored ?? "[]")[0].path).toBe("/workspace");
+});
+
+test("opens markdown and workspace from keyboard shortcuts", async ({ page }) => {
+  await pressAppShortcut(page, "o");
+  await expect.poll(async () => page.evaluate(
+    () => window.__LMD_TEST_CALLS__?.some((call) => call.command === "open_markdown_file"),
+  )).toBe(true);
+  await expect(page.getByRole("button", { name: "设置", exact: true })).toBeEnabled();
+  await pressAppShortcut(page, "o", { shift: true });
+  await expect.poll(async () => page.evaluate(
+    () => window.__LMD_TEST_CALLS__?.some((call) => call.command === "open_workspace"),
+  )).toBe(true);
 });
 
 test("strictly reads and writes the workspace sidebar preference", async ({ page }) => {
@@ -712,6 +806,7 @@ test("keeps a 44px Ribbon while the workspace dock opens responsively", async ({
 });
 
 test("edits markdown and renders preview modes", async ({ page }) => {
+  test.slow();
   await expect(page.getByRole("tab", { name: "未命名" })).toBeVisible();
   await expect(page.getByLabel("资料库分区")).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "工作区工具" })).toBeVisible();
@@ -801,31 +896,31 @@ test("uses one compact workspace sidebar with on-demand search and recent files"
   await expect(selectedFile).toHaveCount(1);
   await expect(selectedFile.locator(".tree-file-name")).toHaveCSS("white-space", "nowrap");
   const desktopGrid = await page.locator(".app-shell").evaluate((node) => getComputedStyle(node).gridTemplateColumns);
-  expect(desktopGrid.split(" ")[0]).toBe("260px");
+  expect(desktopGrid.split(" ")[0]).toBe("284px");
   await expect(page.getByRole("treeitem", { name: "alpha.md", exact: true })).toHaveAttribute("tabindex", "0");
-  await page.getByRole("button", { name: "搜索工作区" }).click();
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expect(page.getByLabel("搜索工作区输入")).toBeVisible();
   await page.getByLabel("搜索工作区输入").fill("needle");
   await page.getByLabel("搜索工作区输入").press("Escape");
   await expect(page.getByRole("tree", { name: "工作区目录" })).toBeVisible();
   await expect(page.getByRole("treeitem", { name: "alpha.md", exact: true })).toBeFocused();
-  await expect(page.evaluate(() => window.localStorage.getItem("lmd:workspace-sidebar-open:v1"))).resolves.toBe("true");
+  await expect(page.evaluate(() => window.localStorage.getItem("lmd:workspace-sidebar-open:v1"))).resolves.toBeNull();
 
-  await page.getByRole("button", { name: "搜索工作区" }).click();
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expect(page.getByLabel("搜索工作区输入")).toHaveValue("");
   await page.getByLabel("搜索工作区输入").press("Escape");
 
   await page.getByLabel("工作区菜单").click();
-  const recentFiles = page.getByRole("menuitem", { name: "最近文件" });
+  const recentFiles = page.getByRole("menuitem", { name: "最近项目" });
   await recentFiles.click();
   await recentFiles.press("Escape");
   await expect(page.getByRole("tree", { name: "工作区目录" })).toBeVisible();
   await expect(page.getByRole("treeitem", { name: "alpha.md", exact: true })).toBeFocused();
-  await expect(page.evaluate(() => window.localStorage.getItem("lmd:workspace-sidebar-open:v1"))).resolves.toBe("true");
+  await expect(page.evaluate(() => window.localStorage.getItem("lmd:workspace-sidebar-open:v1"))).resolves.toBeNull();
 
   await page.setViewportSize({ width: 1024, height: 800 });
   const narrowGrid = await page.locator(".app-shell").evaluate((node) => getComputedStyle(node).gridTemplateColumns);
-  expect(narrowGrid.split(" ")[0]).toBe("260px");
+  expect(narrowGrid.split(" ")[0]).toBe("284px");
   await expect(page.locator(".right-companion")).toHaveCSS("display", "none");
 });
 
@@ -1027,7 +1122,7 @@ test("removes files from the recent list without deleting the document", async (
 
   await openWorkspaceDock(page);
   await page.getByLabel("工作区菜单").click();
-  await page.getByRole("menuitem", { name: "最近文件" }).click();
+  await page.getByRole("menuitem", { name: "最近项目" }).click();
   await expect(page.locator(".file-list .file-item").filter({ hasText: "untitled.md" })).toBeVisible();
 
   await page.getByRole("button", { name: "移除最近文件 untitled.md" }).click();
@@ -1051,7 +1146,7 @@ test("opens workspace, searches, and opens a match", async ({ page }) => {
   );
   await expect(page.getByRole("treeitem", { name: "alpha.md", exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "搜索工作区" }).click();
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
   await page.getByLabel("搜索工作区输入").fill("needle");
   await page.getByLabel("搜索工作区输入").press("Enter");
   await expect(page.getByText("找到 1 条工作区匹配结果。")).toBeVisible();
@@ -1079,6 +1174,7 @@ test("keeps workspace folder expansion per workspace", async ({ page }) => {
   await expect(page.getByRole("treeitem", { name: "topic.md" })).toBeVisible();
 
   await page.reload();
+  await openWorkspaceDock(page);
   await expect(page.getByRole("treeitem", { name: "notes", exact: true })).toHaveAttribute(
     "aria-expanded",
     "true",
@@ -1263,7 +1359,7 @@ test("closes the workspace and forgets it for the next launch", async ({ page })
   await runCommand(page, "关闭工作区");
 
   await expect(page.getByRole("treeitem", { name: "alpha.md", exact: true })).toHaveCount(0);
-  await expect(page.getByText(/打开文件夹以浏览笔记/)).toBeVisible();
+  await expect(page.getByLabel("工作区文件")).toBeEmpty();
   await expect(
     page.evaluate(() => window.localStorage.getItem("lmd:last-workspace-root")),
   ).resolves.toBeNull();
@@ -1274,7 +1370,7 @@ test("shows a clear message when native workspace actions run in web preview", a
     window.__LMD_TEST_API__ = undefined;
   });
 
-  await openWorkspace(page);
+  await openWorkspace(page, false);
   await expect(page.getByText(/本地文件和工作区操作需要在 Tauri 桌面应用中使用/)).toBeVisible();
 });
 

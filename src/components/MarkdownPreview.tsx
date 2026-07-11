@@ -1,4 +1,4 @@
-import { useEffect, useRef, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { renderMarkdownBody, type TransclusionMap } from "../lib/markdown";
 
 type MarkdownPreviewProps = {
@@ -30,22 +30,35 @@ async function copyTextToClipboard(text: string) {
 
 export function MarkdownPreview({ content, transclusions, onOpenWikiLink }: MarkdownPreviewProps) {
   const previewRef = useRef<HTMLElement | null>(null);
+  const [renderContent, setRenderContent] = useState(content);
+  const renderedHtml = useMemo(
+    () => renderMarkdownBody(renderContent, transclusions),
+    [renderContent, transclusions],
+  );
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setRenderContent(content), 100);
+    return () => window.clearTimeout(timeoutId);
+  }, [content]);
 
   useEffect(() => {
     const nodes = previewRef.current?.querySelectorAll<HTMLElement>(".mermaid");
     if (!nodes || nodes.length === 0) return;
     let cancelled = false;
-    void import("mermaid").then(({ default: mermaid }) => {
-      if (cancelled) return;
-      mermaid.initialize({
-        startOnLoad: false,
-        securityLevel: "strict",
-        theme: "neutral",
+    const timeoutId = window.setTimeout(() => {
+      void import("mermaid").then(({ default: mermaid }) => {
+        if (cancelled) return;
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: "neutral",
+        });
+        void mermaid.run({ nodes: Array.from(nodes), suppressErrors: true });
       });
-      void mermaid.run({ nodes: Array.from(nodes), suppressErrors: true });
-    });
+    }, 100);
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
     };
   });
 
@@ -92,8 +105,8 @@ export function MarkdownPreview({ content, transclusions, onOpenWikiLink }: Mark
 
   return (
     <article ref={previewRef} className="markdown-preview" aria-label="Markdown 预览" onClick={handleClick}>
-      {content.trim() ? (
-        <div dangerouslySetInnerHTML={{ __html: renderMarkdownBody(content, transclusions) }} />
+      {renderContent.trim() ? (
+        <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
       ) : (
         <p className="preview-empty">暂无可预览内容。</p>
       )}

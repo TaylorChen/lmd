@@ -226,6 +226,17 @@ export type RecentFile = {
   name: string;
 };
 
+export type RecentWorkspace = {
+  path: string;
+  name: string;
+  openedAt: number;
+};
+
+export type DropPathInfo = {
+  path: string;
+  kind: "markdown" | "directory" | "unsupported";
+};
+
 export type ExternalChange =
   | {
       kind: "modified";

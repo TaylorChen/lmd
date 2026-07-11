@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use std::sync::Mutex;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu},
     Emitter, Manager,
@@ -77,7 +80,9 @@ fn checked_app_menu_item(
 }
 
 #[cfg(target_os = "macos")]
-fn lmd_about_metadata(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::AboutMetadata<'static>> {
+fn lmd_about_metadata(
+    app: &tauri::AppHandle,
+) -> tauri::Result<tauri::menu::AboutMetadata<'static>> {
     let package_info = app.package_info();
     Ok(tauri::menu::AboutMetadata {
         name: Some(package_info.name.clone()),
@@ -219,13 +224,14 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             if submenu.text()? == "File" {
                 submenu.prepend_items(&[
                     &app_menu_item(app, "new-markdown", "新建 Markdown", Some("CmdOrCtrl+N"))?,
-                    &app_menu_item(app, "open-file", "打开文件...", Some("CmdOrCtrl+O"))?,
+                    &app_menu_item(app, "open-file", "打开 Markdown...", Some("CmdOrCtrl+O"))?,
                     &app_menu_item(
                         app,
                         "open-workspace",
                         "打开工作区...",
                         Some("Shift+CmdOrCtrl+O"),
                     )?,
+                    &app_menu_item(app, "show-recent", "最近项目", None)?,
                     &app_menu_item(app, "daily-note", "打开今日笔记", None)?,
                     &PredefinedMenuItem::separator(app)?,
                     &app_menu_item(app, "save", "保存", Some("CmdOrCtrl+S"))?,
@@ -540,6 +546,49 @@ fn open_workspace() -> Result<Option<workspace::Workspace>, String> {
     };
 
     workspace::load_workspace(&root_path).map(Some)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DropPathInfo {
+    path: String,
+    kind: String,
+}
+
+fn inspect_drop_path_value(path: &Path) -> Result<DropPathInfo, String> {
+    let metadata =
+        fs::metadata(path).map_err(|error| format!("无法读取 {}：{error}", path.display()))?;
+    let kind = if metadata.is_dir() {
+        "directory"
+    } else if path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
+        })
+    {
+        "markdown"
+    } else {
+        "unsupported"
+    };
+    Ok(DropPathInfo {
+        path: path.to_string_lossy().into_owned(),
+        kind: kind.into(),
+    })
+}
+
+fn open_workspace_path_value(root_path: &Path) -> Result<workspace::Workspace, String> {
+    workspace::load_workspace(root_path)
+}
+
+#[tauri::command]
+fn inspect_drop_path(path: String) -> Result<DropPathInfo, String> {
+    inspect_drop_path_value(&PathBuf::from(path))
+}
+
+#[tauri::command]
+fn open_workspace_path(root_path: String) -> Result<workspace::Workspace, String> {
+    open_workspace_path_value(&PathBuf::from(root_path))
 }
 
 #[tauri::command]
@@ -1196,6 +1245,8 @@ pub fn run() {
             open_markdown_path,
             open_daily_note,
             open_workspace,
+            open_workspace_path,
+            inspect_drop_path,
             query_context,
             rebuild_knowledge_index,
             refresh_workspace,
@@ -1262,6 +1313,40 @@ mod tests {
     fn normalizes_daily_note_dates() {
         assert_eq!(super::normalized_daily_date("2026-05-07"), "2026-05-07");
         assert_eq!(super::normalized_daily_date("1778164463273"), "2026-05-07");
+    }
+
+    #[test]
+    fn inspects_drop_paths_and_opens_workspace_by_path() {
+        let root = temp_workspace_path("drop-paths");
+        fs::create_dir_all(&root).expect("create root");
+        let markdown = root.join("alpha.MARKDOWN");
+        let unsupported = root.join("image.png");
+        fs::write(&markdown, "# Alpha").expect("write markdown");
+        fs::write(&unsupported, "png").expect("write unsupported");
+
+        assert_eq!(
+            super::inspect_drop_path_value(&root)
+                .expect("inspect directory")
+                .kind,
+            "directory"
+        );
+        assert_eq!(
+            super::inspect_drop_path_value(&markdown)
+                .expect("inspect markdown")
+                .kind,
+            "markdown"
+        );
+        assert_eq!(
+            super::inspect_drop_path_value(&unsupported)
+                .expect("inspect unsupported")
+                .kind,
+            "unsupported"
+        );
+        assert!(super::inspect_drop_path_value(&root.join("missing.md")).is_err());
+
+        let workspace = super::open_workspace_path_value(&root).expect("open workspace");
+        assert_eq!(workspace.root_path, root.to_string_lossy());
+        fs::remove_dir_all(root).expect("remove root");
     }
 
     #[test]

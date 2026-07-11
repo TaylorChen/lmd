@@ -11,6 +11,7 @@ import { EditorToolbar, type MarkdownAction } from "./components/EditorToolbar";
 import { KnowledgePanel } from "./components/KnowledgePanel";
 import { MarkdownPreview } from "./components/MarkdownPreview";
 import { NameDialog, type NameDialogState } from "./components/NameDialog";
+import { NativeDropOverlay } from "./components/NativeDropOverlay";
 import { NoticeStack } from "./components/NoticeStack";
 import { TagRenameDialog } from "./components/TagRenameDialog";
 import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
@@ -18,15 +19,20 @@ import { WorkspaceRibbon } from "./components/WorkspaceRibbon";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { createEditorTheme, useEditorExtensions } from "./hooks/useEditorExtensions";
 import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
+import { useNativeFileDrop } from "./hooks/useNativeFileDrop";
 import { fileName, isPathInsideRoot, localStats } from "./lib/format";
 import { renderMarkdownDocument, type TransclusionMap } from "./lib/markdown";
+import { classifyDropPaths } from "./lib/nativeDrop";
 import {
+  promoteRecentWorkspace,
   readRecentFiles,
+  readRecentWorkspaces,
   readSettings,
   readWorkspaceSidebarOpen,
   recentFileLimit,
   storageKeys,
   writeRecentFiles,
+  writeRecentWorkspaces,
   writeSettings,
   writeSettingsWithoutApiKeys,
   writeWorkspaceSidebarOpen,
@@ -50,7 +56,9 @@ import type {
   LineRange,
   MarkdownDocument,
   Notice,
+  DropPathInfo,
   RecentFile,
+  RecentWorkspace,
   SaveResult,
   SearchMatch,
   SidebarView,
@@ -502,6 +510,7 @@ export default function App() {
   const [historySnapshots, setHistorySnapshots] = useState<HistorySnapshot[]>([]);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => readRecentFiles());
+  const [recentWorkspaces, setRecentWorkspaces] = useState<RecentWorkspace[]>(() => readRecentWorkspaces());
   const [settings, setSettings] = useState(() => readSettings());
   const [assistantCatalog, setAssistantCatalog] = useState<AssistantCatalog>(defaultAssistantCatalog);
   const [knownModifiedMs, setKnownModifiedMs] = useState<number | null>(null);
@@ -537,6 +546,7 @@ export default function App() {
   const [tagRenameOpen, setTagRenameOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [assistantBusy, setAssistantBusy] = useState(false);
+  const nativeDrop = useNativeFileDrop({ enabled: !busy, onDropPaths: handleDroppedPaths });
 
   const isDirty = !readOnly && content !== savedContent;
   const hasOpenTab = activeTabId !== null;
@@ -997,6 +1007,28 @@ export default function App() {
       return nextRecentFiles;
     });
     window.localStorage.setItem(storageKeys.lastDocumentPath, documentPath);
+  }
+
+  function rememberWorkspace(workspacePath: string) {
+    const recentWorkspace = {
+      path: workspacePath,
+      name: workspacePath.split(/[\\/]/).filter(Boolean).pop() ?? workspacePath,
+      openedAt: Date.now(),
+    };
+    setRecentWorkspaces((current) => {
+      const next = promoteRecentWorkspace(current, recentWorkspace);
+      writeRecentWorkspaces(next);
+      return next;
+    });
+  }
+
+  function handleRemoveRecentWorkspace(workspacePath: string) {
+    setRecentWorkspaces((current) => {
+      const next = current.filter((item) => item.path !== workspacePath);
+      writeRecentWorkspaces(next);
+      return next;
+    });
+    setNotice({ tone: "info", message: "已从最近工作区移除。" });
   }
 
   function handleRemoveRecentFile(documentPath: string) {
@@ -1591,38 +1623,55 @@ export default function App() {
     }
   }
 
-  async function handleOpenWorkspace() {
-    if (isDirty && !window.confirm("放弃未保存的更改？")) return;
+  function applyOpenedWorkspace(nextWorkspace: Workspace, reveal: boolean) {
+    setWorkspace(nextWorkspace);
+    if (nextWorkspace.knowledge.isInitialized) {
+      void invokeCommand<KnowledgeIndexStatus>("initialize_knowledge_index", {
+        rootPath: nextWorkspace.rootPath,
+      })
+        .then(setKnowledgeIndexStatus)
+        .catch(() => setKnowledgeIndexStatus(null));
+    } else {
+      setKnowledgeIndexStatus(null);
+    }
+    window.localStorage.setItem(storageKeys.lastWorkspaceRoot, nextWorkspace.rootPath);
+    setWorkspaceQuery("");
+    setWorkspaceMatches([]);
+    setWorkspaceSearchActive(false);
+    setSidebarView("tree");
+    rememberWorkspace(nextWorkspace.rootPath);
+    if (reveal) openWorkspacePanelForReveal();
+  }
 
+  async function handleOpenWorkspace() {
     setBusy(true);
     setNotice(null);
     try {
       const nextWorkspace = await invokeCommand<Workspace | null>("open_workspace");
       if (!nextWorkspace) return;
-      setWorkspace(nextWorkspace);
-      if (nextWorkspace.knowledge.isInitialized) {
-        void invokeCommand<KnowledgeIndexStatus>("initialize_knowledge_index", {
-          rootPath: nextWorkspace.rootPath,
-        })
-          .then(setKnowledgeIndexStatus)
-          .catch(() => setKnowledgeIndexStatus(null));
-      } else {
-        setKnowledgeIndexStatus(null);
-      }
-      window.localStorage.setItem(storageKeys.lastWorkspaceRoot, nextWorkspace.rootPath);
-      setWorkspaceQuery("");
-      setWorkspaceMatches([]);
-      setWorkspaceSearchActive(false);
-      setSidebarView("tree");
-      // Deliberately opening a folder reveals the tree once as feedback, without writing
-      // the open preference — so the next launch still starts collapsed (writing-first).
-      openWorkspacePanelForReveal();
+      applyOpenedWorkspace(nextWorkspace, true);
       setNotice({
         tone: "info",
         message: `已打开工作区，共 ${nextWorkspace.files.length.toLocaleString()} 个文件。`,
       });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleOpenRecentWorkspace(workspacePath: string) {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const nextWorkspace = await invokeCommand<Workspace>("open_workspace_path", {
+        rootPath: workspacePath,
+      });
+      applyOpenedWorkspace(nextWorkspace, true);
+      setNotice({ tone: "info", message: `已打开工作区 ${fileName(workspacePath)}。` });
+    } catch (error) {
+      setNotice({ tone: "error", message: String(error), dismissAfterMs: null });
     } finally {
       setBusy(false);
     }
@@ -2749,6 +2798,10 @@ export default function App() {
       void handleOpenWorkspace();
       return;
     }
+    if (action === "show-recent") {
+      selectWorkspaceViewFromUser("recent");
+      return;
+    }
     if (action === "daily-note") {
       void handleOpenDailyNote();
       return;
@@ -3151,7 +3204,7 @@ export default function App() {
           const restoredWorkspace = await invokeCommand<Workspace>("refresh_workspace", {
             rootPath: lastWorkspaceRoot,
           });
-          if (!cancelled) setWorkspace(restoredWorkspace);
+          if (!cancelled) applyOpenedWorkspace(restoredWorkspace, false);
         }
 
         if (lastDocumentPath) {
@@ -3276,6 +3329,79 @@ export default function App() {
     void handleRefreshGitStatus(false);
   }, [workspace?.rootPath, path]);
 
+  async function handleDroppedPaths(pathsToOpen: string[]) {
+    if (busy || pathsToOpen.length === 0) return;
+    setBusy(true);
+    setNotice(null);
+    const failedPaths: string[] = [];
+    let openedDocuments = 0;
+    let openedWorkspaceName: string | null = null;
+
+    try {
+      const inspected = await Promise.all(
+        pathsToOpen.map(async (candidatePath): Promise<DropPathInfo> => {
+          try {
+            return await invokeCommand<DropPathInfo>("inspect_drop_path", { path: candidatePath });
+          } catch {
+            failedPaths.push(candidatePath);
+            return { path: candidatePath, kind: "unsupported" };
+          }
+        }),
+      );
+      const plan = classifyDropPaths(inspected);
+
+      if (plan.workspacePath) {
+        try {
+          const nextWorkspace = await invokeCommand<Workspace>(
+            plan.workspacePath === workspace?.rootPath ? "refresh_workspace" : "open_workspace_path",
+            { rootPath: plan.workspacePath },
+          );
+          applyOpenedWorkspace(nextWorkspace, true);
+          openedWorkspaceName = fileName(nextWorkspace.rootPath);
+        } catch {
+          failedPaths.push(plan.workspacePath);
+        }
+      }
+
+      for (const markdownPath of plan.markdownPaths) {
+        try {
+          const document = await invokeCommand<MarkdownDocument>("open_markdown_path", {
+            path: markdownPath,
+          });
+          applyDocument(document);
+          rememberDocument(document.path);
+          openedDocuments += 1;
+        } catch {
+          failedPaths.push(markdownPath);
+        }
+      }
+
+      const skippedCount = new Set([
+        ...plan.extraFolderPaths,
+        ...plan.unsupportedPaths,
+        ...failedPaths,
+      ]).size;
+      const openedParts = [
+        openedWorkspaceName ? `工作区 ${openedWorkspaceName}` : "",
+        openedDocuments > 0 ? `${openedDocuments.toLocaleString()} 个 Markdown 文件` : "",
+      ].filter(Boolean);
+      if (openedParts.length === 0) {
+        setNotice({
+          tone: "error",
+          message: "未找到可打开的 Markdown 文件或可读取的文件夹。",
+          dismissAfterMs: null,
+        });
+      } else {
+        setNotice({
+          tone: skippedCount > 0 ? "error" : "info",
+          message: `已打开${openedParts.join("和")}${skippedCount > 0 ? `，跳过 ${skippedCount} 个项目。` : "。"}`,
+        });
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function handleSettingsChange(nextSettings: typeof settings) {
     const previousApiKeys = settings.assistantApiKeys;
     setSettings(nextSettings);
@@ -3331,7 +3457,7 @@ export default function App() {
     },
     {
       id: "open",
-      label: "打开文件",
+      label: "打开 Markdown",
       hint: "从磁盘打开 Markdown",
       disabled: busy,
       run: () => void handleOpen(),
@@ -3504,6 +3630,7 @@ export default function App() {
         rightPanelOpen ? "right-open" : "right-closed"
       } ${writing ? "writing" : ""}`}
     >
+      <NativeDropOverlay active={nativeDrop.active} itemCount={nativeDrop.paths.length} />
       <CommandPalette
         open={commandPaletteOpen}
         query={commandPaletteQuery}
@@ -3881,6 +4008,7 @@ export default function App() {
           view={sidebarView}
           files={workspaceFiles}
           recentFiles={recentFiles}
+          recentWorkspaces={recentWorkspaces}
           activePath={path}
           searchQuery={workspaceQuery}
           searchMatches={workspaceMatches}
@@ -3913,6 +4041,8 @@ export default function App() {
           onOpenSearchMatch={(match) => void handleOpenSearchMatch(match)}
           onOpenRecent={(recentPath, name) => void openPath(recentPath, name)}
           onRemoveRecent={handleRemoveRecentFile}
+          onOpenRecentWorkspace={(recentPath) => void handleOpenRecentWorkspace(recentPath)}
+          onRemoveRecentWorkspace={handleRemoveRecentWorkspace}
         />
         </div>
       </div>

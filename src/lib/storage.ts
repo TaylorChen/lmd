@@ -1,4 +1,4 @@
-import type { AppSettings, AssistantProvider, EditorMode, RecentFile } from "../types";
+import type { AppSettings, AssistantProvider, EditorMode, RecentFile, RecentWorkspace } from "../types";
 
 export const recentFileLimit = 8;
 export const defaultSettings: AppSettings = {
@@ -17,6 +17,7 @@ export const storageKeys = {
   lastDocumentPath: "lmd:last-document-path",
   lastWorkspaceRoot: "lmd:last-workspace-root",
   recentFiles: "lmd:recent-files",
+  recentWorkspaces: "lmd:recent-workspaces:v1",
   settings: "lmd:settings",
   workspaceSidebarOpen: "lmd:workspace-sidebar-open:v1",
 };
@@ -113,6 +114,43 @@ export function readRecentFiles() {
 
 export function writeRecentFiles(files: RecentFile[]) {
   window.localStorage.setItem(storageKeys.recentFiles, JSON.stringify(files.slice(0, recentFileLimit)));
+}
+
+export function promoteRecentWorkspace(
+  workspaces: RecentWorkspace[],
+  workspace: RecentWorkspace,
+): RecentWorkspace[] {
+  return [workspace, ...workspaces.filter((item) => item.path !== workspace.path)].slice(
+    0,
+    recentFileLimit,
+  );
+}
+
+export function readRecentWorkspaces(): RecentWorkspace[] {
+  try {
+    const rawValue = window.localStorage.getItem(storageKeys.recentWorkspaces);
+    if (!rawValue) return [];
+    const parsedValue: unknown = JSON.parse(rawValue);
+    if (!Array.isArray(parsedValue)) return [];
+    return parsedValue
+      .filter(
+        (item): item is RecentWorkspace =>
+          typeof item?.path === "string" &&
+          typeof item?.name === "string" &&
+          typeof item?.openedAt === "number" &&
+          Number.isFinite(item.openedAt),
+      )
+      .slice(0, recentFileLimit);
+  } catch {
+    return [];
+  }
+}
+
+export function writeRecentWorkspaces(workspaces: RecentWorkspace[]) {
+  window.localStorage.setItem(
+    storageKeys.recentWorkspaces,
+    JSON.stringify(workspaces.slice(0, recentFileLimit)),
+  );
 }
 
 export function readSettings(): AppSettings {
