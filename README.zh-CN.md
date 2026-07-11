@@ -12,17 +12,9 @@ LMD 是一款原生 macOS 应用，用于编写 Markdown、把本地文件夹组
 
 ## 界面截图
 
-### 安静的 Markdown 工作区
+### 当前原生 macOS 应用与按需工作区、文档工具
 
-![LMD 源码与预览编辑界面](docs/assets/lmd-editor.png)
-
-### 需要时才出现的 AI 助手
-
-![LMD 按需 AI 助手抽屉](docs/assets/lmd-ai-assistant.png)
-
-### 用一个命令入口发现文件、知识、AI 与导出能力
-
-![LMD 命令面板](docs/assets/lmd-command-palette.png)
+![当前 LMD 原生 macOS 编辑器](docs/assets/lmd-editor.png)
 
 ## 为什么选择 LMD
 

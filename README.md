@@ -10,19 +10,11 @@ LMD is a native macOS app for writing Markdown, organizing a folder as a knowled
 
 > **Early release:** the macOS build is currently unsigned and unnotarized. If Gatekeeper blocks the first launch, open the DMG, drag LMD to Applications, then Control-click LMD in Finder and choose **Open**.
 
-## Screenshots
+## Screenshot
 
-### A quiet Markdown workspace
+### The native macOS app with the current on-demand workspace and document tools
 
-![LMD editor with source and preview views](docs/assets/lmd-editor.png)
-
-### AI only when you ask for it
-
-![LMD on-demand AI assistant drawer](docs/assets/lmd-ai-assistant.png)
-
-### One command surface for files, knowledge, AI, and export
-
-![LMD command palette](docs/assets/lmd-command-palette.png)
+![Current LMD native macOS editor](docs/assets/lmd-editor.png)
 
 ## Why LMD
 
