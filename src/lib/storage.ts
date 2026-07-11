@@ -18,7 +18,23 @@ export const storageKeys = {
   lastWorkspaceRoot: "lmd:last-workspace-root",
   recentFiles: "lmd:recent-files",
   settings: "lmd:settings",
+  workspaceSidebarOpen: "lmd:workspace-sidebar-open:v1",
 };
+
+export function readWorkspaceSidebarOpen(): boolean | null {
+  try {
+    const rawValue = window.localStorage.getItem(storageKeys.workspaceSidebarOpen);
+    if (rawValue === null) return null;
+    const parsedValue: unknown = JSON.parse(rawValue);
+    return typeof parsedValue === "boolean" ? parsedValue : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeWorkspaceSidebarOpen(open: boolean): void {
+  window.localStorage.setItem(storageKeys.workspaceSidebarOpen, JSON.stringify(open));
+}
 
 export function workspaceTreeStorageKey(rootPath: string) {
   return `lmd:workspace-tree:v1:${rootPath}`;

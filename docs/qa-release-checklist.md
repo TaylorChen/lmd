@@ -35,7 +35,11 @@ DMG creation uses macOS disk image tooling. If it fails in a sandboxed shell, re
 12. Open a workspace for the first time and verify root files are visible while folders are collapsed; open a nested file from a command/search result and verify its ancestors expand and the file is revealed.
 13. Open workspace search and Recent Files, then press Escape in each view; verify the sidebar returns to the tree and restores a sensible tree focus target.
 14. In the workspace tree, verify Arrow Up/Down/Left/Right, Home, End, and Enter navigate/open files without losing the visible focus outline.
-15. At 1280px and 1024px widths, verify light and dark mode each present one 260px workspace hierarchy, retain usable editor space, and do not regress the inspector’s hide/show behavior.
+15. Open a workspace with no saved sidebar preference and verify its file dock opens for that session without writing a preference; explicitly close it, restart, and verify the saved closed state restores with only the 44px Ribbon visible.
+16. Use the Ribbon to open Files, Search, and Recent; verify the active item is clear, keyboard focus is visible, and closing the dock returns focus to its active Ribbon button.
+17. With a saved closed preference, reveal a nested file from command search; verify the dock opens transiently, expands the file's ancestors, and keeps the saved closed preference unchanged after restart.
+18. Enter writing mode and verify the entire left workspace area, including the Ribbon, collapses to 0px; press Escape or move the pointer and verify the normal Ribbon/dock state returns.
+19. At 1280px and 1024px widths, verify light and dark mode each use exactly 260px when the file dock is open and 44px when it is closed; at 1024px verify the inspector is hidden and the editor remains usable.
 
 ## Current Limits
 

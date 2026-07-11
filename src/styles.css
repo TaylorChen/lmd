@@ -137,21 +137,22 @@ button:disabled {
   transition: grid-template-columns 180ms ease;
 }
 
-.app-shell.left-closed {
-  grid-template-columns: 0 minmax(0, 1fr) 320px;
+.app-shell.workspace-dock-closed {
+  grid-template-columns: 44px minmax(0, 1fr) 320px;
 }
 
 .app-shell.right-closed {
   grid-template-columns: 260px minmax(0, 1fr) 0;
 }
 
-.app-shell.left-closed.right-closed {
-  grid-template-columns: 0 minmax(0, 1fr) 0;
+.app-shell.workspace-dock-closed.right-closed {
+  grid-template-columns: 44px minmax(0, 1fr) 0;
 }
 
 /* Writing focus mode: collapse both side rails and fade the tabs/toolbar so only the
    text is left. Move the mouse or press Escape to bring the chrome back. */
-.app-shell.writing {
+.app-shell.writing,
+.app-shell.workspace-dock-closed.right-closed.writing {
   grid-template-columns: 0 minmax(0, 1fr) 0;
 }
 
@@ -166,22 +167,92 @@ button:disabled {
 }
 
 .left-workspace {
-  display: block;
+  display: grid;
+  grid-template-columns: 44px 216px;
   grid-row: 1;
   min-width: 0;
   min-height: 0;
   border-right: 1px solid var(--line);
   background: var(--panel);
+  overflow: hidden;
+}
+
+.workspace-dock-closed .workspace-dock {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-8px);
+}
+
+.workspace-ribbon {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 44px;
+  min-height: 0;
+  padding: 8px 5px;
+  border-right: 1px solid var(--soft-line);
+  background: var(--panel);
+}
+
+.workspace-ribbon-views {
+  display: grid;
+  gap: 4px;
+}
+
+.workspace-ribbon-button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.workspace-ribbon-button svg {
+  width: 19px;
+  height: 19px;
+}
+
+.workspace-ribbon-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--panel-muted);
+  color: var(--text);
+}
+
+.workspace-ribbon-button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.workspace-ribbon-button:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 1px;
+}
+
+.workspace-ribbon-settings {
+  margin-top: auto;
+}
+
+.workspace-dock {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  opacity: 1;
   transform: translateX(0);
   transition:
     transform 180ms ease,
     opacity 160ms ease;
 }
 
-.left-closed .left-workspace {
-  pointer-events: none;
-  opacity: 0;
-  transform: translateX(-100%);
+.workspace-dock[hidden] {
+  display: none;
+}
+
+.workspace-dock > .workspace-sidebar {
+  flex: 1;
 }
 
 .floating-panel-toggle {
@@ -227,8 +298,8 @@ button:disabled {
 }
 
 .workspace-sidebar {
-  gap: 16px;
-  padding: 12px;
+  gap: 0;
+  padding: 10px 8px;
   background: var(--panel);
 }
 
@@ -437,64 +508,70 @@ button:disabled {
   gap: 5px;
   min-height: 0;
   overflow: auto;
-  padding-right: 2px;
 }
 
-.file-tree {
+.workspace-sidebar .file-tree,
+.workspace-sidebar .file-tree-node {
   display: grid;
-  gap: 3px;
+  gap: 0;
 }
 
-.file-tree-node {
-  display: grid;
-  gap: 3px;
+.workspace-sidebar .file-tree-folder,
+.workspace-sidebar .tree-file-item {
+  min-height: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--body);
 }
 
-.file-tree-folder {
+.workspace-sidebar .file-tree-folder {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
-  min-height: 28px;
-  border-color: transparent;
-  background: transparent;
-  color: var(--body);
   text-align: left;
 }
 
-.file-tree-folder span:not(.folder-caret) {
+.workspace-sidebar .file-tree-folder span:not(.folder-caret) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.file-tree-folder small,
-.folder-caret {
+.workspace-sidebar .folder-caret {
   color: var(--muted);
+  opacity: 0.65;
 }
 
-.file-tree-folder:hover:not(:disabled) {
+.workspace-sidebar .file-tree-folder:hover:not(:disabled),
+.workspace-sidebar .tree-file-item:hover:not(:disabled) {
   background: var(--panel-muted);
 }
 
-.tree-file-item {
+.workspace-sidebar .tree-file-item {
   display: flex;
   align-items: center;
   width: 100%;
-  min-height: 28px;
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 0;
+  padding-bottom: 0;
   overflow: hidden;
 }
 
-.tree-file-item[aria-selected="true"] {
-  border-color: transparent;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
+.workspace-sidebar .tree-file-item[aria-selected="true"] {
+  background: var(--panel-muted);
+  color: var(--body);
 }
 
-.tree-file-name {
+.workspace-sidebar .file-tree-folder:focus-visible,
+.workspace-sidebar .tree-file-item:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: -2px;
+}
+
+.workspace-sidebar .tree-file-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2555,9 +2632,19 @@ button:disabled {
     min-width: 900px;
   }
 
-  .app-shell {
+  .app-shell,
+  .app-shell.right-closed {
     grid-template-columns: 260px minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
+  }
+
+  .app-shell.workspace-dock-closed,
+  .app-shell.workspace-dock-closed.right-closed {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .app-shell.writing {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
   }
 
   .document-workspace {

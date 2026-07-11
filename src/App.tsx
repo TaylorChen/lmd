@@ -14,6 +14,7 @@ import { NameDialog, type NameDialogState } from "./components/NameDialog";
 import { NoticeStack } from "./components/NoticeStack";
 import { TagRenameDialog } from "./components/TagRenameDialog";
 import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
+import { WorkspaceRibbon } from "./components/WorkspaceRibbon";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { createEditorTheme, useEditorExtensions } from "./hooks/useEditorExtensions";
 import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
@@ -22,11 +23,13 @@ import { renderMarkdownDocument, type TransclusionMap } from "./lib/markdown";
 import {
   readRecentFiles,
   readSettings,
+  readWorkspaceSidebarOpen,
   recentFileLimit,
   storageKeys,
   writeRecentFiles,
   writeSettings,
   writeSettingsWithoutApiKeys,
+  writeWorkspaceSidebarOpen,
 } from "./lib/storage";
 import { invokeCommand, isNativeRuntime } from "./lib/tauri";
 import type {
@@ -474,6 +477,9 @@ export default function App() {
   const renameTargetRef = useRef<RenameTarget>({ kind: "current" });
   const directoryTargetRef = useRef<DirectoryTarget>({ directory: "" });
   const moveTargetRef = useRef<WorkspaceFile | null>(null);
+  const activeRibbonButtonRef = useRef<HTMLButtonElement | null>(null);
+  const workspaceSidebarPreferenceRef = useRef<boolean | null>(readWorkspaceSidebarOpen());
+  const handledFirstWorkspaceRef = useRef(false);
   if (!initialTabRef.current) {
     initialTabRef.current = createUntitledTab();
   }
@@ -518,7 +524,7 @@ export default function App() {
   const [assistantEvents, setAssistantEvents] = useState<AssistantEvent[]>([]);
   const [assistantPrompt, setAssistantPrompt] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(() => workspaceSidebarPreferenceRef.current ?? false);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [featureAreaOpen, setFeatureAreaOpen] = useState(true);
   const [splitOrientation, setSplitOrientation] = useState<"vertical" | "horizontal">("vertical");
@@ -945,10 +951,36 @@ export default function App() {
   }
 
   function revealInWorkspaceTree(relativePath: string | null) {
+    openWorkspacePanelForReveal();
     setSidebarView("tree");
     setWorkspaceSearchActive(false);
     setWorkspaceMatches([]);
     setSidebarRevealPath(relativePath);
+  }
+
+  function setWorkspacePanelFromUser(open: boolean) {
+    workspaceSidebarPreferenceRef.current = open;
+    setLeftPanelOpen(open);
+    writeWorkspaceSidebarOpen(open);
+  }
+
+  function openWorkspacePanelForReveal() {
+    setLeftPanelOpen(true);
+  }
+
+  function selectWorkspaceViewFromUser(view: SidebarView) {
+    setSidebarView(view);
+    if (!leftPanelOpen) setWorkspacePanelFromUser(true);
+    if (view !== "search") {
+      setWorkspaceSearchActive(false);
+      setWorkspaceMatches([]);
+    }
+    if (view === "tree") setWorkspaceQuery("");
+  }
+
+  function collapseWorkspacePanelFromSidebar() {
+    setWorkspacePanelFromUser(false);
+    window.requestAnimationFrame(() => activeRibbonButtonRef.current?.focus());
   }
 
   function rememberDocument(documentPath: string) {
@@ -2826,7 +2858,7 @@ export default function App() {
       return;
     }
     if (action === "toggle-left-panel") {
-      setLeftPanelOpen((open) => !open);
+      setWorkspacePanelFromUser(!leftPanelOpen);
       return;
     }
     if (action === "toggle-right-panel") {
@@ -2880,6 +2912,15 @@ export default function App() {
     markdownActionRef.current = applyMarkdownAction;
     appMenuActionRef.current = handleAppMenuAction;
   });
+
+  useEffect(() => {
+    if (!workspace || handledFirstWorkspaceRef.current) return;
+    handledFirstWorkspaceRef.current = true;
+    if (workspaceSidebarPreferenceRef.current === null) {
+      setSidebarView("tree");
+      setLeftPanelOpen(true);
+    }
+  }, [workspace]);
 
   useEffect(() => {
     if (!nativeRuntime) return;
@@ -3299,6 +3340,13 @@ export default function App() {
       run: () => void handleOpenWorkspace(),
     },
     {
+      id: "toggle-left-panel",
+      label: "切换笔记栏",
+      hint: leftPanelOpen ? "收起工作区侧窗" : "展开工作区侧窗",
+      disabled: busy,
+      run: () => setWorkspacePanelFromUser(!leftPanelOpen),
+    },
+    {
       id: "save",
       label: "保存",
       hint: "保存当前 Markdown",
@@ -3441,7 +3489,7 @@ export default function App() {
 
   return (
     <main
-      className={`app-shell ${leftPanelOpen ? "left-open" : "left-closed"} ${
+      className={`app-shell ${leftPanelOpen ? "left-open" : "workspace-dock-closed"} ${
         rightPanelOpen ? "right-open" : "right-closed"
       } ${writing ? "writing" : ""}`}
     >
@@ -3793,15 +3841,6 @@ export default function App() {
       )}
       <button
         type="button"
-        className="floating-panel-toggle"
-        onClick={() => setLeftPanelOpen(true)}
-        aria-label="显示笔记栏"
-        title="显示笔记栏"
-      >
-        &gt;
-      </button>
-      <button
-        type="button"
         className="floating-panel-toggle right-panel-restore"
         onClick={() => setRightPanelOpen(true)}
         aria-label="显示检查器"
@@ -3810,7 +3849,21 @@ export default function App() {
         &lt;
       </button>
 
-      <div className="left-workspace" aria-hidden={!leftPanelOpen}>
+      <div
+        className="left-workspace"
+        aria-hidden={writing ? true : undefined}
+        inert={writing ? true : undefined}
+      >
+        <WorkspaceRibbon
+          ref={activeRibbonButtonRef}
+          activeView={sidebarView}
+          panelOpen={leftPanelOpen}
+          disabled={busy}
+          onSelectView={selectWorkspaceViewFromUser}
+          onToggleActiveView={() => setWorkspacePanelFromUser(false)}
+          onOpenSettings={() => openManagementPanel("settings")}
+        />
+        <div className="workspace-dock" hidden={!leftPanelOpen} aria-hidden={!leftPanelOpen}>
         <WorkspaceSidebar
           busy={busy}
           workspace={workspace}
@@ -3822,18 +3875,9 @@ export default function App() {
           searchMatches={workspaceMatches}
           searchActive={workspaceSearchActive}
           revealPath={sidebarRevealPath}
-          onViewChange={(view) => {
-            setSidebarView(view);
-            if (view !== "search") {
-              setWorkspaceSearchActive(false);
-              setWorkspaceMatches([]);
-            }
-            if (view === "tree") {
-              setWorkspaceQuery("");
-            }
-          }}
+          onViewChange={selectWorkspaceViewFromUser}
           onRevealComplete={() => setSidebarRevealPath(null)}
-          onCollapse={() => setLeftPanelOpen(false)}
+          onCollapse={collapseWorkspacePanelFromSidebar}
           onSearchQueryChange={(query) => {
             setWorkspaceQuery(query);
             setWorkspaceSearchActive(false);
@@ -3858,6 +3902,7 @@ export default function App() {
           onOpenRecent={(recentPath, name) => void openPath(recentPath, name)}
           onRemoveRecent={handleRemoveRecentFile}
         />
+        </div>
       </div>
 
       <section className="editor-pane" onPaste={handlePaste}>

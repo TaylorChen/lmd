@@ -92,6 +92,10 @@ function highlightedSearchLine(match: SearchMatch, query: string) {
   return parts;
 }
 
+function displayWorkspaceFileName(name: string) {
+  return name.endsWith(".md") ? name.slice(0, -3) : name;
+}
+
 export function WorkspaceSidebar({
   busy,
   workspace,
@@ -350,6 +354,7 @@ export function WorkspaceSidebar({
             aria-level={depth + 1}
             aria-expanded={expanded}
             tabIndex={path === focusedNodePath ? 0 : -1}
+            title={node.relativePath}
             data-workspace-path={path}
             style={{ paddingLeft: `${depth * 12 + 8}px` }}
           >
@@ -381,7 +386,7 @@ export function WorkspaceSidebar({
         data-workspace-path={path}
         style={{ paddingLeft: `${depth * 12 + 10}px` }}
       >
-        <span className="tree-file-name">{file.name}</span>
+        <span className="tree-file-name">{displayWorkspaceFileName(file.name)}</span>
       </button>
     );
   }
@@ -422,7 +427,7 @@ export function WorkspaceSidebar({
                 <button type="button" role="menuitem" onClick={() => updateExpanded(() => new Set())} disabled={busy || !workspace}>折叠全部文件夹</button>
               </div>
             </details>
-            <button type="button" className="panel-toggle workspace-panel-toggle" onClick={onCollapse} aria-label="隐藏笔记栏" title="隐藏笔记栏">◧</button>
+            <button type="button" className="panel-toggle workspace-panel-toggle" onClick={onCollapse} disabled={busy} aria-label="隐藏笔记栏" title="隐藏笔记栏">◧</button>
           </div>
         </div>
 
