@@ -1,320 +1,198 @@
 # LMD
 
-LMD is a local-first Markdown note app for macOS, built with Tauri, React, CodeMirror, and Rust. It focuses on fast note taking, source/preview writing, workspace knowledge organization, and AI-assisted drafting without moving your Markdown files into a proprietary database.
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-![LMD editor screenshot](docs/assets/lmd-editor.png)
+**Local-first Markdown notes, connected knowledge, and AI-assisted Wiki drafting.**
 
-[MIT licensed](LICENSE).
+LMD is a native macOS app for writing Markdown, organizing a folder as a knowledge workspace, and turning notes and linked context into reviewable Wiki drafts with AI. Your source files stay as plain Markdown in folders you control—there is no proprietary note database to migrate into.
 
-## Highlights
+[Download LMD 0.1.1 for macOS ARM64](https://github.com/TaylorChen/lmd/releases/tag/0.1.1) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md)
 
-- Native macOS desktop app powered by Tauri
-- Local Markdown files, workspace folders, recent files, tabs, and closable documents
-- Source, reading, and split views controlled from the macOS `View` menu
-- Native `Insert`, `Format`, and `View` menus for Markdown operations and layout controls
-- On-demand document search via `Edit -> 在文档中查找` or `Cmd+F`
-- Markdown preview with Front Matter hiding, KaTeX math, Mermaid, PlantUML blocks, callouts, footnotes, `[TOC]`, task lists, tables, and highlighted code
-- Knowledge workspace protocol with `notes/`, `sources/`, `wiki/`, and `wiki/inbox/`
-- Wiki links, backlinks, block IDs, block references, tags, linting, and source context
-- AI assistant chat with DeepSeek, MiniMax, Kimi, 智谱 GLM, Ollama, LM Studio, or an external command
-- Streaming AI responses in the chat UI and save-to-wiki draft workflows
-- HTML, PDF, and DOCX export
-- Git status, diff, and commit support for workspace folders
-- Rust backend tests and Playwright browser E2E tests
+> **Early release:** the macOS build is currently unsigned and unnotarized. If Gatekeeper blocks the first launch, open the DMG, drag LMD to Applications, then Control-click LMD in Finder and choose **Open**.
 
-## Features
+## Screenshots
 
-### Editing
+### A quiet Markdown workspace
 
-- CodeMirror 6 Markdown source editor
-- Document tabs with close buttons and right-click menu actions
-- Native Finder drag and drop: open multiple Markdown files as tabs or open a folder as a workspace
-- `Cmd+O` opens Markdown and `Cmd+Shift+O` opens a workspace
-- Tab right-click actions for rename and close
-- Unsaved tabs are marked with `*`
-- `Cmd+F` opens a temporary find bar instead of occupying permanent toolbar space
-- Long Markdown documents scroll correctly in source and reading views
-- Large-file read-only paging for Markdown files over 5 MB
-- External file metadata polling for missing or modified files
+![LMD editor with source and preview views](docs/assets/lmd-editor.png)
 
-### Markdown Rendering
+### AI only when you ask for it
 
-- YAML Front Matter is hidden in preview and export output
-- GFM-style tables, task lists, strikethrough, images, links, and autolinks
-- `==highlight==` text marks
-- Footnotes with return links
-- Obsidian-style callouts such as `> [!NOTE]`
-- `[TOC]` automatic document table of contents
-- KaTeX block and inline math
-- Mermaid diagrams
-- PlantUML / `puml` blocks with dedicated rendering style
-- Syntax-highlighted code blocks with copy buttons in preview
-- Block anchors such as `^block-id`
-- Wiki-style links such as `[[note]]` and `[[note#^block-id]]`
+![LMD on-demand AI assistant drawer](docs/assets/lmd-ai-assistant.png)
 
-### macOS Menus
+### One command surface for files, knowledge, AI, and export
 
-LMD moves editing controls out of the document canvas and into native menus.
+![LMD command palette](docs/assets/lmd-command-palette.png)
 
-- `Insert`
-  - links, annotations, code blocks, math blocks, footnotes
-  - tables, formatted tables, rows, columns, CSV tables
-  - unordered, ordered, and task lists
-  - block IDs and block references
-  - attachments and folding actions
-- `Format`
-  - headings H1-H6
-  - bold, italic, highlight, strikethrough
-  - inline math, comments, code blocks
-- `View`
-  - source mode, reading mode, vertical split, horizontal split
-  - left workspace visibility and on-demand AI assistant
-  - feature area visibility
-  - navigation, zoom, reload, and developer tools
-- `Edit`
-  - `在文档中查找` with `Cmd+F`
+## Why LMD
 
-The checked state in the `View` menu is synchronized from the actual app state.
+- **Own your notes.** Files remain ordinary `.md` documents on disk.
+- **Connect knowledge without changing formats.** Use Wiki links, backlinks, tags, Front Matter, aliases, block IDs, and block references.
+- **Keep AI grounded in your workspace.** Work with the current note and indexed related context, then save results as Markdown drafts under `wiki/inbox/`.
+- **Choose local or hosted models.** Use Ollama, LM Studio, an external command, or supported OpenAI-compatible providers.
+- **Stay focused.** The workspace dock, outline, knowledge inspector, and AI drawer appear on demand instead of permanently shrinking the editor.
 
-Document utilities stay out of the layout until requested: use the compact controls at the upper-right of the editor for a 260px outline popover, a contextual knowledge inspector, or a 400px overlay AI drawer. Only one utility is open at a time; Escape closes it and restores focus to its trigger. The AI drawer keeps Summary, Polish, and Todos as primary actions, with Title, Outline, Continue, and Run Log under More.
+## Core Workflows
 
-### Workspace and Knowledge
+### Write Markdown
 
-Open a folder as a workspace, then use `Knowledge -> 初始化知识库` from the macOS menu or the command palette. LMD creates:
+Open a file, drop one or more Markdown files into LMD, or create a new note. Edit in source, preview, or split view with CodeMirror 6 and a Markdown renderer that supports tables, task lists, math, diagrams, callouts, footnotes, highlighted code, and a document TOC.
+
+### Open a local workspace
+
+Drop a folder onto LMD or press `Cmd+Shift+O`. The folder becomes the workspace without closing open or unsaved tabs. Files, search, recent items, history snapshots, and Git actions stay tied to that local folder.
+
+### Build connected knowledge
+
+Initialize the workspace from the native **Knowledge** menu or command palette. LMD creates a transparent folder protocol:
 
 ```text
 notes/
 sources/
 wiki/
 wiki/inbox/
-.lmd/knowledge/
 .lmd/knowledge/lmd.db
 AGENTS.md
 wiki/index.md
 wiki/log.md
 ```
 
-Workspace capabilities include:
+The local SQLite index powers workspace search, Wiki-link resolution, backlinks, unresolved-link checks, tags, aliases, block references, knowledge linting, and related context.
 
-- folder scanning for Markdown files
-- recently opened workspaces in the Recent view
-- recent files and removable recent entries
-- SQLite-backed knowledge indexing in `.lmd/knowledge/lmd.db`
-- workspace search with `path:`, `#tag`, and `block:^id` queries through the local index
-- backlinks, outgoing links, unresolved links, block references, aliases, tags, and front matter
-- knowledge lint reports
-- tag rename across front matter and body `#tag` references
-- document history snapshots in `.lmd/history`
-- Git status, diff, and commit actions
+### Draft with AI, keep the result local
 
-AI drafts saved from the assistant are written to:
+Open the on-demand AI drawer to summarize, polish, extract todos, generate a title or outline, continue writing, or ask a custom question. Generated content can be inserted into the note, replace a selection, or be saved as:
 
 ```text
 <workspace>/wiki/inbox/<draft-title>.md
 ```
 
-The app also refreshes the workspace and updates knowledge index/log files when relevant.
+## Features
 
-### AI Assistant
+### Editing and Markdown
 
-LMD supports multiple OpenAI-compatible and local assistant providers:
+- Tabs, unsaved-state indicators, rename and close actions
+- Native file and folder drag-and-drop
+- `Cmd+O` for Markdown and `Cmd+Shift+O` for workspaces
+- Source, preview, vertical split, and horizontal split views
+- Temporary `Cmd+F` document search
+- Large-file read-only paging for files over 5 MB
+- External-change detection for modified or deleted files
+- YAML Front Matter hidden from preview and exports
+- Tables, task lists, strikethrough, `==highlight==`, footnotes, `[TOC]`, and Obsidian-style callouts
+- KaTeX math, Mermaid, PlantUML, code highlighting, and copy buttons
 
-- DeepSeek
-- MiniMax
-- Kimi / Moonshot
-- 智谱 GLM / Z.ai
-- Ollama
-- LM Studio
-- external command
+### Knowledge and workspace
 
-Assistant features:
+- SQLite-backed full-workspace index
+- Queries including `path:`, `#tag`, and `block:^id`
+- Wiki links, backlinks, unresolved links, aliases, and block references
+- Editable Front Matter and workspace-wide tag rename
+- Knowledge lint reports and index rebuild controls
+- Recent files and recently opened workspaces
+- Daily notes, attachments, history snapshots, and Git status/diff/commit actions
 
-- chat with loading and streaming UI feedback
-- current-note and workspace context loading
-- quick actions such as summarize, polish, extract todos, generate title, generate outline, and continue writing
-- save AI draft to `wiki/inbox/`
-- save AI chat as a wiki draft
-- macOS Keychain API key storage, with localStorage fallback for browser preview
+### AI assistant
 
-Environment variable fallbacks:
+- DeepSeek, MiniMax, Kimi/Moonshot, Zhipu GLM/Z.ai, Ollama, and LM Studio
+- Advanced local external-command provider using JSON over stdin/stdout
+- Streaming responses in the native app
+- Current-note and indexed workspace context
+- Summarize, polish, extract todos, title, outline, continue, and chat tasks
+- Insert, replace selection, save Wiki draft, and archive conversation actions
+- API keys stored in macOS Keychain in the native app
 
-- `DEEPSEEK_API_KEY`
-- `MINIMAX_API_KEY`
-- `MOONSHOT_API_KEY`
-- `ZAI_API_KEY`
-- `OLLAMA_BASE_URL`
-- `LM_STUDIO_BASE_URL`
-
-The external command provider is hidden under advanced settings. It runs a local executable and sends one JSON object to stdin:
-
-```json
-{
-  "provider": "external_command",
-  "model": "command-json-v1",
-  "task": "summarize",
-  "prompt": "Optional user instruction",
-  "currentContent": "# Current note",
-  "context": {
-    "currentPath": "/absolute/path/to/current.md",
-    "currentRelativePath": "notes/current.md",
-    "items": []
-  }
-}
-```
-
-The command must write an assistant draft JSON object to stdout:
-
-```json
-{
-  "title": "Topic summary",
-  "content": "# Topic summary\n\n## Summary\n\nDraft text."
-}
-```
-
-## Export
-
-LMD can export the current Markdown document as:
+### Export
 
 - HTML
-- PDF
-- DOCX
+- Lightweight PDF
+- DOCX through a local `pandoc` installation
 
-DOCX export depends on a local `pandoc` installation.
+## Install
 
-## Tech Stack
+LMD is currently developed and verified primarily on macOS.
 
-- Frontend: React, TypeScript, Vite
-- Editor: CodeMirror 6
-- Desktop runtime: Tauri v2
-- Backend: Rust
-- Markdown rendering: `markdown-it`, `markdown-it-task-lists`, `markdown-it-texmath`, KaTeX, Mermaid, highlight.js
-- UI testing: Playwright
+1. Open the [LMD 0.1.1 Release](https://github.com/TaylorChen/lmd/releases/tag/0.1.1).
+2. Download `LMD_0.1.1_aarch64.dmg` for Apple Silicon Macs.
+3. Drag LMD into Applications.
+4. Because this early build is unsigned and unnotarized, Control-click LMD in Finder and choose **Open** for the first launch if macOS blocks it.
 
-## Project Layout
+Windows, Linux, Intel macOS, code signing, notarization, and automatic updates are not currently provided.
 
-```text
-src/           React UI, preview renderer, hooks, components
-src-tauri/     Rust backend, file IO, export, workspace, assistant, git
-tests/e2e/     Playwright browser-based UI tests
-docs/          QA notes, screenshots, and design notes
-```
+## First Run
 
-## Quick Start
+- Drop Markdown files to open them as tabs.
+- Drop a folder to use it as a workspace.
+- Use `Cmd+K` to open the command palette.
+- Initialize knowledge features from **Knowledge → Initialize Knowledge Base** or the command palette.
+- Configure an AI provider from Settings; use Ollama or LM Studio to keep inference local.
 
-Requirements:
+## Development
 
-- Node.js
-- npm
-- Rust toolchain
-- Tauri prerequisites for your platform
+### Requirements
+
+- Node.js and npm
+- Rust toolchain with Cargo available on `PATH`
+- Tauri v2 prerequisites for macOS
 - Optional: `pandoc` for DOCX export
-
-Install dependencies:
 
 ```bash
 npm install
-```
-
-Run the macOS desktop app in development:
-
-```bash
 npm run tauri:dev
 ```
 
-Run only the frontend browser preview:
+Frontend-only preview:
 
 ```bash
 npm run dev
 ```
 
-The browser preview mocks native Tauri calls in tests and cannot perform real local file operations by itself.
+The browser preview cannot perform real native file operations. Playwright tests install mocked Tauri commands for UI coverage.
 
-## Test and Build
-
-Frontend build:
+## Verification and Packaging
 
 ```bash
 npm run build
-```
-
-Rust tests:
-
-```bash
-cd src-tauri
-cargo test
-```
-
-Browser E2E:
-
-```bash
 npm run test:e2e
-```
-
-Desktop bundle:
-
-```bash
+cargo test --manifest-path src-tauri/Cargo.toml
 npm run tauri build
 ```
 
-Current macOS release outputs:
+Local macOS bundles are written under:
 
-- `src-tauri/target/release/bundle/macos/LMD.app`
-- `src-tauri/target/release/bundle/dmg/LMD_0.1.0_aarch64.dmg`
+```text
+src-tauri/target/release/bundle/macos/LMD.app
+src-tauri/target/release/bundle/dmg/
+```
 
-## Testing Strategy
+The DMG filename reflects the application version and local build architecture.
 
-LMD uses three layers of verification:
+## Project Structure
 
-1. Rust tests
-   - real file save/open/export flows
-   - metadata changes
-   - workspace scanning and SQLite-backed search
-   - knowledge workspace operations, alias links, and index creation
-   - assistant provider validation
-   - Git parsing and workspace status
-2. Playwright browser tests
-   - editing, preview, split view, and source scrolling
-   - tab open/close/rename behavior
-   - search, settings, workspace, knowledge, assistant, and export flows
-3. Tauri build verification
-   - ensures `.app` and `.dmg` bundles still build locally
+```text
+src/           React UI, editor hooks, Markdown rendering, and components
+src-tauri/     Rust backend for files, workspace indexing, AI, export, and Git
+tests/e2e/     Playwright browser UI and workflow coverage
+docs/          QA notes, screenshots, and design documentation
+```
 
-More detail:
+## Current Limits and Direction
 
-- [QA checklist](docs/qa-release-checklist.md)
-- [Tauri WebView automation notes](docs/tauri-webview-automation-notes.md)
+- Raw HTML is intentionally disabled in preview and HTML export.
+- PDF export is lightweight and does not cover every complex layout.
+- DOCX export requires a local `pandoc` installation.
+- Release builds are not signed or notarized.
+- Native macOS WebView automation is unavailable, so LMD combines Rust file-flow tests, mocked Playwright UI tests, and real local bundle builds.
+- Deeper semantic retrieval, source transparency, knowledge review workflows, and code signing remain roadmap work—not current features.
 
-## Platform Notes
-
-- LMD is currently developed and verified primarily on macOS.
-- Native Tauri WebDriver automation is not available on macOS because Tauri desktop WebDriver support does not currently cover WKWebView.
-- The repository therefore uses Rust real file-flow tests, Playwright browser tests with mocked Tauri commands, and real Tauri bundle verification.
-
-## Known Limits
-
-- Preview and HTML export intentionally disable raw HTML input.
-- PDF export is lightweight and not a full layout engine.
-- DOCX export requires `pandoc`.
-- Release builds are not signed or notarized yet.
-- Native Tauri WebDriver coverage would need Linux or Windows CI.
-- The UI is evolving quickly; screenshots should be refreshed when menu, workspace, or assistant layouts change.
-
-## Status
-
-LMD is usable, testable, and buildable, but still early.
-
-High-priority remaining work:
-
-- code signing and notarization
-- release artifact refresh for public launch
-- optional native Tauri WebDriver coverage on supported CI platforms
-- further export layout improvements
-- deeper knowledge graph and semantic search features
+See the [Roadmap](ROADMAP.md) and [QA checklist](docs/qa-release-checklist.md) for current priorities and release checks.
 
 ## Contributing
 
+Contributions and focused bug reports are welcome.
+
 - [Contributing guide](CONTRIBUTING.md)
-- [Roadmap](ROADMAP.md)
 - [Security policy](SECURITY.md)
 - [Code of conduct](CODE_OF_CONDUCT.md)
 - [Changelog](CHANGELOG.md)
+- [MIT license](LICENSE)
