@@ -1,24 +1,29 @@
-import { useEffect, type ReactNode, type RefObject } from "react";
+import { useEffect, type ReactNode } from "react";
+
+export type ActiveUtility = "outline" | "knowledge" | "assistant" | null;
 
 type OverlayInspectorProps = {
   open: boolean;
   title: string;
-  triggerRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
+  onRestoreFocus?: () => void;
   children: ReactNode;
 };
 
-export function OverlayInspector({ open, title, triggerRef, onClose, children }: OverlayInspectorProps) {
+export function OverlayInspector({ open, title, onClose, onRestoreFocus, children }: OverlayInspectorProps) {
   useEffect(() => {
     if (!open) return;
+    function closeAndRestoreFocus() {
+      onClose();
+      requestAnimationFrame(() => onRestoreFocus?.());
+    }
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
-      onClose();
-      requestAnimationFrame(() => triggerRef.current?.focus());
+      closeAndRestoreFocus();
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose, open, triggerRef]);
+  }, [onClose, onRestoreFocus, open]);
 
   if (!open) return null;
 
@@ -28,10 +33,10 @@ export function OverlayInspector({ open, title, triggerRef, onClose, children }:
         <strong>{title}</strong>
         <button
           type="button"
-          aria-label={`关闭${title}`}
+          aria-label={`关闭 ${title}`}
           onClick={() => {
             onClose();
-            requestAnimationFrame(() => triggerRef.current?.focus());
+            requestAnimationFrame(() => onRestoreFocus?.());
           }}
         >
           ×

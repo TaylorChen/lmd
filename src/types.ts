@@ -258,6 +258,7 @@ export type EditorMode = "edit" | "split" | "preview";
 
 export type AppSettings = {
   defaultEditorMode: EditorMode;
+  focusModeOnStartup: boolean;
   searchResultLimit: number;
   externalCheckSeconds: number;
   assistantProvider: AssistantProvider;

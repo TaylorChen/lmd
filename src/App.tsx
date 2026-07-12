@@ -5,11 +5,10 @@ import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { listen } from "@tauri-apps/api/event";
 import { CommandPalette } from "./components/CommandPalette";
-import { AssistantDrawer } from "./components/AssistantDrawer";
 import { AssistantPanel } from "./components/AssistantPanel";
 import { KnowledgePanel } from "./components/KnowledgePanel";
-import { OutlinePopover } from "./components/OutlinePopover";
-import { OverlayInspector } from "./components/OverlayInspector";
+import { DocumentOutline } from "./components/DocumentOutline";
+import { OverlayInspector, type ActiveUtility } from "./components/OverlayInspector";
 import { EditorToolbar, type MarkdownAction } from "./components/EditorToolbar";
 import { MarkdownPreview } from "./components/MarkdownPreview";
 import { NameDialog, type NameDialogState } from "./components/NameDialog";
@@ -18,7 +17,6 @@ import { NoticeStack } from "./components/NoticeStack";
 import { TagRenameDialog } from "./components/TagRenameDialog";
 import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import { WorkspaceRibbon } from "./components/WorkspaceRibbon";
-import { UtilityLauncher, type ActiveUtility } from "./components/UtilityLauncher";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { createEditorTheme, useEditorExtensions } from "./hooks/useEditorExtensions";
 import { useExternalChangePolling } from "./hooks/useExternalChangePolling";
@@ -484,29 +482,22 @@ export default function App() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const markdownActionRef = useRef<(action: MarkdownAction) => void>(() => {});
   const appMenuActionRef = useRef<(action: string) => void>(() => {});
-  const initialTabRef = useRef<DocumentTab | null>(null);
   const renameTargetRef = useRef<RenameTarget>({ kind: "current" });
   const directoryTargetRef = useRef<DirectoryTarget>({ directory: "" });
   const moveTargetRef = useRef<WorkspaceFile | null>(null);
   const activeRibbonButtonRef = useRef<HTMLButtonElement | null>(null);
-  const outlineTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const knowledgeTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const assistantTriggerRef = useRef<HTMLButtonElement | null>(null);
   const workspaceSidebarPreferenceRef = useRef<boolean | null>(readWorkspaceSidebarOpen());
-  if (!initialTabRef.current) {
-    initialTabRef.current = createUntitledTab();
-  }
-  const [tabs, setTabs] = useState<DocumentTab[]>(() => [initialTabRef.current as DocumentTab]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(() => (initialTabRef.current as DocumentTab).id);
-  const [content, setContent] = useState(emptyDocument);
-  const [savedContent, setSavedContent] = useState(emptyDocument);
+  const [tabs, setTabs] = useState<DocumentTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [content, setContent] = useState("");
+  const [savedContent, setSavedContent] = useState("");
   const [path, setPath] = useState<string | null>(null);
-  const [byteSize, setByteSize] = useState(emptyDocument.length);
-  const [lineCount, setLineCount] = useState(3);
+  const [byteSize, setByteSize] = useState(0);
+  const [lineCount, setLineCount] = useState(0);
   const [isLarge, setIsLarge] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
-  const [visibleStartLine, setVisibleStartLine] = useState(1);
-  const [visibleLineCount, setVisibleLineCount] = useState(3);
+  const [visibleStartLine, setVisibleStartLine] = useState(0);
+  const [visibleLineCount, setVisibleLineCount] = useState(0);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceQuery, setWorkspaceQuery] = useState("");
   const [workspaceMatches, setWorkspaceMatches] = useState<SearchMatch[]>([]);
@@ -582,19 +573,14 @@ export default function App() {
     return () => query.removeEventListener("change", handleChange);
   }, []);
   const editorTheme = useMemo(() => createEditorTheme(prefersDark), [prefersDark]);
-  // Focus-while-writing: typing fades the surrounding chrome so only the text remains;
-  // moving the mouse or pressing Escape brings it back.
-  const [writing, setWriting] = useState(false);
+  const [writing, setWriting] = useState(() => settings.focusModeOnStartup);
   useEffect(() => {
     if (!writing) return;
-    const restore = () => setWriting(false);
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setWriting(false);
     };
-    window.addEventListener("mousemove", restore);
     window.addEventListener("keydown", onKeyDown);
     return () => {
-      window.removeEventListener("mousemove", restore);
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [writing]);
@@ -749,6 +735,7 @@ export default function App() {
     if (!tab) return;
     setActiveTabId(tab.id);
     applyTab(tab);
+    writeRestorableDocumentPath(tab.path);
   }
 
   function handleCloseTab(tabId: string) {
@@ -768,24 +755,28 @@ export default function App() {
       setActiveTabId(null);
       applyTab(nextTab);
       setTabs([]);
+      writeRestorableDocumentPath(null);
       return;
     }
 
-    setTabs((currentTabs) => {
-      const index = currentTabs.findIndex((item) => item.id === tabId);
-      const nextTabs = currentTabs.filter((item) => item.id !== tabId);
-      if (tabId !== activeTabId) return nextTabs;
+    const index = tabs.findIndex((item) => item.id === tabId);
+    const nextTabs = tabs.filter((item) => item.id !== tabId);
+    const activeTab = nextTabs.find((item) => item.id === activeTabId) ?? null;
+    const nextActiveTab = tabId === activeTabId
+      ? nextTabs[index] ?? nextTabs[index - 1] ?? null
+      : activeTab;
 
-      const nextActiveTab = nextTabs[index] ?? nextTabs[index - 1] ?? createUntitledTab();
-      if (nextTabs.length === 0) {
-        setActiveTabId(nextActiveTab.id);
-        applyTab(nextActiveTab);
-        return [nextActiveTab];
-      }
+    setTabs(nextTabs);
+    if (tabId === activeTabId && nextActiveTab) {
       setActiveTabId(nextActiveTab.id);
       applyTab(nextActiveTab);
-      return nextTabs;
-    });
+    }
+    if (
+      tabId === activeTabId ||
+      (tab.path && window.localStorage.getItem(storageKeys.lastDocumentPath) === tab.path)
+    ) {
+      writeRestorableDocumentPath(nextActiveTab?.path ?? null);
+    }
   }
 
   function handleTabContextMenu(event: MouseEvent, tabId: string) {
@@ -1009,7 +1000,15 @@ export default function App() {
       writeRecentFiles(nextRecentFiles);
       return nextRecentFiles;
     });
-    window.localStorage.setItem(storageKeys.lastDocumentPath, documentPath);
+    writeRestorableDocumentPath(documentPath);
+  }
+
+  function writeRestorableDocumentPath(documentPath: string | null) {
+    if (documentPath) {
+      window.localStorage.setItem(storageKeys.lastDocumentPath, documentPath);
+      return;
+    }
+    window.localStorage.removeItem(storageKeys.lastDocumentPath);
   }
 
   function rememberWorkspace(workspacePath: string) {
@@ -2473,7 +2472,6 @@ export default function App() {
 
   function handleChange(nextContent: string) {
     if (readOnly) return;
-    setWriting(true);
     if (!activeTabId) {
       const nextTab = { ...createUntitledTab(), content: nextContent };
       setTabs([nextTab]);
@@ -2935,8 +2933,24 @@ export default function App() {
       setActiveUtility((utility) => (utility === "assistant" ? null : "assistant"));
       return;
     }
+    if (action === "show-outline") {
+      if (hasOpenTab) setActiveUtility("outline");
+      return;
+    }
+    if (action === "show-knowledge") {
+      if (workspace?.knowledge.isInitialized && path) setActiveUtility("knowledge");
+      return;
+    }
+    if (action === "open-assistant") {
+      setActiveUtility("assistant");
+      return;
+    }
     if (action === "toggle-feature-area") {
       setFeatureAreaOpen((open) => !open);
+      return;
+    }
+    if (action === "toggle-focus-mode") {
+      setWriting((active) => !active);
       return;
     }
     if (action === "split-none") {
@@ -3022,12 +3036,13 @@ export default function App() {
         leftPanelOpen,
         rightPanelOpen: activeUtility !== null,
         featureAreaOpen,
+        focusModeOpen: writing,
         splitOrientation,
       },
     }).catch(() => {
       // Menu synchronization is best-effort; editing must not fail if the native menu is unavailable.
     });
-  }, [activeUtility, editorMode, featureAreaOpen, leftPanelOpen, nativeRuntime, splitOrientation]);
+  }, [activeUtility, editorMode, featureAreaOpen, leftPanelOpen, nativeRuntime, splitOrientation, writing]);
 
   useEffect(() => {
     if (!tabContextMenu) return;
@@ -3488,6 +3503,13 @@ export default function App() {
       run: () => setWorkspacePanelFromUser(!leftPanelOpen),
     },
     {
+      id: "toggle-focus-mode",
+      label: "切换专注写作模式",
+      hint: writing ? "恢复完整界面" : "隐藏侧栏、标签栏和工具栏",
+      disabled: false,
+      run: () => setWriting((active) => !active),
+    },
+    {
       id: "save",
       label: "保存",
       hint: "保存当前 Markdown",
@@ -3570,6 +3592,20 @@ export default function App() {
       hint: "创建页面并插入 [[Wiki Link]]",
       disabled: busy || !workspace,
       run: () => void handleCreateWikiPage(),
+    },
+    {
+      id: "open-outline",
+      label: "查看文档大纲",
+      hint: "按需打开当前笔记结构",
+      disabled: !hasOpenTab,
+      run: () => setActiveUtility("outline"),
+    },
+    {
+      id: "open-knowledge",
+      label: "查看文档知识",
+      hint: "反向链接、引用与文档属性",
+      disabled: !workspace?.knowledge.isInitialized || !path,
+      run: () => setActiveUtility("knowledge"),
     },
     {
       id: "open-assistant",
@@ -3786,6 +3822,18 @@ export default function App() {
                       <option value="edit">编辑</option>
                       <option value="split">分屏</option>
                       <option value="preview">预览</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>启动时专注模式</span>
+                    <select
+                      aria-label="启动时专注模式"
+                      value={settings.focusModeOnStartup ? "on" : "off"}
+                      onChange={(event) => updateSetting({ focusModeOnStartup: event.target.value === "on" })}
+                    >
+                      <option value="off">关闭</option>
+                      <option value="on">开启</option>
                     </select>
                   </label>
 
@@ -4039,69 +4087,60 @@ export default function App() {
       </div>
 
       <section className="editor-pane" onPaste={handlePaste}>
-        <UtilityLauncher
-          activeUtility={activeUtility}
-          showOutline={hasOpenTab}
-          showKnowledge={Boolean(workspace?.knowledge.isInitialized && path)}
-          onToggle={(utility) => setActiveUtility((current) => (current === utility ? null : utility))}
-          outlineRef={outlineTriggerRef}
-          knowledgeRef={knowledgeTriggerRef}
-          assistantRef={assistantTriggerRef}
-        />
-        <OutlinePopover
-          open={activeUtility === "outline" && hasOpenTab}
-          triggerRef={outlineTriggerRef}
-          headings={documentHeadings}
-          busy={busy}
-          onOpenHeading={handleOpenHeading}
-          onClose={() => setActiveUtility(null)}
-        />
         <OverlayInspector
-          open={activeUtility === "knowledge" && Boolean(workspace?.knowledge.isInitialized && path)}
-          title="知识"
-          triggerRef={knowledgeTriggerRef}
+          open={activeUtility !== null}
+          title={activeUtility === "outline" ? "文档大纲" : activeUtility === "knowledge" ? "知识" : "AI 助手"}
           onClose={() => setActiveUtility(null)}
+          onRestoreFocus={() => editorViewRef.current?.focus()}
         >
-          <KnowledgePanel
-            knowledge={documentKnowledge}
-            lint={knowledgeLint}
-            queryContext={queryContext}
-            frontmatterDraft={editableFrontmatter}
-            workspaceIndexPath={workspace ? `${workspace.knowledge.wikiPath}/index.md` : null}
-            workspaceLogPath={workspace ? `${workspace.knowledge.wikiPath}/log.md` : null}
-            indexStatus={knowledgeIndexStatus}
-            busy={busy || assistantBusy}
-            onOpenPath={(nextPath, name, anchor) => void openPath(nextPath, name, anchor)}
-            onCreateWikiPage={(target) => void createWikiPageForTarget(target)}
-            onRebuildIndex={() => void handleRebuildKnowledgeIndex()}
-            onApplyFrontmatter={handleApplyFrontmatter}
-          />
+          {activeUtility === "outline" && (
+            <DocumentOutline
+              headings={documentHeadings}
+              busy={busy}
+              onOpenHeading={(heading) => {
+                handleOpenHeading(heading);
+                setActiveUtility(null);
+              }}
+            />
+          )}
+          {activeUtility === "knowledge" && (
+            <KnowledgePanel
+              knowledge={documentKnowledge}
+              lint={knowledgeLint}
+              queryContext={queryContext}
+              frontmatterDraft={editableFrontmatter}
+              workspaceIndexPath={workspace ? `${workspace.knowledge.wikiPath}/index.md` : null}
+              workspaceLogPath={workspace ? `${workspace.knowledge.wikiPath}/log.md` : null}
+              indexStatus={knowledgeIndexStatus}
+              busy={busy || assistantBusy}
+              onOpenPath={(nextPath, name, anchor) => void openPath(nextPath, name, anchor)}
+              onCreateWikiPage={(target) => void createWikiPageForTarget(target)}
+              onRebuildIndex={() => void handleRebuildKnowledgeIndex()}
+              onApplyFrontmatter={handleApplyFrontmatter}
+            />
+          )}
+          {activeUtility === "assistant" && (
+            <AssistantPanel
+              busy={assistantBusy}
+              queryContext={queryContext}
+              hasCurrentContent={hasOpenTab && Boolean(content.trim())}
+              draft={assistantDraft}
+              messages={assistantMessages}
+              events={assistantEvents}
+              settings={settings}
+              prompt={assistantPrompt}
+              onPromptChange={setAssistantPrompt}
+              onSummarize={() => void handleSummarizeContext()}
+              onRunTask={(task) => void handleAssistantRun(task)}
+              onSubmitPrompt={(prompt) => void handleAssistantPromptSubmit(prompt)}
+              onSaveDraft={() => void handleSaveAssistantDraft()}
+              onSaveChat={() => void handleSaveAssistantChat()}
+              onInsertDraft={insertAssistantDraft}
+              onReplaceSelection={replaceSelectionWithAssistantDraft}
+              onOpenLog={() => openManagementPanel("assistant-log")}
+            />
+          )}
         </OverlayInspector>
-        <AssistantDrawer
-          open={activeUtility === "assistant"}
-          triggerRef={assistantTriggerRef}
-          onClose={() => setActiveUtility(null)}
-        >
-          <AssistantPanel
-            busy={assistantBusy}
-            queryContext={queryContext}
-            hasCurrentContent={hasOpenTab && Boolean(content.trim())}
-            draft={assistantDraft}
-            messages={assistantMessages}
-            events={assistantEvents}
-            settings={settings}
-            prompt={assistantPrompt}
-            onPromptChange={setAssistantPrompt}
-            onSummarize={() => void handleSummarizeContext()}
-            onRunTask={(task) => void handleAssistantRun(task)}
-            onSubmitPrompt={(prompt) => void handleAssistantPromptSubmit(prompt)}
-            onSaveDraft={() => void handleSaveAssistantDraft()}
-            onSaveChat={() => void handleSaveAssistantChat()}
-            onInsertDraft={insertAssistantDraft}
-            onReplaceSelection={replaceSelectionWithAssistantDraft}
-            onOpenLog={() => openManagementPanel("assistant-log")}
-          />
-        </AssistantDrawer>
         {tabs.length > 0 && (
           <div className="document-tabs" role="tablist" aria-label="打开的笔记">
             {tabs.map((tab) => {
@@ -4173,6 +4212,14 @@ export default function App() {
             })()}
           </div>
         )}
+
+        <NoticeStack
+          notice={notice}
+          externalChange={externalChange}
+          busy={busy}
+          onDismissNotice={() => setNotice(null)}
+          onReloadCurrentFile={() => void handleReloadCurrentFile()}
+        />
 
         {!hasOpenTab ? (
           <div className="empty-editor-state" aria-label="缺省页">
@@ -4256,14 +4303,6 @@ export default function App() {
                 </button>
               </div>
             )}
-
-            <NoticeStack
-              notice={notice}
-              externalChange={externalChange}
-              busy={busy}
-              onDismissNotice={() => setNotice(null)}
-              onReloadCurrentFile={() => void handleReloadCurrentFile()}
-            />
 
             <div className={`document-workspace ${editorMode}`}>
               {readOnly && (

@@ -101,6 +101,8 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         "Knowledge",
         true,
         &[
+            &app_menu_item(app, "show-knowledge", "查看当前文档知识", None)?,
+            &PredefinedMenuItem::separator(app)?,
             &app_menu_item(app, "create-wiki-page", "新建 Wiki 页面", None)?,
             &app_menu_item(app, "initialize-knowledge", "初始化知识库", None)?,
             &app_menu_item(app, "rebuild-knowledge-index", "重建知识索引", None)?,
@@ -118,6 +120,8 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         "AI",
         true,
         &[
+            &app_menu_item(app, "open-assistant", "打开 AI 助手", None)?,
+            &PredefinedMenuItem::separator(app)?,
             &app_menu_item(app, "ai-summarize", "总结笔记", None)?,
             &app_menu_item(app, "ai-polish", "优化文字", None)?,
             &app_menu_item(app, "ai-todos", "提取待办", None)?,
@@ -258,12 +262,18 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             } else if submenu.text()? == "View" {
                 submenu.prepend_items(&[
                     &checked_app_menu_item(app, "view-preview", "阅读视图", Some("CmdOrCtrl+E"))?,
-                    &checked_app_menu_item(app, "view-source", "源码模式", None)?,
+                    &checked_app_menu_item(
+                        app,
+                        "view-source",
+                        "源码模式",
+                        Some("Shift+CmdOrCtrl+E"),
+                    )?,
                     &PredefinedMenuItem::separator(app)?,
+                    &app_menu_item(app, "show-outline", "查看文档大纲", None)?,
                     &checked_app_menu_item(app, "toggle-left-panel", "折叠/展开左侧边栏", None)?,
-                    &checked_app_menu_item(app, "toggle-right-panel", "显示/隐藏 AI 助手", None)?,
                     &PredefinedMenuItem::separator(app)?,
                     &checked_app_menu_item(app, "toggle-feature-area", "显示/隐藏功能区", None)?,
+                    &checked_app_menu_item(app, "toggle-focus-mode", "专注写作模式", None)?,
                     &PredefinedMenuItem::separator(app)?,
                     &checked_app_menu_item(app, "split-none", "取消分屏", None)?,
                     &checked_app_menu_item(app, "split-vertical", "左右分屏", None)?,
@@ -298,6 +308,7 @@ struct NativeMenuState {
     left_panel_open: bool,
     right_panel_open: bool,
     feature_area_open: bool,
+    focus_mode_open: bool,
     split_orientation: String,
 }
 
@@ -1186,6 +1197,8 @@ fn update_native_menu_state(app: tauri::AppHandle, state: NativeMenuState) -> Re
     set_checked_menu_item(&app, "toggle-right-panel", state.right_panel_open)
         .map_err(|error| error.to_string())?;
     set_checked_menu_item(&app, "toggle-feature-area", state.feature_area_open)
+        .map_err(|error| error.to_string())?;
+    set_checked_menu_item(&app, "toggle-focus-mode", state.focus_mode_open)
         .map_err(|error| error.to_string())?;
     Ok(())
 }

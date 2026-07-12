@@ -3,6 +3,7 @@ import type { AppSettings, AssistantProvider, EditorMode, RecentFile, RecentWork
 export const recentFileLimit = 8;
 export const defaultSettings: AppSettings = {
   defaultEditorMode: "split",
+  focusModeOnStartup: false,
   searchResultLimit: 80,
   externalCheckSeconds: 5,
   assistantProvider: "deepseek",
@@ -163,6 +164,10 @@ export function readSettings(): AppSettings {
       defaultEditorMode: isEditorMode(parsedValue?.defaultEditorMode)
         ? parsedValue.defaultEditorMode
         : defaultSettings.defaultEditorMode,
+      focusModeOnStartup:
+        typeof parsedValue?.focusModeOnStartup === "boolean"
+          ? parsedValue.focusModeOnStartup
+          : defaultSettings.focusModeOnStartup,
       searchResultLimit: clampNumber(
         parsedValue?.searchResultLimit,
         defaultSettings.searchResultLimit,
