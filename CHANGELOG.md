@@ -6,6 +6,29 @@ The format is intentionally simple for now and can later be aligned with Keep a 
 
 ## Unreleased
 
+## 0.1.2 - 2026-07-12
+
+### Added
+
+- on-demand context panel access for outline, knowledge, and AI tools
+- user-controlled focus writing mode with an optional startup preference
+
+### Changed
+
+- reading mode now uses the full editor width with responsive padding
+- startup no longer creates an automatic untitled Markdown tab
+- closed Markdown tabs are no longer restored on the next launch
+- source, reading, split, and focus mode menu behavior is clearer and more stable
+- workspace and editor layouts no longer resize automatically while typing
+
+### Fixed
+
+- AI context overlays no longer add a shadow to the empty home view
+- session restoration now follows the active open tab and clears closed paths
+- empty-state operations continue to show global notices
+
+## 0.1.1 - 2026-07-11
+
 ### Added
 
 - core native Markdown editor workflow with CodeMirror and Tauri

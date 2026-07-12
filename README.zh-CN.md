@@ -6,7 +6,7 @@
 
 LMD 是一款原生 macOS 应用，用于编写 Markdown、把本地文件夹组织成知识工作区，并利用 AI 将笔记及其关联上下文整理为可审阅的 Wiki 草稿。所有源文件仍然是你所控制文件夹中的普通 Markdown，不需要迁移进专有笔记数据库。
 
-[下载适用于 macOS ARM64 的 LMD 0.1.1](https://github.com/TaylorChen/lmd/releases/tag/0.1.1) · [路线图](ROADMAP.md) · [更新日志](CHANGELOG.md)
+[下载适用于 Intel macOS 的 LMD 0.1.2](https://github.com/TaylorChen/lmd/releases/tag/0.1.2) · [路线图](ROADMAP.md) · [更新日志](CHANGELOG.md)
 
 > **早期版本提示：** 当前 macOS 安装包尚未签名或公证。如果 Gatekeeper 阻止首次启动，请打开 DMG、将 LMD 拖入“应用程序”，然后在 Finder 中按住 Control 点击 LMD 并选择“打开”。
 
@@ -104,12 +104,12 @@ wiki/log.md
 
 LMD 目前主要在 macOS 上开发和验证。
 
-1. 打开 [LMD 0.1.1 Release](https://github.com/TaylorChen/lmd/releases/tag/0.1.1)。
-2. Apple 芯片 Mac 下载 `LMD_0.1.1_aarch64.dmg`。
+1. 打开 [LMD 0.1.2 Release](https://github.com/TaylorChen/lmd/releases/tag/0.1.2)。
+2. Intel Mac 下载 `LMD_0.1.2_x64.dmg`。
 3. 将 LMD 拖入“应用程序”。
 4. 由于当前早期版本尚未签名或公证，如果 macOS 阻止启动，请在 Finder 中按住 Control 点击 LMD，并选择“打开”。
 
-目前尚未提供 Windows、Linux、Intel macOS、代码签名、公证和自动更新。
+目前尚未提供 Windows、Linux、Apple 芯片 macOS、代码签名、公证和自动更新。
 
 ## 第一次使用
 

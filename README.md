@@ -6,7 +6,7 @@
 
 LMD is a native macOS app for writing Markdown, organizing a folder as a knowledge workspace, and turning notes and linked context into reviewable Wiki drafts with AI. Your source files stay as plain Markdown in folders you control—there is no proprietary note database to migrate into.
 
-[Download LMD 0.1.1 for macOS ARM64](https://github.com/TaylorChen/lmd/releases/tag/0.1.1) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md)
+[Download LMD 0.1.2 for Intel macOS](https://github.com/TaylorChen/lmd/releases/tag/0.1.2) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md)
 
 > **Early release:** the macOS build is currently unsigned and unnotarized. If Gatekeeper blocks the first launch, open the DMG, drag LMD to Applications, then Control-click LMD in Finder and choose **Open**.
 
@@ -104,12 +104,12 @@ Open the on-demand AI drawer to summarize, polish, extract todos, generate a tit
 
 LMD is currently developed and verified primarily on macOS.
 
-1. Open the [LMD 0.1.1 Release](https://github.com/TaylorChen/lmd/releases/tag/0.1.1).
-2. Download `LMD_0.1.1_aarch64.dmg` for Apple Silicon Macs.
+1. Open the [LMD 0.1.2 Release](https://github.com/TaylorChen/lmd/releases/tag/0.1.2).
+2. Download `LMD_0.1.2_x64.dmg` for Intel Macs.
 3. Drag LMD into Applications.
 4. Because this early build is unsigned and unnotarized, Control-click LMD in Finder and choose **Open** for the first launch if macOS blocks it.
 
-Windows, Linux, Intel macOS, code signing, notarization, and automatic updates are not currently provided.
+Windows, Linux, Apple Silicon macOS, code signing, notarization, and automatic updates are not currently provided.
 
 ## First Run
 
